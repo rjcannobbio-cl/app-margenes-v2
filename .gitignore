@@ -1,0 +1,9 @@
+# Archivos fuente (los datos ya están convertidos a data/*.js)
+*.csv
+*.xlsx
+*.jpg
+*.jpeg
+*.png
+
+# Config local de Claude Code
+.claude/

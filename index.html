@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calculadora de Márgenes — Productos en evaluación</title>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#1a2129; --panel2:#222b35; --line:#2c3743;
+    --txt:#e8edf2; --muted:#8a99a8; --accent:#ff7a00; --ml:#ffe600; --fb:#00b894;
+    --good:#2ecc71; --mid:#f1c40f; --bad:#e74c3c;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.45}
+  header{padding:18px 24px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  header h1{font-size:18px;margin:0;font-weight:600}
+  header .sub{color:var(--muted);font-size:13px}
+  .wrap{max-width:1180px;margin:0 auto;padding:22px 24px 60px}
+  .grid{display:grid;grid-template-columns:380px 1fr;gap:24px;align-items:start}
+  @media(max-width:880px){.grid{grid-template-columns:1fr}}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}
+  .panel h2{font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:0 0 14px}
+  label{display:block;font-size:12px;color:var(--muted);margin:12px 0 4px}
+  input[type=text],input[type=number],select{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+    border-radius:8px;padding:9px 10px;font-size:14px;outline:none}
+  input:focus,select:focus{border-color:var(--accent)}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .hint{font-size:11px;color:var(--muted);margin-top:3px}
+  .check{display:flex;align-items:center;gap:8px;margin-top:12px}
+  .check input{width:auto}
+  .landed-out{margin-top:10px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:9px 11px;
+    display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px}
+  .landed-out b{color:var(--accent);font-size:15px;font-variant-numeric:tabular-nums}
+  .cbm-link{margin-left:auto;color:var(--muted);font-size:11px;text-decoration:none}
+  .cbm-link:hover{color:var(--accent)}
+
+  .catbox{margin-top:6px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px}
+  .catbox .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+  .catbox .top span{font-size:12px;font-weight:600}
+  .catbox select{margin-top:6px}
+  .badge{font-size:10px;padding:2px 7px;border-radius:10px;font-weight:600}
+  .badge-auto{background:rgba(46,204,113,.18);color:#7be3a7}
+  .badge-warn{background:rgba(241,196,15,.18);color:#f3d774}
+  .badge-ai{background:rgba(124,108,255,.22);color:#b9adff}
+  .ai-row{display:flex;align-items:center;gap:10px;margin-top:12px}
+  .ai-status{font-size:11px;color:var(--muted)}
+  .ai-status.err{color:#ff9a9a}
+
+  /* resultados */
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media(max-width:680px){.cards{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .card-head{padding:13px 16px;font-weight:700;font-size:15px;display:flex;justify-content:space-between;align-items:center}
+  .card-head.ml{background:linear-gradient(90deg,rgba(255,230,0,.15),transparent);border-bottom:2px solid var(--ml)}
+  .card-head.fbla{background:linear-gradient(90deg,rgba(0,184,148,.15),transparent);border-bottom:2px solid var(--fb)}
+  .cat-used{font-size:11px;font-weight:500;color:var(--muted);max-width:55%;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .restab{width:100%;border-collapse:collapse}
+  .restab td{padding:9px 16px;border-bottom:1px solid var(--line)}
+  .restab td.v{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .restab td.p{text-align:right;color:var(--muted);width:64px;font-variant-numeric:tabular-nums}
+  .restab tr.cost td.v{color:#ff9a9a}
+  .margin-row{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;font-size:15px;font-weight:700}
+  .margin-row .margin-vals{display:flex;align-items:baseline;gap:10px}
+  .margin-row .margin-vals small{font-weight:600;opacity:.85}
+  .m-good{background:rgba(46,204,113,.14);color:var(--good)}
+  .m-mid{background:rgba(241,196,15,.14);color:var(--mid)}
+  .m-bad{background:rgba(231,76,60,.14);color:var(--bad)}
+  .ship-meta{padding:10px 16px;font-size:12px;color:var(--txt);border-top:1px solid var(--line)}
+  .ship-meta .muted{color:var(--muted)}
+  .notes{padding:8px 16px 14px;font-size:12px;color:#f3d774}
+  .notes div{margin-top:3px}
+  .empty{padding:30px 16px;color:var(--muted);text-align:center}
+
+  .actions{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap}
+  button.btn{background:var(--accent);color:#1a1206;border:none;border-radius:8px;padding:10px 16px;font-weight:700;cursor:pointer;font-size:13px}
+  button.btn.ghost{background:transparent;color:var(--txt);border:1px solid var(--line)}
+  button.btn:hover{filter:brightness(1.08)}
+  button.mini{background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:6px;cursor:pointer;padding:2px 7px}
+
+  .histtab{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
+  .histtab th{text-align:left;color:var(--muted);font-weight:600;padding:8px;border-bottom:1px solid var(--line);font-size:12px}
+  .histtab td{padding:8px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+  .histtab td.m-good{color:var(--good)} .histtab td.m-mid{color:var(--mid)} .histtab td.m-bad{color:var(--bad)}
+
+  .cfg-head{display:flex;justify-content:space-between;align-items:center;cursor:pointer}
+  .cfg-head h2{margin:0}
+  #cfgBody.hidden{display:none}
+  .muted{color:var(--muted)}
+  .cfg-note{font-size:11px;color:#f3d774;margin-top:6px}
+  .saved{color:var(--good);font-size:12px;margin-left:8px}
+  section.block{margin-top:26px}
+  section.block > h2{font-size:14px;color:var(--txt);text-transform:none;letter-spacing:0;margin:0 0 12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Calculadora de Márgenes</h1>
+  <span class="sub">Productos en evaluación de sourcing · Mercado Libre vs Falabella · precios con IVA</span>
+</header>
+
+<div class="wrap">
+  <div class="grid">
+    <!-- ===== INPUTS ===== -->
+    <div class="panel">
+      <h2>Datos del producto</h2>
+
+      <label>Nombre del producto</label>
+      <input type="text" id="inpNombre" placeholder="Ej: Set de mancuernas ajustables 20kg">
+
+      <label>Categoría (opcional — si la dejas vacía se deduce del nombre)</label>
+      <input type="text" id="inpCategoria" placeholder="Ej: Mancuernas">
+
+      <!-- categoría por canal -->
+      <div class="catbox">
+        <div class="top"><span>Categoría Mercado Libre</span><span id="mlCatBadge" class="badge badge-warn">sin deducir</span></div>
+        <input type="text" id="mlCatFilter" placeholder="filtrar categoría ML…">
+        <select id="mlCatSelect" size="1"></select>
+      </div>
+      <div class="catbox">
+        <div class="top"><span>Categoría Falabella</span><span id="fblaCatBadge" class="badge badge-warn">sin deducir</span></div>
+        <input type="text" id="fblaCatFilter" placeholder="filtrar categoría Falabella…">
+        <select id="fblaCatSelect" size="1"></select>
+      </div>
+      <div class="ai-row">
+        <button class="btn ghost" id="btnAI" type="button">✨ Sugerir con IA</button>
+        <span id="aiStatus" class="ai-status"></span>
+      </div>
+
+      <label>Dimensiones del packaging (cm)</label>
+      <div class="row3">
+        <div><input type="number" id="inpAlto" placeholder="Alto" min="0" step="0.1"><div class="hint">alto</div></div>
+        <div><input type="number" id="inpAncho" placeholder="Ancho" min="0" step="0.1"><div class="hint">ancho</div></div>
+        <div><input type="number" id="inpLargo" placeholder="Largo" min="0" step="0.1"><div class="hint">largo</div></div>
+      </div>
+
+      <label>Peso físico (kg)</label>
+      <input type="number" id="inpPeso" placeholder="0.0" min="0" step="0.01">
+
+      <label>Costo FOB unitario (USD)</label>
+      <input type="number" id="inpFob" placeholder="FOB" min="0" step="0.01">
+      <div class="hint">El factor CBM y el dólar están en Parámetros (cambian ~mensual).</div>
+      <div class="landed-out" id="landedOut">
+        <span>Landed cost (COGS):</span><b id="landedVal">$0</b>
+        <span class="cbm-link" id="cbmInfo" title="Volumen por unidad calculado desde las dimensiones (alto×ancho×largo÷1.000.000)">CBM/u: – m³</span>
+      </div>
+
+      <label>Precio de venta (CLP, con IVA)</label>
+      <div class="row2">
+        <div><input type="number" id="inpPrecioML" placeholder="Precio ML" min="0" step="1"><div class="hint">Mercado Libre</div></div>
+        <div><input type="number" id="inpPrecioFB" placeholder="Precio Falabella" min="0" step="1"><div class="hint">Falabella</div></div>
+      </div>
+
+      <div class="check">
+        <input type="checkbox" id="inpSuper"><label style="margin:0;color:var(--txt)">Producto de supermercado (ML Full Super)</label>
+      </div>
+    </div>
+
+    <!-- ===== RESULTADOS ===== -->
+    <div>
+      <div class="cards">
+        <div class="card" id="cardML"></div>
+        <div class="card" id="cardFB"></div>
+      </div>
+      <div class="actions">
+        <button class="btn" id="btnAdd">+ Agregar a comparación</button>
+        <button class="btn ghost" id="btnExport">Exportar CSV</button>
+        <button class="btn ghost" id="btnClear">Vaciar</button>
+      </div>
+
+      <section class="block">
+        <h2>Comparación de productos evaluados</h2>
+        <div id="histWrap"></div>
+      </section>
+
+      <!-- ===== PARÁMETROS ===== -->
+      <section class="block">
+        <div class="panel">
+          <div class="cfg-head" id="cfgToggle"><h2>⚙ Parámetros y supuestos</h2><span class="muted">▼ mostrar / ocultar</span></div>
+          <div id="cfgBody" class="hidden">
+            <div class="row2">
+              <div><label>Reputación Falabella</label>
+                <select id="cfgRep">
+                  <option value="0">5/5</option><option value="1">4/5</option>
+                  <option value="2">3/5</option><option value="3">2/5</option>
+                </select>
+              </div>
+              <div></div>
+            </div>
+            <div class="row2">
+              <div><label>Factor CBM — precio contenedor (USD/m³)</label><input type="number" id="cfgFactorCBM" step="0.01"></div>
+              <div><label>Dólar (CLP/USD)</label><input type="number" id="cfgDolar" step="1"></div>
+            </div>
+            <div class="row2">
+              <div><label>IVA (%)</label><input type="number" id="cfgIva" step="0.1"></div>
+              <div><label>API key de Anthropic (Claude)</label><input type="password" id="cfgApiKey" placeholder="sk-ant-…" autocomplete="off"></div>
+            </div>
+            <div class="cfg-note">Predicción de categoría con <b>Claude Haiku 4.5</b> (modelo fijo). En la versión publicada (margenes.etbrands.cl) <b>deja la API key vacía</b>: la app usa el servidor con la key oculta. El campo de key es solo para pruebas locales; se guarda en este navegador (localStorage).</div>
+            <div class="cfg-note">Landed cost = (FOB + CBM_unidad×factorCBM) × dólar × (1+IVA), con CBM_unidad = alto×ancho×largo÷1.000.000. · Peso volumétrico: largo×ancho×alto ÷ 4000. · Tramos de precio: $9.990 y $19.990.</div>
+            <div style="margin-top:12px"><button class="btn" id="btnSaveCfg">Guardar parámetros</button><span class="saved" id="cfgSaved"></span></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script src="data/ml_categories.js"></script>
+<script src="data/fbla_categories.js"></script>
+<script src="data/shipping.js"></script>
+<script src="src/app.js"></script>
+<script src="src/ai.js"></script>
+<script src="src/local-ai.js"></script>
+<script src="src/ui.js"></script>
+</body>
+</html>
