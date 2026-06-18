@@ -7,3 +7,6 @@
 
 # Config local de Claude Code
 .claude/
+
+# Excepción: el logo sí va al repo
+!assets/etbrands-logo.jpg
