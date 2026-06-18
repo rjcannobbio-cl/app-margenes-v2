@@ -9,4 +9,5 @@
 .claude/
 
 # Excepción: el logo sí va al repo
+!assets/etbrands-logo.png
 !assets/etbrands-logo.jpg

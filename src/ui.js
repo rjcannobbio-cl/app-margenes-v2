@@ -65,9 +65,7 @@ function buildCatOptions(channel, filter) {
 let deduceToken = 0;   // guarda contra resultados de IA obsoletos (títulos que cambian rápido)
 
 function deduceText() {
-  const hint = $('inpCategoria').value.trim();
-  const title = $('inpNombre').value.trim();
-  return hint || title;
+  return $('inpNombre').value.trim();
 }
 
 // Deducción local por palabras (fallback / sin API key)
@@ -83,8 +81,6 @@ function localDeduce(text) {
 }
 
 function refreshCatUI() {
-  $('mlCatFilter').value = '';
-  $('fblaCatFilter').value = '';
   buildCatOptions('ml', '');
   buildCatOptions('fbla', '');
 }
@@ -250,7 +246,7 @@ function renderHist() {
       <td><button class="mini" data-del="${i}">✕</button></td>
     </tr>`).join('');
   wrap.innerHTML = `<table class="histtab">
-    <thead><tr><th>Producto</th><th>COGS</th><th>Precio ML</th><th>Margen ML</th><th>Precio Fbla</th><th>Margen Fbla</th><th></th></tr></thead>
+    <thead><tr><th>Producto</th><th>COGS</th><th>Precio ML</th><th>Margen ML</th><th>Precio Fala</th><th>Margen Fala</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table>`;
   wrap.querySelectorAll('button[data-del]').forEach(b => b.onclick = () => {
     const h2 = loadHist(); h2.splice(parseInt(b.dataset.del, 10), 1); saveHist(h2); renderHist();
@@ -303,12 +299,9 @@ function init() {
 
   // deducción 3 s después de que el usuario deja de escribir (la IA tarda y consume cuota)
   $('inpNombre').addEventListener('input', debounce(autoDeduce, 3000));
-  $('inpCategoria').addEventListener('input', debounce(autoDeduce, 3000));
   $('btnAI').addEventListener('click', () => { if (!deduceText()) { setAiStatus('Escribe primero el nombre del producto.', true); return; } autoDeduce(); });
 
-  // selects de categoría
-  $('mlCatFilter').addEventListener('input', () => buildCatOptions('ml', $('mlCatFilter').value));
-  $('fblaCatFilter').addEventListener('input', () => buildCatOptions('fbla', $('fblaCatFilter').value));
+  // selects de categoría (la categoría sugerida por IA queda seleccionada; se puede cambiar a mano)
   $('mlCatSelect').addEventListener('change', () => { state.mlCatIdx = parseInt($('mlCatSelect').value, 10); recompute(); });
   $('fblaCatSelect').addEventListener('change', () => { state.fblaCatIdx = parseInt($('fblaCatSelect').value, 10); recompute(); });
 

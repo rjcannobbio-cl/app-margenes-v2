@@ -19,12 +19,9 @@
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:'Montserrat',system-ui,'Segoe UI',sans-serif;font-size:14px;line-height:1.45;border-top:3px solid var(--accent)}
-  header{background:#121215;padding:13px 24px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:16px;flex-wrap:wrap}
-  header .logo-chip{background:#fff;border-radius:10px;padding:6px 11px;display:flex;align-items:center}
-  header .logo-chip img{height:34px;width:auto;display:block}
-  .head-titles{display:flex;flex-direction:column;gap:2px}
-  header h1{font-size:18px;margin:0;font-weight:800;letter-spacing:-.2px}
-  header .sub{color:var(--muted);font-size:12px;font-weight:500}
+  header{background:#121215;padding:16px 24px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+  header .logo{height:62px;width:auto;display:block}
+  header h1{font-size:20px;margin:0;font-weight:800;letter-spacing:-.2px}
   .wrap{max-width:1180px;margin:0 auto;padding:24px 24px 60px}
   .grid{display:grid;grid-template-columns:390px 1fr;gap:24px;align-items:start}
   @media(max-width:880px){.grid{grid-template-columns:1fr}}
@@ -92,7 +89,7 @@
   button.mini:hover{border-color:var(--accent);color:var(--accent)}
 
   .histtab{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
-  .histtab th{text-align:left;background:var(--accent);color:#1b1205;font-weight:700;padding:9px 10px;font-size:12px}
+  .histtab th{text-align:center;background:var(--accent);color:#1b1205;font-weight:700;padding:9px 10px;font-size:12px}
   .histtab td{padding:9px 10px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
   .histtab tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
   .histtab td.m-good{color:var(--good);font-weight:700} .histtab td.m-mid{color:var(--mid);font-weight:700} .histtab td.m-bad{color:var(--bad);font-weight:700}
@@ -109,11 +106,8 @@
 </head>
 <body>
 <header>
-  <span class="logo-chip"><img src="assets/etbrands-logo.jpg" alt="ET Brands"></span>
-  <div class="head-titles">
-    <h1>Calculadora de Márgenes</h1>
-    <span class="sub">Productos en evaluación de sourcing · Mercado Libre vs Falabella · precios con IVA</span>
-  </div>
+  <img class="logo" src="assets/etbrands-logo.png" alt="ET Brands">
+  <h1>Calculadora de Márgenes</h1>
 </header>
 
 <div class="wrap">
@@ -125,18 +119,13 @@
       <label>Nombre del producto</label>
       <input type="text" id="inpNombre" placeholder="Ej: Set de mancuernas ajustables 20kg">
 
-      <label>Categoría (opcional — si la dejas vacía se deduce del nombre)</label>
-      <input type="text" id="inpCategoria" placeholder="Ej: Mancuernas">
-
-      <!-- categoría por canal -->
+      <!-- categoría por canal (la sugiere la IA; se puede cambiar en el desplegable) -->
       <div class="catbox">
         <div class="top"><span>Categoría Mercado Libre</span><span id="mlCatBadge" class="badge badge-warn">sin deducir</span></div>
-        <input type="text" id="mlCatFilter" placeholder="filtrar categoría ML…">
         <select id="mlCatSelect" size="1"></select>
       </div>
       <div class="catbox">
         <div class="top"><span>Categoría Falabella</span><span id="fblaCatBadge" class="badge badge-warn">sin deducir</span></div>
-        <input type="text" id="fblaCatFilter" placeholder="filtrar categoría Falabella…">
         <select id="fblaCatSelect" size="1"></select>
       </div>
       <div class="ai-row">
