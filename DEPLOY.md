@@ -48,6 +48,21 @@ Para que solo entre gente de ET Brands (y proteger el endpoint de IA):
 
 ---
 
+## Lista de productos COMPARTIDA con el equipo (Cloudflare KV)
+Por defecto, la "Comparación de productos evaluados" se guarda en el navegador de cada
+persona (no se comparte). Para que **todo el equipo vea la misma lista**, conecta un KV:
+
+1. Cloudflare → **Storage & Databases → KV → Create namespace** (nombre ej. `margenes-productos`).
+2. En tu proyecto de Pages → **Settings → Bindings → Add → KV namespace**.
+   - Variable name: **`MARGENES_KV`** (exacto)
+   - KV namespace: el que creaste.
+3. **Redeploy** (Deployments → ⋯ → Retry deployment).
+
+Listo: la Function `functions/api/products.js` guardará la lista en KV y todos la verán.
+Mientras no configures el KV, la app sigue funcionando con la lista local de cada navegador
+(y muestra un aviso). Recomendado combinarlo con **Cloudflare Access** (paso 5) para que solo
+entre el equipo y nadie externo pueda leer/escribir la lista.
+
 ## Actualizar la app después
 Cada vez que cambies algo: subes los archivos al repo de GitHub (Add file → Upload / commit) y
 Cloudflare **redepliega solo** en ~1 min. El subdominio y la key se mantienen.

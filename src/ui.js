@@ -213,55 +213,119 @@ function line(label, val, pct, cls) {
   return `<tr class="${cls}"><td>${label}</td><td class="v">${val}</td><td class="p">${pct}</td></tr>`;
 }
 
-/* ---------------- Comparación / historial ---------------- */
-function loadHist() { try { return JSON.parse(localStorage.getItem('mphist') || '[]'); } catch (e) { return []; } }
-function saveHist(h) { localStorage.setItem('mphist', JSON.stringify(h)); }
+/* ---------------- Comparación / historial (compartido vía Cloudflare KV, respaldo local) ---------------- */
+const HIST_KEY = 'mphist';
+let _histBackend = null;   // null=desconocido · true=API compartida · false=local
 
-function addToComparison() {
+function localLoad() { try { return JSON.parse(localStorage.getItem(HIST_KEY) || '[]'); } catch (e) { return []; } }
+function localSave(h) { localStorage.setItem(HIST_KEY, JSON.stringify(h)); }
+
+async function histLoad() {
+  if (_histBackend !== false) {
+    try {
+      const r = await fetch('/api/products');
+      if (r.ok) { _histBackend = true; return await r.json(); }
+      _histBackend = false;
+    } catch (e) { _histBackend = false; }
+  }
+  return localLoad();
+}
+async function histAdd(item) {
+  if (_histBackend) {
+    try { const r = await fetch('/api/products', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(item) }); if (r.ok) return; } catch (e) {}
+  }
+  const h = localLoad(); h.push(item); localSave(h);
+}
+async function histDel(id) {
+  if (_histBackend) {
+    try { const r = await fetch('/api/products?id=' + encodeURIComponent(id), { method: 'DELETE' }); if (r.ok) return; } catch (e) {}
+  }
+  localSave(localLoad().filter(x => x.id !== id));
+}
+async function histClear() {
+  if (_histBackend) {
+    try { const r = await fetch('/api/products?all=1', { method: 'DELETE' }); if (r.ok) return; } catch (e) {}
+  }
+  localSave([]);
+}
+function newId() { return (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(16).slice(2)); }
+
+async function addToComparison() {
   const r = state.lastResult;
   if (!r || (!r.ml.valid && !r.fbla.valid)) { alert('Ingresa al menos un precio de venta primero.'); return; }
-  const h = loadHist();
-  h.push({
+  await histAdd({
+    id: newId(), ts: Date.now(),
     nombre: r.nombre || '(sin nombre)',
-    mlCat: r.ml.catName, fblaCat: r.fbla.catName,
-    cogs: r.ml.cogs,
-    mlPrice: r.ml.price, mlMargin: r.ml.margin, mlMarginPct: r.ml.marginPct,
+    alto: num('inpAlto'), ancho: num('inpAncho'), largo: num('inpLargo'), peso: num('inpPeso'), fob: num('inpFob'),
+    precioML: num('inpPrecioML'), precioFB: num('inpPrecioFB'), isSuper: $('inpSuper').checked,
+    mlCatIdx: state.mlCatIdx, mlCatName: r.ml.catName, fblaCatIdx: state.fblaCatIdx, fblaCatName: r.fbla.catName,
+    cogs: r.ml.cogs, mlPrice: r.ml.price, mlMargin: r.ml.margin, mlMarginPct: r.ml.marginPct,
     fbPrice: r.fbla.price, fbMargin: r.fbla.margin, fbMarginPct: r.fbla.marginPct
   });
-  saveHist(h);
   renderHist();
 }
-function renderHist() {
-  const h = loadHist();
+
+function resolveCatIdx(idx, name, list) {
+  if (idx != null && idx >= 0 && list[idx] && list[idx].name === name) return idx;
+  if (name) { for (let i = 0; i < list.length; i++) if (list[i].name === name) return i; }
+  return (idx != null && idx >= 0) ? idx : -1;
+}
+
+// Click en una fila → recarga ese producto al formulario y recalcula el detalle
+function loadFromHist(x) {
+  if (!x) return;
+  const set = (id, v) => { $(id).value = (v || v === 0) ? v : ''; };
+  $('inpNombre').value = (x.nombre && x.nombre !== '(sin nombre)') ? x.nombre : '';
+  set('inpAlto', x.alto); set('inpAncho', x.ancho); set('inpLargo', x.largo); set('inpPeso', x.peso); set('inpFob', x.fob);
+  set('inpPrecioML', x.precioML); set('inpPrecioFB', x.precioFB);
+  $('inpSuper').checked = !!x.isSuper;
+  state.mlCatIdx = resolveCatIdx(x.mlCatIdx, x.mlCatName, ML_CATEGORIES);
+  state.fblaCatIdx = resolveCatIdx(x.fblaCatIdx, x.fblaCatName, FBLA_CATEGORIES);
+  refreshCatUI();
+  markDeduced('ml', state.mlCatIdx >= 0, 'auto');
+  markDeduced('fbla', state.fblaCatIdx >= 0, 'auto');
+  setAiStatus('Producto cargado desde la comparación.', false);
+  recompute();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+async function renderHist() {
+  const h = await histLoad();
   const wrap = $('histWrap');
   if (!h.length) { wrap.innerHTML = '<p class="muted">Aún no agregas productos a la comparación.</p>'; return; }
-  let rows = h.map((x, i) => `
-    <tr>
+  const rows = h.map((x, i) => `
+    <tr data-i="${i}" title="Clic para cargar este producto">
       <td>${escapeHtml(x.nombre)}</td>
       <td>${fmtCLP(x.cogs)}</td>
       <td>${fmtCLP(x.mlPrice)}</td>
       <td class="${marginClass(x.mlMarginPct)}">${fmtCLP(x.mlMargin)} · ${fmtPct(x.mlMarginPct)}</td>
       <td>${fmtCLP(x.fbPrice)}</td>
       <td class="${marginClass(x.fbMarginPct)}">${fmtCLP(x.fbMargin)} · ${fmtPct(x.fbMarginPct)}</td>
-      <td><button class="mini" data-del="${i}">✕</button></td>
+      <td><button class="mini" data-del="${x.id || ''}" title="Quitar">✕</button></td>
     </tr>`).join('');
   wrap.innerHTML = `<table class="histtab">
     <thead><tr><th>Producto</th><th>COGS</th><th>Precio ML</th><th>Margen ML</th><th>Precio Fala</th><th>Margen Fala</th><th></th></tr></thead>
-    <tbody>${rows}</tbody></table>`;
-  wrap.querySelectorAll('button[data-del]').forEach(b => b.onclick = () => {
-    const h2 = loadHist(); h2.splice(parseInt(b.dataset.del, 10), 1); saveHist(h2); renderHist();
+    <tbody>${rows}</tbody></table>
+    ${_histBackend ? '' : '<p class="hint" style="margin-top:6px">Lista local de este navegador. Para compartirla con el equipo, configura Cloudflare KV (ver DEPLOY.md).</p>'}`;
+  wrap.querySelectorAll('tr[data-i]').forEach(tr => tr.onclick = (e) => {
+    if (e.target.closest('button')) return;
+    loadFromHist(h[parseInt(tr.dataset.i, 10)]);
+  });
+  wrap.querySelectorAll('button[data-del]').forEach(b => b.onclick = async (e) => {
+    e.stopPropagation(); await histDel(b.dataset.del); renderHist();
   });
 }
-function exportCSV() {
-  const h = loadHist();
+
+async function exportCSV() {
+  const h = await histLoad();
   if (!h.length) { alert('No hay nada que exportar.'); return; }
   const head = ['Producto','COGS','Precio ML','Margen ML $','Margen ML %','Precio Falabella','Margen Falabella $','Margen Falabella %'];
   const lines = [head.join(';')];
   for (const x of h) {
     lines.push([
       '"' + (x.nombre || '').replace(/"/g, '""') + '"',
-      Math.round(x.cogs), Math.round(x.mlPrice), Math.round(x.mlMargin), x.mlMarginPct.toFixed(1).replace('.', ','),
-      Math.round(x.fbPrice), Math.round(x.fbMargin), x.fbMarginPct.toFixed(1).replace('.', ',')
+      Math.round(x.cogs), Math.round(x.mlPrice), Math.round(x.mlMargin), (x.mlMarginPct || 0).toFixed(1).replace('.', ','),
+      Math.round(x.fbPrice), Math.round(x.fbMargin), (x.fbMarginPct || 0).toFixed(1).replace('.', ',')
     ].join(';'));
   }
   const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
@@ -307,7 +371,7 @@ function init() {
 
   $('btnAdd').onclick = addToComparison;
   $('btnExport').onclick = exportCSV;
-  $('btnClear').onclick = () => { if (confirm('¿Vaciar la comparación?')) { saveHist([]); renderHist(); } };
+  $('btnClear').onclick = async () => { if (confirm('¿Vaciar la comparación (para todo el equipo si está compartida)?')) { await histClear(); renderHist(); } };
 
   buildCatOptions('ml', '');
   buildCatOptions('fbla', '');
