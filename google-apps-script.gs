@@ -18,6 +18,8 @@
    El Sheet se puede descargar como Excel desde Archivo → Descargar → .xlsx.
    ============================================================ */
 
+// ID de tu Google Sheet (lo saqué de la URL que compartiste). Si cambias de hoja, actualízalo.
+const SHEET_ID = '1m3rl_9QyNkoZZVeXnVCoEEj0Wxb6Vv55oXxlycrqqYU';
 const SHEET_NAME = 'Productos';
 const HEADERS = ['id', 'fecha', 'nombre', 'proveedor', 'cotizacion',
   'categoria_ml', 'comision_ml_%', 'precio_ml', 'margen_ml_$', 'margen_ml_%',
@@ -25,7 +27,7 @@ const HEADERS = ['id', 'fecha', 'nombre', 'proveedor', 'cotizacion',
   'cogs', 'alto_cm', 'ancho_cm', 'largo_cm', 'peso_kg', 'fob_usd', 'dolar', 'factor_cbm', 'super'];
 
 function getSheet_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = SpreadsheetApp.openById(SHEET_ID);
   let sh = ss.getSheetByName(SHEET_NAME) || ss.insertSheet(SHEET_NAME);
   if (sh.getLastRow() === 0) sh.appendRow(HEADERS);
   return sh;

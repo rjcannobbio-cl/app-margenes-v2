@@ -42,12 +42,20 @@ export async function onRequest({ request, env }) {
 }
 
 async function forward(target, payload) {
-  const r = await fetch(target, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
-  return new Response(await r.text(), { status: r.status, headers: { 'content-type': 'application/json' } });
+  const headers = { 'content-type': 'application/json' };
+  const body = JSON.stringify(payload);
+  // Apps Script responde 302 hacia googleusercontent.com. Si dejáramos que el
+  // redirect se siga solo, el POST se convierte en GET (estándar) y ejecutaría
+  // doGet sin escribir. Por eso re-enviamos el POST manualmente a cada Location.
+  let r = await fetch(target, { method: 'POST', headers, body, redirect: 'manual' });
+  for (let i = 0; i < 4 && r.status >= 300 && r.status < 400; i++) {
+    const loc = r.headers.get('location');
+    if (!loc) break;
+    r = await fetch(loc, { method: 'POST', headers, body, redirect: 'manual' });
+  }
+  const text = await r.text();
+  const status = (r.status >= 200 && r.status < 400) ? 200 : r.status;
+  return new Response(text, { status, headers: { 'content-type': 'application/json' } });
 }
 
 function json(obj, status) {
