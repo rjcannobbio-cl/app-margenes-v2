@@ -253,12 +253,17 @@ function newId() { return (window.crypto && crypto.randomUUID) ? crypto.randomUU
 async function addToComparison() {
   const r = state.lastResult;
   if (!r || (!r.ml.valid && !r.fbla.valid)) { alert('Ingresa al menos un precio de venta primero.'); return; }
+  const proveedor = $('inpProveedor').value.trim();
+  if (!proveedor) { alert('El proveedor es obligatorio.'); $('inpProveedor').focus(); return; }
   await histAdd({
     id: newId(), ts: Date.now(),
-    nombre: r.nombre || '(sin nombre)',
+    fecha: new Date().toISOString().slice(0, 19).replace('T', ' '),
+    nombre: r.nombre || '(sin nombre)', proveedor: proveedor, cotizacion: $('inpCotizacion').value.trim(),
     alto: num('inpAlto'), ancho: num('inpAncho'), largo: num('inpLargo'), peso: num('inpPeso'), fob: num('inpFob'),
     precioML: num('inpPrecioML'), precioFB: num('inpPrecioFB'), isSuper: $('inpSuper').checked,
-    mlCatIdx: state.mlCatIdx, mlCatName: r.ml.catName, fblaCatIdx: state.fblaCatIdx, fblaCatName: r.fbla.catName,
+    mlCatIdx: state.mlCatIdx, mlCatName: r.ml.catName, mlComPct: r.ml.comPct,
+    fblaCatIdx: state.fblaCatIdx, fblaCatName: r.fbla.catName, fbComPct: r.fbla.comPct,
+    dolar: cfg.dolar, factorCBM: cfg.factorCBM,
     cogs: r.ml.cogs, mlPrice: r.ml.price, mlMargin: r.ml.margin, mlMarginPct: r.ml.marginPct,
     fbPrice: r.fbla.price, fbMargin: r.fbla.margin, fbMarginPct: r.fbla.marginPct
   });
@@ -276,6 +281,8 @@ function loadFromHist(x) {
   if (!x) return;
   const set = (id, v) => { $(id).value = (v || v === 0) ? v : ''; };
   $('inpNombre').value = (x.nombre && x.nombre !== '(sin nombre)') ? x.nombre : '';
+  $('inpProveedor').value = x.proveedor || '';
+  $('inpCotizacion').value = x.cotizacion || '';
   set('inpAlto', x.alto); set('inpAncho', x.ancho); set('inpLargo', x.largo); set('inpPeso', x.peso); set('inpFob', x.fob);
   set('inpPrecioML', x.precioML); set('inpPrecioFB', x.precioFB);
   $('inpSuper').checked = !!x.isSuper;
@@ -296,6 +303,7 @@ async function renderHist() {
   const rows = h.map((x, i) => `
     <tr data-i="${i}" title="Clic para cargar este producto">
       <td>${escapeHtml(x.nombre)}</td>
+      <td>${escapeHtml(x.proveedor || '')}</td>
       <td>${fmtCLP(x.cogs)}</td>
       <td>${fmtCLP(x.mlPrice)}</td>
       <td class="${marginClass(x.mlMarginPct)}">${fmtCLP(x.mlMargin)} · ${fmtPct(x.mlMarginPct)}</td>
@@ -304,7 +312,7 @@ async function renderHist() {
       <td><button class="mini" data-del="${x.id || ''}" title="Quitar">✕</button></td>
     </tr>`).join('');
   wrap.innerHTML = `<table class="histtab">
-    <thead><tr><th>Producto</th><th>COGS</th><th>Precio ML</th><th>Margen ML</th><th>Precio Fala</th><th>Margen Fala</th><th></th></tr></thead>
+    <thead><tr><th>Producto</th><th>Proveedor</th><th>COGS</th><th>Precio ML</th><th>Margen ML</th><th>Precio Fala</th><th>Margen Fala</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table>
     ${_histBackend ? '' : '<p class="hint" style="margin-top:6px">Lista local de este navegador. Para compartirla con el equipo, configura Cloudflare KV (ver DEPLOY.md).</p>'}`;
   wrap.querySelectorAll('tr[data-i]').forEach(tr => tr.onclick = (e) => {
@@ -319,11 +327,12 @@ async function renderHist() {
 async function exportCSV() {
   const h = await histLoad();
   if (!h.length) { alert('No hay nada que exportar.'); return; }
-  const head = ['Producto','COGS','Precio ML','Margen ML $','Margen ML %','Precio Falabella','Margen Falabella $','Margen Falabella %'];
+  const head = ['Producto','Proveedor','Cotización','COGS','Precio ML','Margen ML $','Margen ML %','Precio Falabella','Margen Falabella $','Margen Falabella %'];
+  const q = s => '"' + (s || '').toString().replace(/"/g, '""') + '"';
   const lines = [head.join(';')];
   for (const x of h) {
     lines.push([
-      '"' + (x.nombre || '').replace(/"/g, '""') + '"',
+      q(x.nombre), q(x.proveedor), q(x.cotizacion),
       Math.round(x.cogs), Math.round(x.mlPrice), Math.round(x.mlMargin), (x.mlMarginPct || 0).toFixed(1).replace('.', ','),
       Math.round(x.fbPrice), Math.round(x.fbMargin), (x.fbMarginPct || 0).toFixed(1).replace('.', ',')
     ].join(';'));

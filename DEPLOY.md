@@ -48,20 +48,23 @@ Para que solo entre gente de ET Brands (y proteger el endpoint de IA):
 
 ---
 
-## Lista de productos COMPARTIDA con el equipo (Cloudflare KV)
-Por defecto, la "Comparación de productos evaluados" se guarda en el navegador de cada
-persona (no se comparte). Para que **todo el equipo vea la misma lista**, conecta un KV:
+## Base de datos en Google Drive (Excel) + lista compartida con el equipo
+La "Comparación de productos evaluados" se guarda en un **Google Sheet** de tu Drive
+(cada producto = una fila; se descarga como Excel desde Archivo → Descargar → .xlsx).
+Así además queda **compartida**: todo el equipo ve la misma lista.
 
-1. Cloudflare → **Storage & Databases → KV → Create namespace** (nombre ej. `margenes-productos`).
-2. En tu proyecto de Pages → **Settings → Bindings → Add → KV namespace**.
-   - Variable name: **`MARGENES_KV`** (exacto)
-   - KV namespace: el que creaste.
-3. **Redeploy** (Deployments → ⋯ → Retry deployment).
+Pasos (una vez):
+1. Crea un **Google Sheet** nuevo en tu Drive.
+2. Abre **`google-apps-script.gs`** (en este repo) y sigue las instrucciones de su cabecera:
+   pegarlo en *Extensiones → Apps Script* del Sheet y **Implementar como Aplicación web**
+   (ejecutar como: Yo · acceso: Cualquier persona). Copia la URL que termina en `/exec`.
+3. En Cloudflare → tu Pages → **Settings → Variables and secrets** → agrega
+   **`SHEETS_WEBHOOK_URL`** = esa URL `/exec` (como Secret) y haz **Retry deployment**.
 
-Listo: la Function `functions/api/products.js` guardará la lista en KV y todos la verán.
-Mientras no configures el KV, la app sigue funcionando con la lista local de cada navegador
-(y muestra un aviso). Recomendado combinarlo con **Cloudflare Access** (paso 5) para que solo
-entre el equipo y nadie externo pueda leer/escribir la lista.
+Listo: cada vez que alguien hace "+ Agregar a comparación", se escribe una fila en tu Sheet,
+y la lista que ve el equipo sale de ahí. Mientras no configures `SHEETS_WEBHOOK_URL`, la app
+funciona con la lista local de cada navegador (y muestra un aviso).
+Recomendado combinarlo con **Cloudflare Access** (paso 5) para limitar el acceso al equipo.
 
 ## Actualizar la app después
 Cada vez que cambies algo: subes los archivos al repo de GitHub (Add file → Upload / commit) y
