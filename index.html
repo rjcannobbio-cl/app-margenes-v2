@@ -23,27 +23,28 @@
   header .logo{height:62px;width:auto;display:block}
   header h1{font-size:20px;margin:0;font-weight:800;letter-spacing:-.2px}
   .wrap{margin:0;padding:24px 24px 60px}
-  .grid{display:grid;grid-template-columns:390px 1fr;gap:24px;align-items:start}
-  @media(max-width:880px){.grid{grid-template-columns:1fr}}
+  .grid{display:grid;grid-template-columns:540px minmax(0,1fr);gap:24px;align-items:start}
+  @media(max-width:980px){.grid{grid-template-columns:1fr}}
 
-  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px}
-  .panel h2{font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);font-weight:700;margin:0 0 14px}
-  label{display:block;font-size:12px;color:var(--muted);margin:13px 0 4px;font-weight:600}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .panel h2{font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);font-weight:700;margin:0 0 8px}
+  label{display:block;font-size:12px;color:var(--muted);margin:8px 0 4px;font-weight:600}
   input[type=text],input[type=number],input[type=password],select{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--ink);
-    border-radius:9px;padding:10px 11px;font-size:14px;font-family:inherit;outline:none;transition:border-color .12s,box-shadow .12s}
+    border-radius:9px;padding:8px 11px;font-size:14px;font-family:inherit;outline:none;transition:border-color .12s,box-shadow .12s}
   input::placeholder{color:var(--faint)}
   input:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(255,102,0,.18)}
   .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
   .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .row5{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
   .hint{font-size:11px;color:var(--faint);margin-top:3px}
-  .check{display:flex;align-items:center;gap:8px;margin-top:14px}
+  .check{display:flex;align-items:center;gap:8px;margin-top:10px}
   .check input{width:auto}
-  .landed-out{margin-top:10px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:10px 12px;
+  .landed-out{margin-top:8px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:8px 12px;
     display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;font-weight:500}
   .landed-out b{color:var(--accent);font-size:16px;font-weight:800;font-variant-numeric:tabular-nums}
   .cbm-link{margin-left:auto;color:var(--muted);font-size:11px;text-decoration:none}
 
-  .catbox{margin-top:8px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:9px}
+  .catbox{margin-top:6px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:7px}
   .catbox .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
   .catbox .top span{font-size:12px;font-weight:700}
   .catbox select{margin-top:6px}
@@ -51,7 +52,7 @@
   .badge-auto{background:rgba(255,255,255,.08);color:#b9b9c0}
   .badge-warn{background:var(--mid-bg);color:#f0c073}
   .badge-ai{background:var(--accent);color:#1b1205}
-  .ai-row{display:flex;align-items:center;gap:10px;margin-top:12px}
+  .ai-row{display:flex;align-items:center;gap:10px;margin-top:10px}
   .ai-status{font-size:11px;color:var(--muted)}
   .ai-status.err{color:#f0a0a0}
 
@@ -133,18 +134,14 @@
         <span id="aiStatus" class="ai-status"></span>
       </div>
 
-      <label>Dimensiones del packaging (cm)</label>
-      <div class="row3">
-        <div><input type="number" id="inpAlto" placeholder="Alto" min="0" step="0.1"><div class="hint">alto</div></div>
-        <div><input type="number" id="inpAncho" placeholder="Ancho" min="0" step="0.1"><div class="hint">ancho</div></div>
-        <div><input type="number" id="inpLargo" placeholder="Largo" min="0" step="0.1"><div class="hint">largo</div></div>
+      <label>Packaging y costo</label>
+      <div class="row5">
+        <div><input type="number" id="inpAlto" placeholder="Alto" min="0" step="0.1"><div class="hint">alto cm</div></div>
+        <div><input type="number" id="inpAncho" placeholder="Ancho" min="0" step="0.1"><div class="hint">ancho cm</div></div>
+        <div><input type="number" id="inpLargo" placeholder="Largo" min="0" step="0.1"><div class="hint">largo cm</div></div>
+        <div><input type="number" id="inpPeso" placeholder="Peso" min="0" step="0.01"><div class="hint">peso kg</div></div>
+        <div><input type="number" id="inpFob" placeholder="FOB" min="0" step="0.01"><div class="hint">FOB USD</div></div>
       </div>
-
-      <label>Peso físico (kg)</label>
-      <input type="number" id="inpPeso" placeholder="0.0" min="0" step="0.01">
-
-      <label>Costo FOB unitario (USD)</label>
-      <input type="number" id="inpFob" placeholder="FOB" min="0" step="0.01">
       <div class="hint">El factor CBM y el dólar están en Parámetros (cambian ~mensual).</div>
       <div class="landed-out" id="landedOut">
         <span>Landed cost (COGS):</span><b id="landedVal">$0</b>
