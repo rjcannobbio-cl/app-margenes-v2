@@ -23,8 +23,10 @@
   header .logo{height:62px;width:auto;display:block}
   header h1{font-size:20px;margin:0;font-weight:800;letter-spacing:-.2px}
   .wrap{margin:0;padding:24px 24px 60px}
-  .grid{display:grid;grid-template-columns:540px minmax(0,1fr);gap:24px;align-items:start}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start}
   @media(max-width:980px){.grid{grid-template-columns:1fr}}
+  .catrow{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
+  .catrow .catbox{margin-top:0}
 
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
   .panel h2{font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);font-weight:700;margin:0 0 8px}
@@ -121,13 +123,15 @@
       <input type="text" id="inpNombre" placeholder="Ej: Set de mancuernas ajustables 20kg">
 
       <!-- categoría por canal (la sugiere la IA; se puede cambiar en el desplegable) -->
-      <div class="catbox">
-        <div class="top"><span>Categoría Mercado Libre</span><span id="mlCatBadge" class="badge badge-warn">sin deducir</span></div>
-        <select id="mlCatSelect" size="1"></select>
-      </div>
-      <div class="catbox">
-        <div class="top"><span>Categoría Falabella</span><span id="fblaCatBadge" class="badge badge-warn">sin deducir</span></div>
-        <select id="fblaCatSelect" size="1"></select>
+      <div class="catrow">
+        <div class="catbox">
+          <div class="top"><span>Categoría Mercado Libre</span><span id="mlCatBadge" class="badge badge-warn">sin deducir</span></div>
+          <select id="mlCatSelect" size="1"></select>
+        </div>
+        <div class="catbox">
+          <div class="top"><span>Categoría Falabella</span><span id="fblaCatBadge" class="badge badge-warn">sin deducir</span></div>
+          <select id="fblaCatSelect" size="1"></select>
+        </div>
       </div>
       <div class="ai-row">
         <button class="btn ghost" id="btnAI" type="button">✨ Sugerir con IA</button>
