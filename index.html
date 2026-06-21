@@ -84,10 +84,10 @@
   .empty{padding:34px 16px;color:var(--muted);text-align:center}
 
   .actions{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap}
-  button.btn{background:var(--accent);color:#1b1205;border:none;border-radius:9px;padding:10px 17px;font-weight:700;cursor:pointer;font-size:13px;font-family:inherit}
-  button.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
-  button.btn:hover{background:var(--accent-d)}
-  button.btn.ghost:hover{border-color:var(--accent);color:var(--accent)}
+  .btn{background:var(--accent);color:#1b1205;border:none;border-radius:9px;padding:10px 17px;font-weight:700;cursor:pointer;font-size:13px;font-family:inherit;display:inline-flex;align-items:center;gap:6px;text-decoration:none}
+  .btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+  .btn:hover{background:var(--accent-d);color:#1b1205}
+  .btn.ghost:hover{background:transparent;border-color:var(--accent);color:var(--accent)}
   button.mini{background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:6px;cursor:pointer;padding:3px 8px;font-family:inherit}
   button.mini:hover{border-color:var(--accent);color:var(--accent)}
 
@@ -178,6 +178,7 @@
       </div>
       <div class="actions">
         <button class="btn" id="btnAdd">+ Agregar a comparación</button>
+        <a class="btn ghost" id="btnSheet" href="https://docs.google.com/spreadsheets/d/1m3rl_9QyNkoZZVeXnVCoEEj0Wxb6Vv55oXxlycrqqYU/edit" target="_blank" rel="noopener">📊 Abrir Excel en Drive</a>
         <button class="btn ghost" id="btnExport">Exportar CSV</button>
         <button class="btn ghost" id="btnClear">Vaciar</button>
       </div>
