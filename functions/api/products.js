@@ -29,7 +29,8 @@ export async function onRequest({ request, env }) {
     if (method === 'POST') {
       const item = await request.json();
       const list = JSON.parse((await kv.get(KEY)) || '[]');
-      list.push(item);
+      const i = item && item.id ? list.findIndex(x => x.id === item.id) : -1;
+      if (i >= 0) list[i] = item; else list.push(item);   // upsert por id
       await kv.put(KEY, JSON.stringify(list));
       return json({ ok: true, count: list.length });
     }

@@ -241,7 +241,9 @@ async function histAdd(item) {
   if (_histBackend) {
     try { const r = await fetch('/api/products', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(item) }); if (r.ok) return; } catch (e) {}
   }
-  const h = localLoad(); h.push(item); localSave(h);
+  const h = localLoad(); const i = h.findIndex(x => x.id === item.id);
+  if (i >= 0) h[i] = item; else h.push(item);   // upsert por id
+  localSave(h);
 }
 async function histDel(id) {
   if (_histBackend) {
@@ -262,8 +264,9 @@ async function addToComparison() {
   if (!r || (!r.ml.valid && !r.fbla.valid)) { alert('Ingresa al menos un precio de venta primero.'); return; }
   const proveedor = $('inpProveedor').value.trim();
   if (!proveedor) { alert('El proveedor es obligatorio.'); $('inpProveedor').focus(); return; }
+  const editing = state.editingId || null;
   const item = {
-    id: newId(), ts: Date.now(),
+    id: editing || newId(), ts: Date.now(),
     fecha: new Date().toISOString().slice(0, 19).replace('T', ' '),
     nombre: r.nombre || '(sin nombre)', proveedor: proveedor, cotizacion: $('inpCotizacion').value.trim(), skuProveedor: $('inpSkuProv').value.trim(),
     alto: num('inpAlto'), ancho: num('inpAncho'), largo: num('inpLargo'), peso: num('inpPeso'), fob: num('inpFob'),
@@ -274,9 +277,13 @@ async function addToComparison() {
     cogs: r.ml.cogs, mlPrice: r.ml.price, mlMargin: r.ml.margin, mlMarginPct: r.ml.marginPct,
     fbPrice: r.fbla.price, fbMargin: r.fbla.margin, fbMarginPct: r.fbla.marginPct
   };
-  await histAdd(item);     // a la base de datos (Excel/Drive)
-  viewList.push(item);     // y a la vista en pantalla
+  await histAdd(item);     // upsert en la base de datos (KV)
+  const vi = viewList.findIndex(v => v.id === item.id);
+  if (vi >= 0) viewList[vi] = item; else viewList.push(item);   // y en la vista
   renderHist();
+  setEditing(item.id);     // sigue en edición de este registro
+  setAiStatus(editing ? '✓ Cambios guardados.' : '✓ Producto guardado.', false);
+  if (!$('tabHist').classList.contains('hidden')) renderHistorial();
 }
 
 function resolveCatIdx(idx, name, list) {
@@ -301,9 +308,36 @@ function loadFromHist(x) {
   refreshCatUI();
   markDeduced('ml', state.mlCatIdx >= 0, 'auto');
   markDeduced('fbla', state.fblaCatIdx >= 0, 'auto');
-  setAiStatus('Producto cargado desde la comparación.', false);
+  setEditing(x.id || null);
   recompute();
   window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// Modo edición: al cargar un producto guardado, "Guardar" actualiza ESE registro.
+function setEditing(id) {
+  state.editingId = id || null;
+  const badge = $('editBadge');
+  if (state.editingId) {
+    $('btnAdd').textContent = '💾 Guardar cambios';
+    badge.textContent = 'Editando un producto guardado — los cambios actualizan ese registro.';
+    badge.style.display = '';
+  } else {
+    $('btnAdd').textContent = '+ Agregar / guardar';
+    badge.textContent = ''; badge.style.display = 'none';
+  }
+}
+
+// Limpia el formulario para empezar un producto nuevo.
+function nuevoProducto() {
+  ['inpNombre', 'inpProveedor', 'inpCotizacion', 'inpSkuProv', 'inpAlto', 'inpAncho', 'inpLargo', 'inpPeso', 'inpFob', 'inpPrecioML', 'inpPrecioFB'].forEach(id => $(id).value = '');
+  $('inpSuper').checked = false;
+  state.mlCatIdx = -1; state.fblaCatIdx = -1;
+  refreshCatUI();
+  markDeduced('ml', false); markDeduced('fbla', false);
+  setEditing(null);
+  setAiStatus('', false);
+  recompute();
+  $('inpNombre').focus();
 }
 
 function renderHist() {
@@ -469,6 +503,7 @@ function init() {
   $('btnHistExport').onclick = exportHistorialCSV;
 
   $('btnAdd').onclick = addToComparison;
+  $('btnNew').onclick = nuevoProducto;
   $('btnExport').onclick = exportCSV;
   $('btnClear').onclick = () => { viewList = []; renderHist(); };   // solo limpia la vista; el Excel queda intacto
 
