@@ -1,61 +1,49 @@
 /* ============================================================
-   Cloudflare Pages Function — lista COMPARTIDA de productos evaluados.
-   Proxy al Google Apps Script que guarda en un Google Sheet (Drive = "Excel"),
-   una fila por producto. La URL del Apps Script vive en la variable de entorno
-   SHEETS_WEBHOOK_URL (secreta); el navegador nunca la ve y se evita el CORS.
+   Cloudflare Pages Function — historial COMPARTIDO de productos evaluados.
+   Almacena en Cloudflare KV (binding MARGENES_KV) como un array JSON.
+   Cada producto = un objeto (con todos sus campos, incluido SKU).
 
    Ruta: /api/products
-     GET                 → array de productos (filas del Sheet)
-     POST  {producto}    → agrega una fila
-     DELETE ?id=<id>     → elimina la fila de ese id
-     DELETE ?all=1       → vacía la hoja
+     GET                 → array de productos
+     POST  {producto}    → agrega un producto
+     DELETE ?id=<id>     → elimina ese producto
+     DELETE ?all=1       → vacía el historial
 
-   Si SHEETS_WEBHOOK_URL no está configurada, responde 501 y la app cae a la
-   lista local del navegador (ver google-apps-script.gs y DEPLOY.md).
+   Si el binding MARGENES_KV no está configurado, responde 501 y la app cae a
+   la lista local del navegador (ver DEPLOY.md para crear el binding).
    ============================================================ */
 
+const KEY = 'list';
+
 export async function onRequest({ request, env }) {
-  const target = env.SHEETS_WEBHOOK_URL;
-  if (!target) return json({ error: 'SHEETS_WEBHOOK_URL no configurado' }, 501);
+  const kv = env.MARGENES_KV;
+  if (!kv) return json({ error: 'KV no configurado (binding MARGENES_KV)' }, 501);
 
   const method = request.method;
   const url = new URL(request.url);
   try {
     if (method === 'GET') {
-      const r = await fetch(target, { method: 'GET' });
-      return new Response(await r.text(), { status: r.status, headers: { 'content-type': 'application/json' } });
+      const raw = await kv.get(KEY);
+      return json(raw ? JSON.parse(raw) : []);
     }
     if (method === 'POST') {
       const item = await request.json();
-      return await forward(target, { action: 'add', item });
+      const list = JSON.parse((await kv.get(KEY)) || '[]');
+      list.push(item);
+      await kv.put(KEY, JSON.stringify(list));
+      return json({ ok: true, count: list.length });
     }
     if (method === 'DELETE') {
-      const payload = url.searchParams.get('all')
-        ? { action: 'clear' }
-        : { action: 'delete', id: url.searchParams.get('id') };
-      return await forward(target, payload);
+      if (url.searchParams.get('all')) { await kv.put(KEY, '[]'); return json({ ok: true }); }
+      const id = url.searchParams.get('id');
+      const list = JSON.parse((await kv.get(KEY)) || '[]').filter(x => x.id !== id);
+      await kv.put(KEY, JSON.stringify(list));
+      return json({ ok: true });
     }
     return json({ error: 'método no soportado' }, 405);
   } catch (e) {
     return json({ error: String(e && e.message || e) }, 500);
   }
-}
-
-async function forward(target, payload) {
-  const headers = { 'content-type': 'application/json' };
-  const body = JSON.stringify(payload);
-  // Apps Script responde 302 hacia googleusercontent.com. Si dejáramos que el
-  // redirect se siga solo, el POST se convierte en GET (estándar) y ejecutaría
-  // doGet sin escribir. Por eso re-enviamos el POST manualmente a cada Location.
-  let r = await fetch(target, { method: 'POST', headers, body, redirect: 'manual' });
-  for (let i = 0; i < 4 && r.status >= 300 && r.status < 400; i++) {
-    const loc = r.headers.get('location');
-    if (!loc) break;
-    r = await fetch(loc, { method: 'POST', headers, body, redirect: 'manual' });
-  }
-  const text = await r.text();
-  const status = (r.status >= 200 && r.status < 400) ? 200 : r.status;
-  return new Response(text, { status, headers: { 'content-type': 'application/json' } });
 }
 
 function json(obj, status) {

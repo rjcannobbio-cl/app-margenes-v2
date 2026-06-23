@@ -22,7 +22,18 @@
   header{background:#121215;padding:16px 24px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:18px;flex-wrap:wrap}
   header .logo{height:62px;width:auto;display:block}
   header h1{font-size:20px;margin:0;font-weight:800;letter-spacing:-.2px}
-  .wrap{margin:0;padding:24px 24px 60px}
+  .wrap{margin:0;padding:18px 24px 60px}
+  .tabs{display:flex;gap:6px;border-bottom:1px solid var(--line);margin-bottom:22px}
+  .tab{background:transparent;border:none;border-bottom:3px solid transparent;color:var(--muted);font-family:inherit;
+    font-size:14px;font-weight:700;padding:10px 16px;cursor:pointer;margin-bottom:-1px}
+  .tab:hover{color:var(--ink)}
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+  .hidden{display:none}
+  .hist-actions{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+  .db-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px}
+  .dbtab{border:none;border-radius:0;white-space:nowrap;min-width:1100px}
+  .dbtab th{position:sticky;top:0}
+  .dbtab td:first-child{max-width:280px;overflow:hidden;text-overflow:ellipsis}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start}
   @media(max-width:980px){.grid{grid-template-columns:1fr}}
   .catrow{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
@@ -116,6 +127,12 @@
 </header>
 
 <div class="wrap">
+  <div class="tabs">
+    <button class="tab active" data-tab="calc" type="button">Calculadora</button>
+    <button class="tab" data-tab="hist" type="button">Historial</button>
+  </div>
+
+  <div id="tabCalc">
   <div class="grid">
     <!-- ===== INPUTS ===== -->
     <div class="panel">
@@ -124,9 +141,10 @@
       <label>Nombre del producto</label>
       <input type="text" id="inpNombre" placeholder="Ej: Set de mancuernas ajustables 20kg">
 
-      <div class="row2">
-        <div><label>Proveedor *</label><input type="text" id="inpProveedor" placeholder="Nombre del proveedor"></div>
-        <div><label>N° cotización (opcional)</label><input type="text" id="inpCotizacion" placeholder="—"></div>
+      <div class="row3">
+        <div><label>Proveedor *</label><input type="text" id="inpProveedor" placeholder="Proveedor"></div>
+        <div><label>N° cotización (opc.)</label><input type="text" id="inpCotizacion" placeholder="—"></div>
+        <div><label>SKU proveedor (opc.)</label><input type="text" id="inpSkuProv" placeholder="—"></div>
       </div>
 
       <!-- categoría por canal (la sugiere la IA; se puede cambiar en el desplegable) -->
@@ -177,10 +195,9 @@
         <div class="card" id="cardFB"></div>
       </div>
       <div class="actions">
-        <button class="btn" id="btnAdd">+ Agregar a comparación</button>
-        <a class="btn ghost" id="btnSheet" href="https://docs.google.com/spreadsheets/d/1m3rl_9QyNkoZZVeXnVCoEEj0Wxb6Vv55oXxlycrqqYU/edit" target="_blank" rel="noopener">📊 Abrir Excel en Drive</a>
+        <button class="btn" id="btnAdd">+ Agregar / guardar</button>
         <button class="btn ghost" id="btnExport">Exportar CSV</button>
-        <button class="btn ghost" id="btnClear">Vaciar</button>
+        <button class="btn ghost" id="btnClear">Vaciar vista</button>
       </div>
 
       <section class="block">
@@ -217,6 +234,16 @@
         </div>
       </section>
     </div>
+  </div>
+  </div><!-- /tabCalc -->
+
+  <div id="tabHist" class="hidden">
+    <div class="hist-actions">
+      <button class="btn ghost" id="btnHistRefresh" type="button">↻ Actualizar</button>
+      <button class="btn ghost" id="btnHistExport" type="button">Exportar CSV</button>
+      <span class="muted" id="histCount"></span>
+    </div>
+    <div id="histDbWrap" class="db-wrap"></div>
   </div>
 </div>
 

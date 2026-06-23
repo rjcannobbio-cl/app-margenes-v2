@@ -48,23 +48,24 @@ Para que solo entre gente de ET Brands (y proteger el endpoint de IA):
 
 ---
 
-## Base de datos en Google Drive (Excel) + lista compartida con el equipo
-La "Comparación de productos evaluados" se guarda en un **Google Sheet** de tu Drive
-(cada producto = una fila; se descarga como Excel desde Archivo → Descargar → .xlsx).
-Así además queda **compartida**: todo el equipo ve la misma lista.
+## Historial COMPARTIDO con el equipo (Cloudflare KV)
+La pestaña **Historial** guarda todos los productos evaluados en **Cloudflare KV**
+(base de datos propia, compartida para el equipo). Cada "+ Agregar / guardar" escribe un registro.
 
 Pasos (una vez):
-1. Crea un **Google Sheet** nuevo en tu Drive.
-2. Abre **`google-apps-script.gs`** (en este repo) y sigue las instrucciones de su cabecera:
-   pegarlo en *Extensiones → Apps Script* del Sheet y **Implementar como Aplicación web**
-   (ejecutar como: Yo · acceso: Cualquier persona). Copia la URL que termina en `/exec`.
-3. En Cloudflare → tu Pages → **Settings → Variables and secrets** → agrega
-   **`SHEETS_WEBHOOK_URL`** = esa URL `/exec` (como Secret) y haz **Retry deployment**.
+1. Cloudflare → **Storage & Databases → KV → Create namespace** (ej. `margenes-productos`).
+2. Tu proyecto de Pages → **Settings → Bindings → Add → KV namespace**:
+   - Variable name: **`MARGENES_KV`** (exacto)
+   - KV namespace: el que creaste.
+3. **Retry deployment** (Deployments → ⋯).
 
-Listo: cada vez que alguien hace "+ Agregar a comparación", se escribe una fila en tu Sheet,
-y la lista que ve el equipo sale de ahí. Mientras no configures `SHEETS_WEBHOOK_URL`, la app
-funciona con la lista local de cada navegador (y muestra un aviso).
+Listo: la Function `functions/api/products.js` guarda en KV y todos ven el mismo Historial.
+Mientras no configures el binding, la app funciona con historial local de cada navegador (y lo avisa).
 Recomendado combinarlo con **Cloudflare Access** (paso 5) para limitar el acceso al equipo.
+
+> Nota: dejamos de usar el Google Sheet/Apps Script (`google-apps-script.gs` y la variable
+> `SHEETS_WEBHOOK_URL` quedaron sin uso; puedes borrar esa variable). Si más adelante quieres
+> exportar, usa el botón "Exportar CSV" del Historial.
 
 ## Actualizar la app después
 Cada vez que cambies algo: subes los archivos al repo de GitHub (Add file → Upload / commit) y

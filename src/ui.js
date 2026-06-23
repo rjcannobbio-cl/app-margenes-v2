@@ -265,7 +265,7 @@ async function addToComparison() {
   const item = {
     id: newId(), ts: Date.now(),
     fecha: new Date().toISOString().slice(0, 19).replace('T', ' '),
-    nombre: r.nombre || '(sin nombre)', proveedor: proveedor, cotizacion: $('inpCotizacion').value.trim(),
+    nombre: r.nombre || '(sin nombre)', proveedor: proveedor, cotizacion: $('inpCotizacion').value.trim(), skuProveedor: $('inpSkuProv').value.trim(),
     alto: num('inpAlto'), ancho: num('inpAncho'), largo: num('inpLargo'), peso: num('inpPeso'), fob: num('inpFob'),
     precioML: num('inpPrecioML'), precioFB: num('inpPrecioFB'), isSuper: $('inpSuper').checked,
     mlCatIdx: state.mlCatIdx, mlCatName: r.ml.catName, mlComPct: r.ml.comPct,
@@ -292,6 +292,7 @@ function loadFromHist(x) {
   $('inpNombre').value = (x.nombre && x.nombre !== '(sin nombre)') ? x.nombre : '';
   $('inpProveedor').value = x.proveedor || '';
   $('inpCotizacion').value = x.cotizacion || '';
+  $('inpSkuProv').value = x.skuProveedor || '';
   set('inpAlto', x.alto); set('inpAncho', x.ancho); set('inpLargo', x.largo); set('inpPeso', x.peso); set('inpFob', x.fob);
   set('inpPrecioML', x.precioML); set('inpPrecioFB', x.precioFB);
   $('inpSuper').checked = !!x.isSuper;
@@ -358,6 +359,77 @@ function exportCSV() {
 }
 function escapeHtml(s) { return (s || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
 
+/* ---------------- Pestañas + Historial (base de datos) ---------------- */
+function showTab(name) {
+  $('tabCalc').classList.toggle('hidden', name !== 'calc');
+  $('tabHist').classList.toggle('hidden', name !== 'hist');
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  if (name === 'hist') renderHistorial();
+}
+
+function compositeId(x) {
+  return [x.nombre, x.proveedor, x.cotizacion, x.skuProveedor]
+    .map(s => (s == null ? '' : s).toString().trim()).filter(Boolean).join(' · ');
+}
+
+let _histAll = [];
+async function renderHistorial() {
+  const all = await histLoad();
+  _histAll = all;
+  $('histCount').textContent = all.length + (all.length === 1 ? ' producto' : ' productos') + (_histBackend ? ' · compartido' : ' · solo local');
+  const wrap = $('histDbWrap');
+  if (!all.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Aún no hay productos evaluados. Agrégalos desde la pestaña Calculadora.</p>'; return; }
+  const cell = v => (v || v === 0) ? v : '';
+  const rows = all.map((x, i) => `
+    <tr data-i="${i}" title="Clic para cargar este producto en la calculadora">
+      <td>${escapeHtml(compositeId(x))}</td>
+      <td>${escapeHtml(x.nombre || '')}</td>
+      <td>${escapeHtml(x.proveedor || '')}</td>
+      <td>${escapeHtml(x.cotizacion || '')}</td>
+      <td>${cell(x.alto)}</td><td>${cell(x.largo)}</td><td>${cell(x.ancho)}</td><td>${cell(x.peso)}</td>
+      <td>${x.fob ? ('US$' + x.fob) : ''}</td>
+      <td>${fmtCLP(x.cogs)}</td>
+      <td>${x.isSuper ? 'Sí' : 'No'}</td>
+      <td>${escapeHtml(x.mlCatName || '')}</td>
+      <td>${fmtCLP(x.mlPrice)}</td>
+      <td class="${marginClass(x.mlMarginPct)}">${fmtPct(x.mlMarginPct)}</td>
+      <td>${fmtCLP(x.fbPrice)}</td>
+      <td class="${marginClass(x.fbMarginPct)}">${fmtPct(x.fbMarginPct)}</td>
+      <td><button class="mini" data-del="${x.id || ''}" title="Eliminar del historial">✕</button></td>
+    </tr>`).join('');
+  wrap.innerHTML = `<table class="histtab dbtab"><thead><tr>
+    <th>ID</th><th>Nombre producto</th><th>Proveedor</th><th>N° Cotización</th>
+    <th>Alto</th><th>Largo</th><th>Ancho</th><th>Peso</th><th>Costo FOB</th><th>Landed COGS</th>
+    <th>Súper</th><th>Categoría ML</th><th>Precio Meli</th><th>Margen Meli</th><th>Precio Fala</th><th>Margen Fala</th><th></th>
+  </tr></thead><tbody>${rows}</tbody></table>`;
+  wrap.querySelectorAll('tr[data-i]').forEach(tr => tr.onclick = (e) => {
+    if (e.target.closest('button')) return;
+    showTab('calc'); loadFromHist(all[parseInt(tr.dataset.i, 10)]);
+  });
+  wrap.querySelectorAll('button[data-del]').forEach(b => b.onclick = async (e) => {
+    e.stopPropagation();
+    if (!confirm('¿Eliminar este producto del historial' + (_histBackend ? ' (para todo el equipo)' : '') + '?')) return;
+    await histDel(b.dataset.del); renderHistorial();
+  });
+}
+
+function exportHistorialCSV() {
+  const h = _histAll;
+  if (!h.length) { alert('No hay productos en el historial.'); return; }
+  const head = ['ID', 'Nombre', 'Proveedor', 'N° Cotización', 'Alto', 'Largo', 'Ancho', 'Peso', 'Costo FOB', 'Landed COGS', 'Supermercado', 'Categoría ML', 'Precio Meli', 'Margen Meli %', 'Precio Fala', 'Margen Fala %'];
+  const q = s => '"' + (s == null ? '' : s).toString().replace(/"/g, '""') + '"';
+  const n = v => (v == null || isNaN(v)) ? '' : Math.round(v);
+  const p = v => (v == null || isNaN(v)) ? '' : Number(v).toFixed(1).replace('.', ',');
+  const lines = [head.join(';')];
+  for (const x of h) lines.push([
+    q(compositeId(x)), q(x.nombre), q(x.proveedor), q(x.cotizacion),
+    (x.alto || ''), (x.largo || ''), (x.ancho || ''), (x.peso || ''), (x.fob || ''), n(x.cogs),
+    x.isSuper ? 'Sí' : 'No', q(x.mlCatName), n(x.mlPrice), p(x.mlMarginPct), n(x.fbPrice), p(x.fbMarginPct)
+  ].join(';'));
+  const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'historial_productos.csv'; a.click();
+}
+
 /* ---------------- Panel de parámetros ---------------- */
 function bindCfg() {
   $('cfgRep').value = String(cfg.fblaRepIndex);
@@ -390,6 +462,11 @@ function init() {
   // selects de categoría (la categoría sugerida por IA queda seleccionada; se puede cambiar a mano)
   $('mlCatSelect').addEventListener('change', () => { state.mlCatIdx = parseInt($('mlCatSelect').value, 10); recompute(); });
   $('fblaCatSelect').addEventListener('change', () => { state.fblaCatIdx = parseInt($('fblaCatSelect').value, 10); recompute(); });
+
+  // pestañas + historial
+  document.querySelectorAll('.tab').forEach(t => t.onclick = () => showTab(t.dataset.tab));
+  $('btnHistRefresh').onclick = renderHistorial;
+  $('btnHistExport').onclick = exportHistorialCSV;
 
   $('btnAdd').onclick = addToComparison;
   $('btnExport').onclick = exportCSV;
