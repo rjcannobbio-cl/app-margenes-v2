@@ -216,6 +216,13 @@ function line(label, val, pct, cls) {
 /* ---------------- Comparación / historial (compartido vía Cloudflare KV, respaldo local) ---------------- */
 const HIST_KEY = 'mphist';
 let _histBackend = null;   // null=desconocido · true=API compartida · false=local
+let viewList = [];         // lista EN PANTALLA (vista). El Excel/backend es la base de datos permanente.
+
+// Trae la lista del backend (Excel) a la vista en pantalla.
+async function loadView() {
+  viewList = await histLoad();
+  renderHist();
+}
 
 function localLoad() { try { return JSON.parse(localStorage.getItem(HIST_KEY) || '[]'); } catch (e) { return []; } }
 function localSave(h) { localStorage.setItem(HIST_KEY, JSON.stringify(h)); }
@@ -255,7 +262,7 @@ async function addToComparison() {
   if (!r || (!r.ml.valid && !r.fbla.valid)) { alert('Ingresa al menos un precio de venta primero.'); return; }
   const proveedor = $('inpProveedor').value.trim();
   if (!proveedor) { alert('El proveedor es obligatorio.'); $('inpProveedor').focus(); return; }
-  await histAdd({
+  const item = {
     id: newId(), ts: Date.now(),
     fecha: new Date().toISOString().slice(0, 19).replace('T', ' '),
     nombre: r.nombre || '(sin nombre)', proveedor: proveedor, cotizacion: $('inpCotizacion').value.trim(),
@@ -266,7 +273,9 @@ async function addToComparison() {
     dolar: cfg.dolar, factorCBM: cfg.factorCBM,
     cogs: r.ml.cogs, mlPrice: r.ml.price, mlMargin: r.ml.margin, mlMarginPct: r.ml.marginPct,
     fbPrice: r.fbla.price, fbMargin: r.fbla.margin, fbMarginPct: r.fbla.marginPct
-  });
+  };
+  await histAdd(item);     // a la base de datos (Excel/Drive)
+  viewList.push(item);     // y a la vista en pantalla
   renderHist();
 }
 
@@ -296,8 +305,8 @@ function loadFromHist(x) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-async function renderHist() {
-  const h = await histLoad();
+function renderHist() {
+  const h = viewList;
   const wrap = $('histWrap');
   if (!h.length) { wrap.innerHTML = '<p class="muted">Aún no agregas productos a la comparación.</p>'; return; }
   const rows = h.map((x, i) => `
@@ -320,12 +329,16 @@ async function renderHist() {
     loadFromHist(h[parseInt(tr.dataset.i, 10)]);
   });
   wrap.querySelectorAll('button[data-del]').forEach(b => b.onclick = async (e) => {
-    e.stopPropagation(); await histDel(b.dataset.del); renderHist();
+    e.stopPropagation();
+    const id = b.dataset.del;
+    viewList = viewList.filter(x => x.id !== id);   // saca de la vista
+    renderHist();
+    await histDel(id);                              // y de la base de datos (Excel)
   });
 }
 
-async function exportCSV() {
-  const h = await histLoad();
+function exportCSV() {
+  const h = viewList;
   if (!h.length) { alert('No hay nada que exportar.'); return; }
   const head = ['Producto','Proveedor','Cotización','COGS','Precio ML','Margen ML $','Margen ML %','Precio Falabella','Margen Falabella $','Margen Falabella %'];
   const q = s => '"' + (s || '').toString().replace(/"/g, '""') + '"';
@@ -380,12 +393,12 @@ function init() {
 
   $('btnAdd').onclick = addToComparison;
   $('btnExport').onclick = exportCSV;
-  $('btnClear').onclick = async () => { if (confirm('¿Vaciar la comparación (para todo el equipo si está compartida)?')) { await histClear(); renderHist(); } };
+  $('btnClear').onclick = () => { viewList = []; renderHist(); };   // solo limpia la vista; el Excel queda intacto
 
   buildCatOptions('ml', '');
   buildCatOptions('fbla', '');
   bindCfg();
-  renderHist();
+  loadView();
   recompute();
 }
 function debounce(fn, ms) { let t; return function () { clearTimeout(t); t = setTimeout(() => fn.apply(this, arguments), ms); }; }
