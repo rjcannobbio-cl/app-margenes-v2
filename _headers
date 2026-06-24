@@ -1,0 +1,4 @@
+# Cloudflare Pages: forzar revalidación para que cada deploy se vea sin hard refresh.
+# no-cache = el navegador puede guardar, pero debe revalidar con el servidor (304 si no cambió).
+/*
+  Cache-Control: no-cache
