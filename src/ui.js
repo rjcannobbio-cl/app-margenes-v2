@@ -259,6 +259,26 @@ async function histClear() {
 }
 function newId() { return (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(16).slice(2)); }
 
+/* ---------------- Parámetros COMPARTIDOS del equipo (KV) ---------------- */
+// factor CBM, dólar, IVA y reputación Falabella iguales para todos (la API key es personal).
+const SHARED_KEYS = ['factorCBM', 'dolar', 'iva', 'fblaRepIndex'];
+async function settingsLoad() {
+  try {
+    const r = await fetch('/api/settings');
+    if (r.ok) {
+      const s = await r.json();
+      SHARED_KEYS.forEach(k => { if (s[k] != null && !isNaN(s[k])) cfg[k] = Number(s[k]); });
+      return true;
+    }
+  } catch (e) {}
+  return false;
+}
+async function settingsSave() {
+  const payload = {};
+  SHARED_KEYS.forEach(k => payload[k] = cfg[k]);
+  try { await fetch('/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) }); } catch (e) {}
+}
+
 async function addToComparison() {
   const r = state.lastResult;
   if (!r || (!r.ml.valid && !r.fbla.valid)) { alert('Ingresa al menos un precio de venta primero.'); return; }
@@ -520,7 +540,7 @@ function bindCfg() {
     cfg.apiKey = $('cfgApiKey').value.trim();
     cfg.factorCBM = parseFloat($('cfgFactorCBM').value) || 0;
     cfg.dolar = parseFloat($('cfgDolar').value) || 0;
-    saveCfg(cfg); recompute(); renderHist();
+    saveCfg(cfg); settingsSave(); recompute(); renderHist();   // settingsSave: propaga al equipo
     if (!$('tabHist').classList.contains('hidden')) renderHistorial();   // recalcula el historial con los nuevos factor CBM / dólar
     $('cfgSaved').textContent = '✓ guardado'; setTimeout(() => $('cfgSaved').textContent = '', 1500);
   };
@@ -557,6 +577,18 @@ function init() {
   bindCfg();
   loadView();
   recompute();
+
+  // Trae los parámetros compartidos del equipo y, si existen, sobreescriben los locales.
+  (async () => {
+    if (await settingsLoad()) {
+      $('cfgFactorCBM').value = cfg.factorCBM;
+      $('cfgDolar').value = cfg.dolar;
+      $('cfgIva').value = cfg.iva;
+      $('cfgRep').value = String(cfg.fblaRepIndex);
+      recompute(); renderHist();
+      if (!$('tabHist').classList.contains('hidden')) renderHistorial();
+    }
+  })();
 }
 function debounce(fn, ms) { let t; return function () { clearTimeout(t); t = setTimeout(() => fn.apply(this, arguments), ms); }; }
 

@@ -60,7 +60,10 @@ Pasos (una vez):
 3. **Retry deployment** (Deployments → ⋯).
 
 Listo: la Function `functions/api/products.js` guarda en KV y todos ven el mismo Historial.
-Mientras no configures el binding, la app funciona con historial local de cada navegador (y lo avisa).
+El mismo binding `MARGENES_KV` también guarda los **parámetros compartidos** (factor CBM, dólar,
+IVA, reputación Falabella) vía `functions/api/settings.js`, para que todo el equipo use los mismos
+valores y el historial sea consistente. (La API key de IA es personal de cada navegador.)
+Mientras no configures el binding, la app funciona con historial y parámetros locales de cada navegador.
 Recomendado combinarlo con **Cloudflare Access** (paso 5) para limitar el acceso al equipo.
 
 > Nota: dejamos de usar el Google Sheet/Apps Script (`google-apps-script.gs` y la variable
