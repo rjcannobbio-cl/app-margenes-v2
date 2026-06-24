@@ -340,21 +340,40 @@ function nuevoProducto() {
   $('inpNombre').focus();
 }
 
+// Recalcula los OUTPUTS de un registro desde sus inputs guardados + los parámetros
+// ACTUALES (factor CBM, dólar, IVA). Así, al cambiar esos parámetros, todo el
+// historial refleja los valores nuevos sin tener que volver a guardar cada producto.
+function deriveOutputs(x) {
+  const cbmUnit = ((x.alto || 0) * (x.ancho || 0) * (x.largo || 0)) / 1000000;
+  const cogs = computeLanded(x.fob || 0, cbmUnit, cfg.factorCBM, cfg.dolar, cfg);
+  const weight = billableWeight(x.peso || 0, x.alto || 0, x.ancho || 0, x.largo || 0, VOL_DIVISOR);
+  const ml = computeChannel('ml', x.precioML || 0, cogs, x.mlComPct || 0, weight, !!x.isSuper, cfg);
+  const fb = computeChannel('fbla', x.precioFB || 0, cogs, x.fbComPct || 0, weight, false, cfg);
+  return {
+    cogs, mlPrice: ml.price, mlMargin: ml.margin, mlMarginPct: ml.marginPct,
+    fbPrice: fb.price, fbMargin: fb.margin, fbMarginPct: fb.marginPct
+  };
+}
+function packSummary(x) {
+  const d = [x.alto, x.largo, x.ancho].map(v => (v || v === 0) ? v : '–').join('×');
+  return d + ' · ' + ((x.peso || x.peso === 0) ? x.peso : '–') + ' kg';
+}
+
 function renderHist() {
   const h = viewList;
   const wrap = $('histWrap');
   if (!h.length) { wrap.innerHTML = '<p class="muted">Aún no agregas productos a la comparación.</p>'; return; }
-  const rows = h.map((x, i) => `
+  const rows = h.map((x, i) => { const o = deriveOutputs(x); return `
     <tr data-i="${i}" title="Clic para cargar este producto">
       <td>${escapeHtml(x.nombre)}</td>
       <td>${escapeHtml(x.proveedor || '')}</td>
-      <td>${fmtCLP(x.cogs)}</td>
-      <td>${fmtCLP(x.mlPrice)}</td>
-      <td class="${marginClass(x.mlMarginPct)}">${fmtCLP(x.mlMargin)} · ${fmtPct(x.mlMarginPct)}</td>
-      <td>${fmtCLP(x.fbPrice)}</td>
-      <td class="${marginClass(x.fbMarginPct)}">${fmtCLP(x.fbMargin)} · ${fmtPct(x.fbMarginPct)}</td>
+      <td>${fmtCLP(o.cogs)}</td>
+      <td>${fmtCLP(o.mlPrice)}</td>
+      <td class="${marginClass(o.mlMarginPct)}">${fmtCLP(o.mlMargin)} · ${fmtPct(o.mlMarginPct)}</td>
+      <td>${fmtCLP(o.fbPrice)}</td>
+      <td class="${marginClass(o.fbMarginPct)}">${fmtCLP(o.fbMargin)} · ${fmtPct(o.fbMarginPct)}</td>
       <td><button class="mini" data-del="${x.id || ''}" title="Quitar">✕</button></td>
-    </tr>`).join('');
+    </tr>`; }).join('');
   wrap.innerHTML = `<table class="histtab">
     <thead><tr><th>Producto</th><th>Proveedor</th><th>COGS</th><th>Precio ML</th><th>Margen ML</th><th>Precio Fala</th><th>Margen Fala</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table>
@@ -379,10 +398,11 @@ function exportCSV() {
   const q = s => '"' + (s || '').toString().replace(/"/g, '""') + '"';
   const lines = [head.join(';')];
   for (const x of h) {
+    const o = deriveOutputs(x);
     lines.push([
       q(x.nombre), q(x.proveedor), q(x.cotizacion),
-      Math.round(x.cogs), Math.round(x.mlPrice), Math.round(x.mlMargin), (x.mlMarginPct || 0).toFixed(1).replace('.', ','),
-      Math.round(x.fbPrice), Math.round(x.fbMargin), (x.fbMarginPct || 0).toFixed(1).replace('.', ',')
+      Math.round(o.cogs), Math.round(o.mlPrice), Math.round(o.mlMargin), (o.mlMarginPct || 0).toFixed(1).replace('.', ','),
+      Math.round(o.fbPrice), Math.round(o.fbMargin), (o.fbMarginPct || 0).toFixed(1).replace('.', ',')
     ].join(';'));
   }
   const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
@@ -407,38 +427,58 @@ function compositeId(x) {
 }
 
 let _histAll = [];
+let packExpanded = false;   // packaging (alto/largo/ancho/peso) agrupado por defecto
+
 async function renderHistorial() {
   const all = await histLoad();
   _histAll = all;
-  $('histCount').textContent = all.length + (all.length === 1 ? ' producto' : ' productos') + (_histBackend ? ' · compartido' : ' · solo local');
+  // filtro por producto / SKU / proveedor / cotización
+  const q = normalize(($('histFilter') && $('histFilter').value) || '');
+  const filtered = q
+    ? all.filter(x => normalize([x.nombre, x.skuProveedor, x.proveedor, x.cotizacion].join(' ')).includes(q))
+    : all;
+  $('histCount').textContent = (q ? (filtered.length + '/' + all.length) : all.length) +
+    ' producto' + ((q ? filtered.length : all.length) === 1 ? '' : 's') + (_histBackend ? ' · compartido' : ' · solo local');
   const wrap = $('histDbWrap');
   if (!all.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Aún no hay productos evaluados. Agrégalos desde la pestaña Calculadora.</p>'; return; }
+  if (!filtered.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Sin resultados para “' + escapeHtml($('histFilter').value) + '”.</p>'; return; }
   const cell = v => (v || v === 0) ? v : '';
-  const rows = all.map((x, i) => `
+
+  const packHead = packExpanded
+    ? `<th class="pack-toggle" title="Agrupar packaging">📦 ◂ Alto</th><th>Largo</th><th>Ancho</th><th>Peso</th>`
+    : `<th class="pack-toggle" title="Expandir packaging">📦 Packaging ▸</th>`;
+  const packCells = x => packExpanded
+    ? `<td>${cell(x.alto)}</td><td>${cell(x.largo)}</td><td>${cell(x.ancho)}</td><td>${cell(x.peso)}</td>`
+    : `<td>${escapeHtml(packSummary(x))}</td>`;
+
+  const rows = filtered.map((x, i) => { const o = deriveOutputs(x); return `
     <tr data-i="${i}" title="Clic para cargar este producto en la calculadora">
       <td>${escapeHtml(compositeId(x))}</td>
       <td>${escapeHtml(x.nombre || '')}</td>
       <td>${escapeHtml(x.proveedor || '')}</td>
       <td>${escapeHtml(x.cotizacion || '')}</td>
-      <td>${cell(x.alto)}</td><td>${cell(x.largo)}</td><td>${cell(x.ancho)}</td><td>${cell(x.peso)}</td>
+      ${packCells(x)}
       <td>${x.fob ? ('US$' + x.fob) : ''}</td>
-      <td>${fmtCLP(x.cogs)}</td>
+      <td>${fmtCLP(o.cogs)}</td>
       <td>${x.isSuper ? 'Sí' : 'No'}</td>
       <td>${escapeHtml(x.mlCatName || '')}</td>
-      <td>${fmtCLP(x.mlPrice)}</td>
-      <td class="${marginClass(x.mlMarginPct)}">${fmtPct(x.mlMarginPct)}</td>
-      <td>${fmtCLP(x.fbPrice)}</td>
-      <td class="${marginClass(x.fbMarginPct)}">${fmtPct(x.fbMarginPct)}</td>
+      <td>${fmtCLP(o.mlPrice)}</td>
+      <td class="${marginClass(o.mlMarginPct)}">${fmtPct(o.mlMarginPct)}</td>
+      <td>${fmtCLP(o.fbPrice)}</td>
+      <td class="${marginClass(o.fbMarginPct)}">${fmtPct(o.fbMarginPct)}</td>
       <td><button class="mini" data-del="${x.id || ''}" title="Eliminar del historial">✕</button></td>
-    </tr>`).join('');
+    </tr>`; }).join('');
   wrap.innerHTML = `<table class="histtab dbtab"><thead><tr>
     <th>ID</th><th>Nombre producto</th><th>Proveedor</th><th>N° Cotización</th>
-    <th>Alto</th><th>Largo</th><th>Ancho</th><th>Peso</th><th>Costo FOB</th><th>Landed COGS</th>
+    ${packHead}<th>Costo FOB</th><th>Landed COGS</th>
     <th>Súper</th><th>Categoría ML</th><th>Precio Meli</th><th>Margen Meli</th><th>Precio Fala</th><th>Margen Fala</th><th></th>
   </tr></thead><tbody>${rows}</tbody></table>`;
+
+  const toggle = wrap.querySelector('.pack-toggle');
+  if (toggle) toggle.onclick = (e) => { e.stopPropagation(); packExpanded = !packExpanded; renderHistorial(); };
   wrap.querySelectorAll('tr[data-i]').forEach(tr => tr.onclick = (e) => {
-    if (e.target.closest('button')) return;
-    showTab('calc'); loadFromHist(all[parseInt(tr.dataset.i, 10)]);
+    if (e.target.closest('button') || e.target.closest('.pack-toggle')) return;
+    showTab('calc'); loadFromHist(filtered[parseInt(tr.dataset.i, 10)]);
   });
   wrap.querySelectorAll('button[data-del]').forEach(b => b.onclick = async (e) => {
     e.stopPropagation();
@@ -455,11 +495,14 @@ function exportHistorialCSV() {
   const n = v => (v == null || isNaN(v)) ? '' : Math.round(v);
   const p = v => (v == null || isNaN(v)) ? '' : Number(v).toFixed(1).replace('.', ',');
   const lines = [head.join(';')];
-  for (const x of h) lines.push([
-    q(compositeId(x)), q(x.nombre), q(x.proveedor), q(x.cotizacion),
-    (x.alto || ''), (x.largo || ''), (x.ancho || ''), (x.peso || ''), (x.fob || ''), n(x.cogs),
-    x.isSuper ? 'Sí' : 'No', q(x.mlCatName), n(x.mlPrice), p(x.mlMarginPct), n(x.fbPrice), p(x.fbMarginPct)
-  ].join(';'));
+  for (const x of h) {
+    const o = deriveOutputs(x);
+    lines.push([
+      q(compositeId(x)), q(x.nombre), q(x.proveedor), q(x.cotizacion),
+      (x.alto || ''), (x.largo || ''), (x.ancho || ''), (x.peso || ''), (x.fob || ''), n(o.cogs),
+      x.isSuper ? 'Sí' : 'No', q(x.mlCatName), n(o.mlPrice), p(o.mlMarginPct), n(o.fbPrice), p(o.fbMarginPct)
+    ].join(';'));
+  }
   const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'historial_productos.csv'; a.click();
 }
@@ -477,7 +520,8 @@ function bindCfg() {
     cfg.apiKey = $('cfgApiKey').value.trim();
     cfg.factorCBM = parseFloat($('cfgFactorCBM').value) || 0;
     cfg.dolar = parseFloat($('cfgDolar').value) || 0;
-    saveCfg(cfg); recompute();
+    saveCfg(cfg); recompute(); renderHist();
+    if (!$('tabHist').classList.contains('hidden')) renderHistorial();   // recalcula el historial con los nuevos factor CBM / dólar
     $('cfgSaved').textContent = '✓ guardado'; setTimeout(() => $('cfgSaved').textContent = '', 1500);
   };
   $('cfgToggle').onclick = () => $('cfgBody').classList.toggle('hidden');
@@ -501,6 +545,7 @@ function init() {
   document.querySelectorAll('.tab').forEach(t => t.onclick = () => showTab(t.dataset.tab));
   $('btnHistRefresh').onclick = renderHistorial;
   $('btnHistExport').onclick = exportHistorialCSV;
+  $('histFilter').addEventListener('input', debounce(renderHistorial, 200));
 
   $('btnAdd').onclick = addToComparison;
   $('btnNew').onclick = nuevoProducto;
