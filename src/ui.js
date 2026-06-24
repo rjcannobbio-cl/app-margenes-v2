@@ -276,7 +276,45 @@ async function settingsLoad() {
 async function settingsSave() {
   const payload = {};
   SHARED_KEYS.forEach(k => payload[k] = cfg[k]);
+  _setSig = JSON.stringify(SHARED_KEYS.map(k => cfg[k]));
   try { await fetch('/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) }); } catch (e) {}
+}
+
+/* ---------------- Sincronización en vivo (sin recargar) ---------------- */
+// ¿el usuario está editando los campos de Parámetros? (para no pisar lo que escribe)
+function editingCfg() {
+  const a = document.activeElement;
+  return a && ['cfgFactorCBM', 'cfgDolar', 'cfgIva', 'cfgRep', 'cfgApiKey'].includes(a.id);
+}
+function applySharedSettings(s) {
+  SHARED_KEYS.forEach(k => { if (s[k] != null && !isNaN(s[k])) cfg[k] = Number(s[k]); });
+  saveCfg(cfg);
+  $('cfgFactorCBM').value = cfg.factorCBM; $('cfgDolar').value = cfg.dolar;
+  $('cfgIva').value = cfg.iva; $('cfgRep').value = String(cfg.fblaRepIndex);
+  recompute(); renderHist();
+  if (!$('tabHist').classList.contains('hidden')) paintHistorial();
+}
+// Consulta el servidor y actualiza si algo cambió (cada cierto tiempo y al volver a la pestaña).
+async function liveTick() {
+  if (document.hidden) return;
+  try {
+    const r = await fetch('/api/settings');
+    if (r.ok) {
+      const s = await r.json();
+      const sig = JSON.stringify(SHARED_KEYS.map(k => s[k]));
+      if (sig !== _setSig) { _setSig = sig; if (!editingCfg()) applySharedSettings(s); }
+    }
+  } catch (e) {}
+  if (!$('tabHist').classList.contains('hidden')) {
+    try {
+      const r = await fetch('/api/products');
+      if (r.ok) {
+        const list = await r.json();
+        const sig = JSON.stringify(list);
+        if (sig !== _histSig) { _histSig = sig; _histAll = list; paintHistorial(); }
+      }
+    } catch (e) {}
+  }
 }
 
 async function addToComparison() {
@@ -447,11 +485,16 @@ function compositeId(x) {
 }
 
 let _histAll = [];
+let _histSig = '', _setSig = '';   // firmas para detectar cambios en la sincronización en vivo
 let packExpanded = false;   // packaging (alto/largo/ancho/peso) agrupado por defecto
 
 async function renderHistorial() {
-  const all = await histLoad();
-  _histAll = all;
+  _histAll = await histLoad();
+  _histSig = JSON.stringify(_histAll);
+  paintHistorial();
+}
+function paintHistorial() {
+  const all = _histAll;
   // filtro por producto / SKU / proveedor / cotización
   const q = normalize(($('histFilter') && $('histFilter').value) || '');
   const filtered = q
@@ -588,7 +631,13 @@ function init() {
       recompute(); renderHist();
       if (!$('tabHist').classList.contains('hidden')) renderHistorial();
     }
+    _setSig = JSON.stringify(SHARED_KEYS.map(k => cfg[k]));
   })();
+
+  // Sincronización en vivo: cada 15 s y al volver a la pestaña/ventana.
+  setInterval(liveTick, 15000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) liveTick(); });
+  window.addEventListener('focus', liveTick);
 }
 function debounce(fn, ms) { let t; return function () { clearTimeout(t); t = setTimeout(() => fn.apply(this, arguments), ms); }; }
 
