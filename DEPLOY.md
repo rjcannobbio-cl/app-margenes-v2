@@ -77,7 +77,8 @@ La pestaña **Catálogo** se llena con datos reales de ProfitGuard:
 Pasos (una vez):
 1. En ProfitGuard, crear una **API key dedicada para la app** (no compartir la personal de nadie).
 2. Cloudflare → tu proyecto de Pages → **Settings → Variables and Secrets → Add**:
-   - Nombre: **`PG_API_KEY`** (exacto) · Valor: la key de PG · tipo **Secret (encrypt)**.
+   - Nombre: **`app-margenes-pg-api-key`** · Valor: la key de PG · tipo **Secret (encrypt)**.
+   - (La Function también acepta `PG_API_KEY` si prefieres ese nombre.)
 3. **Retry deployment** para que tome la variable.
 
 Uso (cada vez que cambie el catálogo en PG):
