@@ -293,7 +293,9 @@ function applySharedSettings(s) {
   $('cfgIva').value = cfg.iva; $('cfgRep').value = String(cfg.fblaRepIndex);
   recompute(); renderHist();
   if (!$('tabHist').classList.contains('hidden')) paintHistorial();
+  if (!$('tabCat').classList.contains('hidden')) paintCatalogo();
 }
+let _catSig = '';
 // Consulta el servidor y actualiza si algo cambió (cada cierto tiempo y al volver a la pestaña).
 async function liveTick() {
   if (document.hidden) return;
@@ -312,6 +314,16 @@ async function liveTick() {
         const list = await r.json();
         const sig = JSON.stringify(list);
         if (sig !== _histSig) { _histSig = sig; _histAll = list; paintHistorial(); }
+      }
+    } catch (e) {}
+  }
+  if (!$('tabCat').classList.contains('hidden') && !document.activeElement.classList.contains('cat-price')) {
+    try {
+      const r = await fetch('/api/catalog');
+      if (r.ok) {
+        const list = await r.json();
+        const sig = JSON.stringify(list);
+        if (sig !== _catSig) { _catSig = sig; _catAll = list; paintCatalogo(); }
       }
     } catch (e) {}
   }
@@ -475,8 +487,10 @@ function escapeHtml(s) { return (s || '').replace(/[&<>]/g, c => ({ '&': '&amp;'
 function showTab(name) {
   $('tabCalc').classList.toggle('hidden', name !== 'calc');
   $('tabHist').classList.toggle('hidden', name !== 'hist');
+  $('tabCat').classList.toggle('hidden', name !== 'cat');
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   if (name === 'hist') renderHistorial();
+  if (name === 'cat') renderCatalogo();
 }
 
 function compositeId(x) {
@@ -570,6 +584,112 @@ function exportHistorialCSV() {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'historial_productos.csv'; a.click();
 }
 
+/* ---------------- Catálogo (DB compartida + simulación en vivo) ---------------- */
+const CAT_KEY = 'mpcat';
+let _catBackend = null, _catAll = [];
+
+function catLocalLoad() { try { return JSON.parse(localStorage.getItem(CAT_KEY) || '[]'); } catch (e) { return []; } }
+function catLocalSave(h) { localStorage.setItem(CAT_KEY, JSON.stringify(h)); }
+async function catLoad() {
+  if (_catBackend !== false) {
+    try { const r = await fetch('/api/catalog'); if (r.ok) { _catBackend = true; return await r.json(); } _catBackend = false; } catch (e) { _catBackend = false; }
+  }
+  return catLocalLoad();
+}
+async function catUpsert(item) {
+  if (_catBackend) { try { const r = await fetch('/api/catalog', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(item) }); if (r.ok) return; } catch (e) {} }
+  const h = catLocalLoad(); const i = h.findIndex(x => x.id === item.id); if (i >= 0) h[i] = item; else h.push(item); catLocalSave(h);
+}
+
+// Landed COGS + márgenes % a los 3 precios, con los parámetros ACTUALES (dólar, factor CBM).
+function catMargins(x) {
+  const cbmUnit = ((x.alto || 0) * (x.ancho || 0) * (x.largo || 0)) / 1000000;
+  const cogs = computeLanded(x.fob || 0, cbmUnit, cfg.factorCBM, cfg.dolar, cfg);
+  const weight = billableWeight(x.peso || 0, x.alto || 0, x.ancho || 0, x.largo || 0, VOL_DIVISOR);
+  const m = price => {
+    const p = parseFloat(price) || 0;
+    if (!p) return { ml: null, fa: null };
+    return {
+      ml: computeChannel('ml', p, cogs, x.mlComPct || 0, weight, !!x.isSuper, cfg).marginPct,
+      fa: computeChannel('fbla', p, cogs, x.fbComPct || 0, weight, false, cfg).marginPct
+    };
+  };
+  return { cogs, full: m(x.precioFull), aon: m(x.precioAON), dod: m(x.precioDOD) };
+}
+
+const _catSavers = {};
+function catSaveDebounced(item) {
+  clearTimeout(_catSavers[item.id]);
+  _catSavers[item.id] = setTimeout(() => catUpsert(item), 600);
+}
+
+async function renderCatalogo() {
+  _catAll = await catLoad();
+  paintCatalogo();
+}
+function paintCatalogo() {
+  const q = normalize(($('catFilter') && $('catFilter').value) || '');
+  const filtered = q ? _catAll.filter(x => normalize([x.sku, x.titulo, x.proveedor].join(' ')).includes(q)) : _catAll;
+  $('catCount').textContent = (q ? filtered.length + '/' + _catAll.length : _catAll.length) +
+    ' ítem' + ((q ? filtered.length : _catAll.length) === 1 ? '' : 's') + (_catBackend ? ' · compartido' : ' · solo local');
+  const wrap = $('catDbWrap');
+  if (!_catAll.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">El catálogo está vacío. Se carga sincronizando desde ProfitGuard (ver con el equipo).</p>'; return; }
+  if (!filtered.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Sin resultados.</p>'; return; }
+  const cell = v => (v || v === 0) ? v : '';
+  const mc = (key, v) => `<td class="mcell ${v == null ? '' : marginClass(v)}" data-cell="${key}">${v == null ? '–' : fmtPct(v)}</td>`;
+  const priceInput = (x, field) => `<td><input type="number" class="cat-price" data-id="${x.id}" data-field="${field}" value="${x[field] || ''}" placeholder="–" min="0" step="1"></td>`;
+  const rows = filtered.map(x => { const r = catMargins(x); return `
+    <tr data-id="${x.id}">
+      <td>${escapeHtml(x.sku || '')}</td>
+      <td title="${escapeHtml(x.titulo || '')}" style="max-width:240px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(x.titulo || '')}</td>
+      <td>${cell(x.largo)}</td><td>${cell(x.alto)}</td><td>${cell(x.ancho)}</td><td>${cell(x.peso)}</td>
+      <td>${x.fob ? ('US$' + x.fob) : ''}</td>
+      <td>${escapeHtml(x.proveedor || '')}</td>
+      <td>${escapeHtml(x.puerto || '')}</td>
+      <td class="mcell" data-cell="cogs">${fmtCLP(r.cogs)}</td>
+      ${priceInput(x, 'precioFull')}${mc('full-ml', r.full.ml)}${mc('full-fa', r.full.fa)}
+      ${priceInput(x, 'precioAON')}${mc('aon-ml', r.aon.ml)}${mc('aon-fa', r.aon.fa)}
+      ${priceInput(x, 'precioDOD')}${mc('dod-ml', r.dod.ml)}${mc('dod-fa', r.dod.fa)}
+    </tr>`; }).join('');
+  wrap.innerHTML = `<table class="histtab dbtab" style="min-width:1700px"><thead><tr>
+    <th>SKU</th><th>Título</th><th>Largo</th><th>Alto</th><th>Ancho</th><th>Peso</th><th>Precio FOB</th><th>Proveedor</th><th>Puerto</th><th>Landed COGS</th>
+    <th>Precio Full</th><th>Margen PF Meli</th><th>Margen PF Fala</th>
+    <th>Precio AON</th><th>Margen AON Meli</th><th>Margen AON Fala</th>
+    <th>Precio DOD</th><th>Margen DOD Meli</th><th>Margen DOD Fala</th>
+  </tr></thead><tbody>${rows}</tbody></table>`;
+  wrap.querySelectorAll('input.cat-price').forEach(inp => inp.addEventListener('input', () => {
+    const item = _catAll.find(x => x.id === inp.dataset.id);
+    if (!item) return;
+    item[inp.dataset.field] = parseFloat(inp.value) || 0;
+    updateCatRow(inp.closest('tr'), item);
+    catSaveDebounced(item);
+  }));
+}
+function updateCatRow(tr, item) {
+  const r = catMargins(item);
+  const set = (key, v) => { const td = tr.querySelector(`[data-cell="${key}"]`); if (!td) return; td.textContent = (key === 'cogs') ? fmtCLP(v) : (v == null ? '–' : fmtPct(v)); if (key !== 'cogs') td.className = 'mcell ' + (v == null ? '' : marginClass(v)); };
+  set('cogs', r.cogs);
+  set('full-ml', r.full.ml); set('full-fa', r.full.fa);
+  set('aon-ml', r.aon.ml); set('aon-fa', r.aon.fa);
+  set('dod-ml', r.dod.ml); set('dod-fa', r.dod.fa);
+}
+function exportCatalogoCSV() {
+  if (!_catAll.length) { alert('El catálogo está vacío.'); return; }
+  const head = ['SKU', 'Título', 'Largo', 'Alto', 'Ancho', 'Peso', 'Precio FOB', 'Proveedor', 'Puerto', 'Landed COGS',
+    'Precio Full', 'Margen PF Meli %', 'Margen PF Fala %', 'Precio AON', 'Margen AON Meli %', 'Margen AON Fala %', 'Precio DOD', 'Margen DOD Meli %', 'Margen DOD Fala %'];
+  const q = s => '"' + (s == null ? '' : s).toString().replace(/"/g, '""') + '"';
+  const n = v => (v == null || isNaN(v)) ? '' : Math.round(v);
+  const p = v => (v == null || isNaN(v)) ? '' : Number(v).toFixed(1).replace('.', ',');
+  const lines = [head.join(';')];
+  for (const x of _catAll) {
+    const r = catMargins(x);
+    lines.push([q(x.sku), q(x.titulo), x.largo || '', x.alto || '', x.ancho || '', x.peso || '', x.fob || '', q(x.proveedor), q(x.puerto), n(r.cogs),
+      x.precioFull || '', p(r.full.ml), p(r.full.fa), x.precioAON || '', p(r.aon.ml), p(r.aon.fa), x.precioDOD || '', p(r.dod.ml), p(r.dod.fa)].join(';'));
+  }
+  const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'catalogo_margenes.csv'; a.click();
+}
+
 /* ---------------- Panel de parámetros ---------------- */
 function bindCfg() {
   $('cfgRep').value = String(cfg.fblaRepIndex);
@@ -585,6 +705,7 @@ function bindCfg() {
     cfg.dolar = parseFloat($('cfgDolar').value) || 0;
     saveCfg(cfg); settingsSave(); recompute(); renderHist();   // settingsSave: propaga al equipo
     if (!$('tabHist').classList.contains('hidden')) renderHistorial();   // recalcula el historial con los nuevos factor CBM / dólar
+    if (!$('tabCat').classList.contains('hidden')) paintCatalogo();      // y el catálogo
     $('cfgSaved').textContent = '✓ guardado'; setTimeout(() => $('cfgSaved').textContent = '', 1500);
   };
   $('cfgToggle').onclick = () => $('cfgBody').classList.toggle('hidden');
@@ -609,6 +730,9 @@ function init() {
   $('btnHistRefresh').onclick = renderHistorial;
   $('btnHistExport').onclick = exportHistorialCSV;
   $('histFilter').addEventListener('input', debounce(renderHistorial, 200));
+  $('btnCatRefresh').onclick = renderCatalogo;
+  $('btnCatExport').onclick = exportCatalogoCSV;
+  $('catFilter').addEventListener('input', debounce(paintCatalogo, 200));
 
   $('btnAdd').onclick = addToComparison;
   $('btnNew').onclick = nuevoProducto;

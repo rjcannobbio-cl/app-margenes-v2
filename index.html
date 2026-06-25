@@ -37,6 +37,9 @@
   .hist-filter{max-width:360px;flex:1 1 240px}
   .pack-toggle{cursor:pointer;user-select:none;white-space:nowrap}
   .pack-toggle:hover{filter:brightness(1.12)}
+  .cat-price{width:92px;padding:5px 7px;font-size:12px;text-align:right;background:#15151a;border:1px solid var(--line);color:var(--ink);border-radius:6px}
+  .cat-price:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(255,102,0,.18);outline:none}
+  .dbtab td.mcell{font-weight:700;text-align:right}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start}
   @media(max-width:980px){.grid{grid-template-columns:1fr}}
   .catrow{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
@@ -133,6 +136,7 @@
   <div class="tabs">
     <button class="tab active" data-tab="calc" type="button">Calculadora</button>
     <button class="tab" data-tab="hist" type="button">Historial</button>
+    <button class="tab" data-tab="cat" type="button">Catálogo</button>
   </div>
 
   <div id="tabCalc">
@@ -250,6 +254,17 @@
       <span class="muted" id="histCount"></span>
     </div>
     <div id="histDbWrap" class="db-wrap"></div>
+  </div>
+
+  <div id="tabCat" class="hidden">
+    <div class="hist-actions">
+      <input type="text" id="catFilter" class="hist-filter" placeholder="Filtrar: SKU, título, proveedor…">
+      <button class="btn ghost" id="btnCatRefresh" type="button">↻ Actualizar</button>
+      <button class="btn ghost" id="btnCatExport" type="button">Exportar CSV</button>
+      <span class="muted" id="catCount"></span>
+    </div>
+    <div class="hint" style="margin-bottom:10px">Los márgenes se recalculan en vivo con el factor CBM y el dólar de Parámetros. Los precios Full / AON / DOD son editables (clic en la celda) y persisten.</div>
+    <div id="catDbWrap" class="db-wrap"></div>
   </div>
 </div>
 
