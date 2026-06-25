@@ -666,7 +666,15 @@ function loadXLSX() {
   });
   return _xlsxP;
 }
-const _num = v => { const n = parseFloat(String(v == null ? '' : v).replace(/\./g, '').replace(',', '.')); return isNaN(n) ? '' : n; };
+// Convierte a número. Si SheetJS ya entregó un número (ej. 1.5), se usa tal cual.
+// Solo si es texto se interpreta formato chileno: '.' miles, ',' decimal ("34.990" → 34990, "1,5" → 1.5).
+const _num = v => {
+  if (typeof v === 'number') return isNaN(v) ? '' : v;
+  const s = String(v == null ? '' : v).trim();
+  if (!s) return '';
+  const n = parseFloat(s.replace(/\./g, '').replace(',', '.'));
+  return isNaN(n) ? '' : n;
+};
 const _pick = (row, names) => { for (const n of names) { for (const k in row) { if (normalize(k) === normalize(n)) return row[k]; } } return ''; };
 
 // Importa el Excel de ProfitGuard (Productos): cruza por SKU y completa
