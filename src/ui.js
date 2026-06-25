@@ -625,7 +625,104 @@ function catSaveDebounced(item) {
 
 async function renderCatalogo() {
   _catAll = await catLoad();
+  _catSig = JSON.stringify(_catAll);
   paintCatalogo();
+}
+function setCatStatus(msg, isErr) {
+  const el = $('catStatus'); if (!el) return;
+  el.textContent = msg || ''; el.style.color = isErr ? 'var(--bad)' : 'var(--muted)';
+}
+// Reemplaza TODO el catálogo en el backend (o local).
+async function catReplace(items) {
+  if (_catBackend !== false) {
+    try { const r = await fetch('/api/catalog', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(items) }); if (r.ok) { _catBackend = true; return true; } _catBackend = false; } catch (e) { _catBackend = false; }
+  }
+  catLocalSave(items); return false;
+}
+
+// Sincroniza FOB / proveedor / puerto desde ProfitGuard (server-side, key secreta).
+async function syncFromPG() {
+  if (!confirm('Sincronizar el catálogo con ProfitGuard (FOB, proveedor, puerto)?\nSe conservan las dimensiones y precios cargados desde el Excel.')) return;
+  setCatStatus('Sincronizando con ProfitGuard…');
+  try {
+    const r = await fetch('/api/pg-sync', { method: 'POST' });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { setCatStatus('Error: ' + (j.error || r.status) + (j.detail ? ' — ' + j.detail : ''), true); return; }
+    setCatStatus(`✓ ${j.items} filas desde ${j.sourcings} sourcings de PG. Ahora importa el Excel para dims y precios.`);
+    await renderCatalogo();
+  } catch (e) { setCatStatus('Error de red al sincronizar: ' + e.message, true); }
+}
+
+// Carga SheetJS (una vez) para leer el .xlsx en el navegador.
+let _xlsxP = null;
+function loadXLSX() {
+  if (window.XLSX) return Promise.resolve();
+  if (_xlsxP) return _xlsxP;
+  _xlsxP = new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = res; s.onerror = () => rej(new Error('no se pudo cargar la librería XLSX'));
+    document.head.appendChild(s);
+  });
+  return _xlsxP;
+}
+const _num = v => { const n = parseFloat(String(v == null ? '' : v).replace(/\./g, '').replace(',', '.')); return isNaN(n) ? '' : n; };
+const _pick = (row, names) => { for (const n of names) { for (const k in row) { if (normalize(k) === normalize(n)) return row[k]; } } return ''; };
+
+// Importa el Excel de ProfitGuard (Productos): cruza por SKU y completa
+// dimensiones + precios Full/AON; deduce comisión por categoría (local).
+async function importCatalogExcel(file) {
+  try {
+    setCatStatus('Leyendo ' + file.name + '…');
+    await loadXLSX();
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+    const sh = wb.Sheets['Productos'] || wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sh, { defval: '' });
+    if (!rows.length) { setCatStatus('El Excel no tiene filas.', true); return; }
+
+    // Datos del Excel por SKU.
+    const bySku = {};
+    for (const row of rows) {
+      const sku = String(_pick(row, ['SKU'])).trim(); if (!sku) continue;
+      bySku[sku] = {
+        titulo: String(_pick(row, ['Nombre', 'Título', 'Titulo'])).trim(),
+        alto: _num(_pick(row, ['Alto'])), ancho: _num(_pick(row, ['Ancho'])), largo: _num(_pick(row, ['Largo'])), peso: _num(_pick(row, ['Peso'])),
+        precioFull: _num(_pick(row, ['Precio full', 'Precio Full'])), precioAON: _num(_pick(row, ['Precio AON', 'Precio aon']))
+      };
+    }
+
+    // Base: catálogo actual (idealmente ya sincronizado desde PG). Si está vacío,
+    // creamos filas a partir del Excel (sin FOB/proveedor — solo para no perder datos).
+    let base = _catAll && _catAll.length ? _catAll.slice() : [];
+    if (!base.length) base = Object.keys(bySku).map(sku => ({ id: 'xls-' + sku, sku, fob: 0, proveedor: '', puerto: '' }));
+
+    let matched = 0;
+    for (const item of base) {
+      const e = bySku[item.sku]; if (!e) continue;
+      matched++;
+      item.titulo = item.titulo || e.titulo;
+      item.alto = e.alto; item.ancho = e.ancho; item.largo = e.largo; item.peso = e.peso;
+      item.precioFull = e.precioFull; item.precioAON = e.precioAON;
+    }
+
+    // Comisión por categoría (deducción local, en chunks para no congelar la UI).
+    setCatStatus('Deduciendo categorías y comisiones… 0/' + base.length);
+    for (let i = 0; i < base.length; i++) {
+      const t = base[i].titulo || '';
+      if (t) {
+        const mi = deduceCategory(t, ML_CATEGORIES, 'name').index;
+        const fi = deduceCategory(t, FBLA_CATEGORIES, 'name').index;
+        if (mi >= 0) { base[i].mlCatName = catName('ml', mi); base[i].mlComPct = catCost('ml', mi) || 0; }
+        if (fi >= 0) { base[i].fblaCatName = catName('fbla', fi); base[i].fbComPct = catCost('fbla', fi) || 0; }
+      }
+      if (i % 20 === 0) { setCatStatus('Deduciendo categorías y comisiones… ' + i + '/' + base.length); await new Promise(r => setTimeout(r)); }
+    }
+
+    await catReplace(base);
+    _catAll = base; _catSig = JSON.stringify(base);
+    paintCatalogo();
+    setCatStatus(`✓ Excel importado: ${matched} de ${base.length} filas cruzadas por SKU. Comisiones deducidas. DOD queda editable a mano.`);
+  } catch (e) { setCatStatus('Error importando el Excel: ' + e.message, true); }
 }
 function paintCatalogo() {
   const q = normalize(($('catFilter') && $('catFilter').value) || '');
@@ -732,6 +829,9 @@ function init() {
   $('histFilter').addEventListener('input', debounce(renderHistorial, 200));
   $('btnCatRefresh').onclick = renderCatalogo;
   $('btnCatExport').onclick = exportCatalogoCSV;
+  $('btnCatSync').onclick = syncFromPG;
+  $('btnCatImport').onclick = () => $('catFile').click();
+  $('catFile').addEventListener('change', e => { const f = e.target.files[0]; if (f) importCatalogExcel(f); e.target.value = ''; });
   $('catFilter').addEventListener('input', debounce(paintCatalogo, 200));
 
   $('btnAdd').onclick = addToComparison;

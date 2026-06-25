@@ -259,9 +259,13 @@
   <div id="tabCat" class="hidden">
     <div class="hist-actions">
       <input type="text" id="catFilter" class="hist-filter" placeholder="Filtrar: SKU, título, proveedor…">
+      <button class="btn" id="btnCatSync" type="button">🔄 Sincronizar con ProfitGuard</button>
+      <button class="btn" id="btnCatImport" type="button">⬆ Importar Excel (precios + dims)</button>
+      <input type="file" id="catFile" accept=".xlsx" style="display:none">
       <button class="btn ghost" id="btnCatRefresh" type="button">↻ Actualizar</button>
       <button class="btn ghost" id="btnCatExport" type="button">Exportar CSV</button>
       <span class="muted" id="catCount"></span>
+      <span class="muted" id="catStatus" style="flex-basis:100%;margin-top:4px"></span>
     </div>
     <div class="hint" style="margin-bottom:10px">Los márgenes se recalculan en vivo con el factor CBM y el dólar de Parámetros. Los precios Full / AON / DOD son editables (clic en la celda) y persisten.</div>
     <div id="catDbWrap" class="db-wrap"></div>

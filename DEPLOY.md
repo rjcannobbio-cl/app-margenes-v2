@@ -66,6 +66,29 @@ valores y el historial sea consistente. (La API key de IA es personal de cada na
 Mientras no configures el binding, la app funciona con historial y parámetros locales de cada navegador.
 Recomendado combinarlo con **Cloudflare Access** (paso 5) para limitar el acceso al equipo.
 
+## Catálogo en vivo desde ProfitGuard (secret `PG_API_KEY`)
+La pestaña **Catálogo** se llena con datos reales de ProfitGuard:
+- **FOB (USD), proveedor y puerto** (una fila por combinación SKU+proveedor+puerto) vienen de la API
+  de PG vía la Function server-side `functions/api/pg-sync.js`. **El COGS NO se toma de PG**: la app
+  lo simula con el FOB real + el **factor CBM y el dólar de Parámetros**.
+- **Dimensiones y precios Full/AON** vienen del **Excel de PG** (export "Productos"), que se cruza por SKU
+  con el botón "Importar Excel". El **DOD** queda editable a mano (PG no lo expone).
+
+Pasos (una vez):
+1. En ProfitGuard, crear una **API key dedicada para la app** (no compartir la personal de nadie).
+2. Cloudflare → tu proyecto de Pages → **Settings → Variables and Secrets → Add**:
+   - Nombre: **`PG_API_KEY`** (exacto) · Valor: la key de PG · tipo **Secret (encrypt)**.
+3. **Retry deployment** para que tome la variable.
+
+Uso (cada vez que cambie el catálogo en PG):
+1. En la app → pestaña **Catálogo** → **🔄 Sincronizar con ProfitGuard** (baja FOB/proveedor/puerto).
+2. Luego **⬆ Importar Excel** (descargado de PG → "Productos") para completar dims y precios Full/AON.
+   La comisión por categoría se deduce sola; los precios Full/AON/DOD son editables.
+
+> La key de PG vive **solo** en Cloudflare (secret), nunca en el navegador ni en el repo. La Function
+> corre en el servidor de Cloudflare, que **sí** puede llamar a `app.profitguard.cl` (a diferencia del
+> sandbox). El sync usa ~6 requests (paginación de `product_sourcings`), bien bajo el límite de PG.
+
 > Nota: dejamos de usar el Google Sheet/Apps Script (`google-apps-script.gs` y la variable
 > `SHEETS_WEBHOOK_URL` quedaron sin uso; puedes borrar esa variable). Si más adelante quieres
 > exportar, usa el botón "Exportar CSV" del Historial.
