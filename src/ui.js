@@ -311,7 +311,7 @@ async function liveTick() {
       if (sig !== _setSig) { _setSig = sig; if (!editingCfg()) applySharedSettings(s); }
     }
   } catch (e) {}
-  if (!$('tabHist').classList.contains('hidden')) {
+  if (!$('tabHist').classList.contains('hidden') && !document.activeElement.classList.contains('hist-price')) {
     try {
       const r = await fetch(api('/api/products'));
       if (r.ok) {
@@ -339,8 +339,11 @@ async function addToComparison() {
   const proveedor = $('inpProveedor').value.trim();
   if (!proveedor) { alert('El proveedor es obligatorio.'); $('inpProveedor').focus(); return; }
   const editing = state.editingId || null;
+  // Preserva Precio Full / DOD (se editan en el Historial) al re-guardar desde la Calculadora.
+  const prev = editing ? ((_histAll || []).find(v => v.id === editing) || viewList.find(v => v.id === editing) || {}) : {};
   const item = {
     id: editing || newId(), ts: Date.now(),
+    precioFull: (prev.precioFull != null ? prev.precioFull : ''), precioDOD: (prev.precioDOD != null ? prev.precioDOD : ''),
     fecha: new Date().toISOString().slice(0, 19).replace('T', ' '),
     nombre: r.nombre || '(sin nombre)', proveedor: proveedor, cotizacion: $('inpCotizacion').value.trim(), skuProveedor: $('inpSkuProv').value.trim(),
     alto: num('inpAlto'), ancho: num('inpAncho'), largo: num('inpLargo'), peso: num('inpPeso'), fob: num('inpFob'),
@@ -431,6 +434,22 @@ function deriveOutputs(x) {
 function packSummary(x) {
   const d = [x.alto, x.largo, x.ancho].map(v => (v || v === 0) ? v : '–').join('×');
   return d + ' · ' + ((x.peso || x.peso === 0) ? x.peso : '–') + ' kg';
+}
+// Margen % en Mercado Libre para un precio arbitrario (para las columnas Precio Full / DOD del historial).
+function histMlMarginPct(x, price) {
+  const p = parseFloat(price) || 0;
+  if (!p) return null;
+  const cbmUnit = ((x.alto || 0) * (x.ancho || 0) * (x.largo || 0)) / 1000000;
+  const cogs = computeLanded(x.fob || 0, cbmUnit, cfg.factorCBM, cfg.dolar, cfg);
+  const weight = billableWeight(x.peso || 0, x.alto || 0, x.ancho || 0, x.largo || 0, VOL_DIVISOR);
+  return computeChannel('ml', p, cogs, x.mlComPct || 0, weight, !!x.isSuper, cfg).marginPct;
+}
+const _histSavers = {};
+function histSaveDebounced(item) { clearTimeout(_histSavers[item.id]); _histSavers[item.id] = setTimeout(() => histAdd(item), 600); }
+function updateHistRow(tr, item) {
+  const set = (key, v) => { const td = tr.querySelector(`[data-hcell="${key}"]`); if (!td) return; td.textContent = v == null ? '–' : fmtPct(v); td.className = 'mcell ' + (v == null ? '' : marginClass(v)); };
+  set('full', histMlMarginPct(item, item.precioFull));
+  set('dod', histMlMarginPct(item, item.precioDOD));
 }
 
 function renderHist() {
@@ -524,6 +543,8 @@ function paintHistorial() {
   if (!all.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Aún no hay productos evaluados. Agrégalos desde la pestaña Calculadora.</p>'; return; }
   if (!filtered.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Sin resultados para “' + escapeHtml($('histFilter').value) + '”.</p>'; return; }
   const cell = v => (v || v === 0) ? v : '';
+  const hprice = (x, field) => `<td><input type="number" class="hist-price" data-id="${x.id || ''}" data-field="${field}" value="${x[field] || ''}" placeholder="–" min="0" step="1"></td>`;
+  const hmarg = (key, v) => `<td class="mcell ${v == null ? '' : marginClass(v)}" data-hcell="${key}">${v == null ? '–' : fmtPct(v)}</td>`;
 
   const packHead = packExpanded
     ? `<th class="pack-toggle" title="Agrupar packaging">📦 ◂ Alto</th><th>Largo</th><th>Ancho</th><th>Peso</th>`
@@ -547,20 +568,31 @@ function paintHistorial() {
       <td class="${marginClass(o.mlMarginPct)}">${fmtPct(o.mlMarginPct)}</td>
       <td class="fbla-col">${fmtCLP(o.fbPrice)}</td>
       <td class="fbla-col ${marginClass(o.fbMarginPct)}">${fmtPct(o.fbMarginPct)}</td>
+      ${hprice(x, 'precioFull')}${hmarg('full', histMlMarginPct(x, x.precioFull))}
+      ${hprice(x, 'precioDOD')}${hmarg('dod', histMlMarginPct(x, x.precioDOD))}
       <td><button class="mini" data-del="${x.id || ''}" title="Eliminar del historial">✕</button></td>
     </tr>`; }).join('');
   wrap.innerHTML = `<table class="histtab dbtab"><thead><tr>
     <th>ID</th><th>Nombre producto</th><th>Proveedor</th><th>N° Cotización</th>
     ${packHead}<th>Costo FOB</th><th>Landed COGS</th>
-    <th>Súper</th><th>Categoría ML</th><th>Precio Meli</th><th>Margen Meli</th><th class="fbla-col">Precio Fala</th><th class="fbla-col">Margen Fala</th><th></th>
+    <th>Súper</th><th>Categoría ML</th><th>Precio Meli</th><th>Margen Meli</th><th class="fbla-col">Precio Fala</th><th class="fbla-col">Margen Fala</th>
+    <th>Precio Full</th><th>Margen Full</th><th>Precio DOD</th><th>Margen DOD</th><th></th>
   </tr></thead><tbody>${rows}</tbody></table>`;
 
   const toggle = wrap.querySelector('.pack-toggle');
   if (toggle) toggle.onclick = (e) => { e.stopPropagation(); packExpanded = !packExpanded; renderHistorial(); };
   wrap.querySelectorAll('tr[data-i]').forEach(tr => tr.onclick = (e) => {
-    if (e.target.closest('button') || e.target.closest('.pack-toggle')) return;
+    if (e.target.closest('button') || e.target.closest('.pack-toggle') || e.target.closest('input')) return;
     showTab('calc'); loadFromHist(filtered[parseInt(tr.dataset.i, 10)]);
   });
+  // Precio Full / DOD editables → recalculan su margen (Meli) y persisten en la base del país.
+  wrap.querySelectorAll('input.hist-price').forEach(inp => inp.addEventListener('input', () => {
+    const item = _histAll.find(x => x.id === inp.dataset.id);
+    if (!item) return;
+    item[inp.dataset.field] = inp.value === '' ? '' : (parseFloat(inp.value) || 0);
+    updateHistRow(inp.closest('tr'), item);
+    histSaveDebounced(item);
+  }));
   wrap.querySelectorAll('button[data-del]').forEach(b => b.onclick = async (e) => {
     e.stopPropagation();
     if (!confirm('¿Eliminar este producto del historial' + (_histBackend ? ' (para todo el equipo)' : '') + '?')) return;
@@ -571,7 +603,7 @@ function paintHistorial() {
 function exportHistorialCSV() {
   const h = _histAll;
   if (!h.length) { alert('No hay productos en el historial.'); return; }
-  const head = ['ID', 'Nombre', 'Proveedor', 'N° Cotización', 'Alto', 'Largo', 'Ancho', 'Peso', 'Costo FOB', 'Landed COGS', 'Supermercado', 'Categoría ML', 'Precio Meli', 'Margen Meli %', 'Precio Fala', 'Margen Fala %'];
+  const head = ['ID', 'Nombre', 'Proveedor', 'N° Cotización', 'Alto', 'Largo', 'Ancho', 'Peso', 'Costo FOB', 'Landed COGS', 'Supermercado', 'Categoría ML', 'Precio Meli', 'Margen Meli %', 'Precio Fala', 'Margen Fala %', 'Precio Full', 'Margen Full %', 'Precio DOD', 'Margen DOD %'];
   const q = s => '"' + (s == null ? '' : s).toString().replace(/"/g, '""') + '"';
   const n = v => (v == null || isNaN(v)) ? '' : Math.round(v);
   const p = v => (v == null || isNaN(v)) ? '' : Number(v).toFixed(1).replace('.', ',');
@@ -581,7 +613,8 @@ function exportHistorialCSV() {
     lines.push([
       q(compositeId(x)), q(x.nombre), q(x.proveedor), q(x.cotizacion),
       (x.alto || ''), (x.largo || ''), (x.ancho || ''), (x.peso || ''), (x.fob || ''), n(o.cogs),
-      x.isSuper ? 'Sí' : 'No', q(x.mlCatName), n(o.mlPrice), p(o.mlMarginPct), n(o.fbPrice), p(o.fbMarginPct)
+      x.isSuper ? 'Sí' : 'No', q(x.mlCatName), n(o.mlPrice), p(o.mlMarginPct), n(o.fbPrice), p(o.fbMarginPct),
+      (x.precioFull || ''), p(histMlMarginPct(x, x.precioFull)), (x.precioDOD || ''), p(histMlMarginPct(x, x.precioDOD))
     ].join(';'));
   }
   const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
