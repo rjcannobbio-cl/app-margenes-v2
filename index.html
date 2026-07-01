@@ -124,12 +124,40 @@
   .saved{color:var(--good);font-size:12px;margin-left:8px;font-weight:600}
   section.block{margin-top:26px}
   section.block > h2{font-size:15px;color:var(--ink);font-weight:700;text-transform:none;letter-spacing:0;margin:0 0 12px}
+
+  /* Selector de país (banderas) */
+  .flags{margin-left:auto;display:flex;gap:8px}
+  .flag-btn{display:inline-flex;align-items:center;gap:7px;background:var(--panel2);border:1px solid var(--line);color:var(--muted);
+    border-radius:9px;padding:6px 12px;cursor:pointer;font-family:inherit;font-weight:700;font-size:13px}
+  .flag-btn svg{border-radius:2px;display:block;box-shadow:0 0 0 1px rgba(0,0,0,.25)}
+  .flag-btn:hover{color:var(--ink);border-color:var(--faint)}
+  .flag-btn.active{color:var(--ink);border-color:var(--accent);box-shadow:0 0 0 2px rgba(255,102,0,.22)}
+  /* País = Colombia: solo Mercado Libre (se ocultan las piezas de Falabella) */
+  body.co .fbla-col{display:none !important}
+  body.co .cl-only{display:none !important}
+  body.co .catrow{grid-template-columns:1fr}
+  body.co .cards{grid-template-columns:1fr}
+  body.co .price-row{grid-template-columns:1fr}
 </style>
 </head>
 <body>
 <header>
   <img class="logo" src="assets/etbrands-logo.png" alt="ET Brands">
   <h1>Calculadora de Márgenes</h1>
+  <div class="flags" id="flags">
+    <button class="flag-btn" data-country="cl" type="button" title="Chile (CLP)">
+      <svg viewBox="0 0 30 20" width="30" height="20" aria-hidden="true">
+        <rect width="30" height="20" fill="#fff"/><rect width="30" height="10" y="10" fill="#D52B1E"/>
+        <rect width="12" height="10" fill="#0039A6"/>
+        <polygon fill="#fff" points="6,2.2 6.95,5.05 9.9,5.05 7.5,6.85 8.4,9.7 6,7.95 3.6,9.7 4.5,6.85 2.1,5.05 5.05,5.05"/>
+      </svg><span>Chile</span>
+    </button>
+    <button class="flag-btn" data-country="co" type="button" title="Colombia (COP)">
+      <svg viewBox="0 0 30 20" width="30" height="20" aria-hidden="true">
+        <rect width="30" height="10" fill="#FCD116"/><rect width="30" height="5" y="10" fill="#003893"/><rect width="30" height="5" y="15" fill="#CE1126"/>
+      </svg><span>Colombia</span>
+    </button>
+  </div>
 </header>
 
 <div class="wrap">
@@ -160,7 +188,7 @@
           <div class="top"><span>Categoría Mercado Libre</span><span id="mlCatBadge" class="badge badge-warn">sin deducir</span></div>
           <select id="mlCatSelect" size="1"></select>
         </div>
-        <div class="catbox">
+        <div class="catbox fbla-col">
           <div class="top"><span>Categoría Falabella</span><span id="fblaCatBadge" class="badge badge-warn">sin deducir</span></div>
           <select id="fblaCatSelect" size="1"></select>
         </div>
@@ -184,13 +212,13 @@
         <span class="cbm-link" id="cbmInfo" title="Volumen por unidad calculado desde las dimensiones (alto×ancho×largo÷1.000.000)">CBM/u: – m³</span>
       </div>
 
-      <label>Precio de venta (CLP, con IVA)</label>
-      <div class="row2">
+      <label id="lblPrecio">Precio de venta (CLP, con IVA)</label>
+      <div class="row2 price-row">
         <div><input type="number" id="inpPrecioML" placeholder="Precio ML" min="0" step="1"><div class="hint">Mercado Libre</div></div>
-        <div><input type="number" id="inpPrecioFB" placeholder="Precio Falabella" min="0" step="1"><div class="hint">Falabella</div></div>
+        <div class="fbla-col"><input type="number" id="inpPrecioFB" placeholder="Precio Falabella" min="0" step="1"><div class="hint">Falabella</div></div>
       </div>
 
-      <div class="check">
+      <div class="check cl-only">
         <input type="checkbox" id="inpSuper"><label style="margin:0;color:var(--ink);font-weight:600">Producto de supermercado (ML Full Super)</label>
       </div>
     </div>
@@ -199,7 +227,7 @@
     <div>
       <div class="cards">
         <div class="card" id="cardML"></div>
-        <div class="card" id="cardFB"></div>
+        <div class="card fbla-col" id="cardFB"></div>
       </div>
       <div class="actions">
         <button class="btn" id="btnAdd">+ Agregar / guardar</button>
@@ -219,7 +247,7 @@
         <div class="panel">
           <div class="cfg-head" id="cfgToggle"><h2>⚙ Parámetros y supuestos</h2><span class="muted">▼ mostrar / ocultar</span></div>
           <div id="cfgBody" class="hidden">
-            <div class="row2">
+            <div class="row2 fbla-col">
               <div><label>Reputación Falabella</label>
                 <select id="cfgRep">
                   <option value="0">5/5</option><option value="1">4/5</option>
@@ -230,7 +258,7 @@
             </div>
             <div class="row2">
               <div><label>Factor CBM — precio contenedor (USD/m³)</label><input type="number" id="cfgFactorCBM" step="0.01"></div>
-              <div><label>Dólar (CLP/USD)</label><input type="number" id="cfgDolar" step="1"></div>
+              <div><label id="lblDolar">Dólar (CLP/USD)</label><input type="number" id="cfgDolar" step="1"></div>
             </div>
             <div class="row2">
               <div><label>IVA (%)</label><input type="number" id="cfgIva" step="0.1"></div>

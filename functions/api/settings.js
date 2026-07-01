@@ -12,11 +12,16 @@
    locales de cada navegador.
    ============================================================ */
 
-const KEY = 'settings';
+// Clave por país: Chile usa 'settings' (compatibilidad); Colombia 'settings_co'.
+function keyFor(request) {
+  const c = new URL(request.url).searchParams.get('country');
+  return c === 'co' ? 'settings_co' : 'settings';
+}
 
 export async function onRequest({ request, env }) {
   const kv = env.MARGENES_KV;
   if (!kv) return json({ error: 'KV no configurado (binding MARGENES_KV)' }, 501);
+  const KEY = keyFor(request);
   try {
     if (request.method === 'GET') {
       const raw = await kv.get(KEY);

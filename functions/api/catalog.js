@@ -11,12 +11,16 @@
    Si MARGENES_KV no está configurado → 501 y la app usa catálogo local.
    ============================================================ */
 
-const KEY = 'catalog';
+// Clave por país: Chile usa 'catalog' (compatibilidad); Colombia 'catalog_co'.
+function keyFor(url) {
+  return url.searchParams.get('country') === 'co' ? 'catalog_co' : 'catalog';
+}
 
 export async function onRequest({ request, env }) {
   const kv = env.MARGENES_KV;
   if (!kv) return json({ error: 'KV no configurado (binding MARGENES_KV)' }, 501);
   const url = new URL(request.url);
+  const KEY = keyFor(url);
   try {
     if (request.method === 'GET') {
       const raw = await kv.get(KEY);

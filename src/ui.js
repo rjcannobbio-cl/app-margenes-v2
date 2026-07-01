@@ -3,11 +3,15 @@
    ============================================================ */
 'use strict';
 
-const cfg = loadCfg();
+// País activo (Chile por defecto). Cada país tiene sus propios parámetros y base de datos.
+let country = localStorage.getItem('mp_country') || 'cl';
+const cfg = loadCfg(country);
 const state = { mlCatIdx: -1, fblaCatIdx: -1, lastResult: null };
 
 const $ = (id) => document.getElementById(id);
 const num = (id) => { const v = parseFloat($(id).value.replace(',', '.')); return isNaN(v) ? 0 : v; };
+// Agrega ?country=co a las llamadas de API cuando el país activo es Colombia (Chile usa las claves originales).
+function api(path) { const sep = path.includes('?') ? '&' : '?'; return country === 'co' ? path + sep + 'country=co' : path; }
 
 /* ---------------- Selección de categorías ---------------- */
 function catName(channel, i) {
@@ -230,7 +234,7 @@ function localSave(h) { localStorage.setItem(HIST_KEY, JSON.stringify(h)); }
 async function histLoad() {
   if (_histBackend !== false) {
     try {
-      const r = await fetch('/api/products');
+      const r = await fetch(api('/api/products'));
       if (r.ok) { _histBackend = true; return await r.json(); }
       _histBackend = false;
     } catch (e) { _histBackend = false; }
@@ -239,7 +243,7 @@ async function histLoad() {
 }
 async function histAdd(item) {
   if (_histBackend) {
-    try { const r = await fetch('/api/products', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(item) }); if (r.ok) return; } catch (e) {}
+    try { const r = await fetch(api('/api/products'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(item) }); if (r.ok) return; } catch (e) {}
   }
   const h = localLoad(); const i = h.findIndex(x => x.id === item.id);
   if (i >= 0) h[i] = item; else h.push(item);   // upsert por id
@@ -247,13 +251,13 @@ async function histAdd(item) {
 }
 async function histDel(id) {
   if (_histBackend) {
-    try { const r = await fetch('/api/products?id=' + encodeURIComponent(id), { method: 'DELETE' }); if (r.ok) return; } catch (e) {}
+    try { const r = await fetch(api('/api/products?id=' + encodeURIComponent(id)), { method: 'DELETE' }); if (r.ok) return; } catch (e) {}
   }
   localSave(localLoad().filter(x => x.id !== id));
 }
 async function histClear() {
   if (_histBackend) {
-    try { const r = await fetch('/api/products?all=1', { method: 'DELETE' }); if (r.ok) return; } catch (e) {}
+    try { const r = await fetch(api('/api/products?all=1'), { method: 'DELETE' }); if (r.ok) return; } catch (e) {}
   }
   localSave([]);
 }
@@ -264,7 +268,7 @@ function newId() { return (window.crypto && crypto.randomUUID) ? crypto.randomUU
 const SHARED_KEYS = ['factorCBM', 'dolar', 'iva', 'fblaRepIndex'];
 async function settingsLoad() {
   try {
-    const r = await fetch('/api/settings');
+    const r = await fetch(api('/api/settings'));
     if (r.ok) {
       const s = await r.json();
       SHARED_KEYS.forEach(k => { if (s[k] != null && !isNaN(s[k])) cfg[k] = Number(s[k]); });
@@ -277,7 +281,7 @@ async function settingsSave() {
   const payload = {};
   SHARED_KEYS.forEach(k => payload[k] = cfg[k]);
   _setSig = JSON.stringify(SHARED_KEYS.map(k => cfg[k]));
-  try { await fetch('/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) }); } catch (e) {}
+  try { await fetch(api('/api/settings'), { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) }); } catch (e) {}
 }
 
 /* ---------------- Sincronización en vivo (sin recargar) ---------------- */
@@ -300,7 +304,7 @@ let _catSig = '';
 async function liveTick() {
   if (document.hidden) return;
   try {
-    const r = await fetch('/api/settings');
+    const r = await fetch(api('/api/settings'));
     if (r.ok) {
       const s = await r.json();
       const sig = JSON.stringify(SHARED_KEYS.map(k => s[k]));
@@ -309,7 +313,7 @@ async function liveTick() {
   } catch (e) {}
   if (!$('tabHist').classList.contains('hidden')) {
     try {
-      const r = await fetch('/api/products');
+      const r = await fetch(api('/api/products'));
       if (r.ok) {
         const list = await r.json();
         const sig = JSON.stringify(list);
@@ -319,7 +323,7 @@ async function liveTick() {
   }
   if (!$('tabCat').classList.contains('hidden') && !document.activeElement.classList.contains('cat-price')) {
     try {
-      const r = await fetch('/api/catalog');
+      const r = await fetch(api('/api/catalog'));
       if (r.ok) {
         const list = await r.json();
         const sig = JSON.stringify(list);
@@ -440,12 +444,12 @@ function renderHist() {
       <td>${fmtCLP(o.cogs)}</td>
       <td>${fmtCLP(o.mlPrice)}</td>
       <td class="${marginClass(o.mlMarginPct)}">${fmtCLP(o.mlMargin)} · ${fmtPct(o.mlMarginPct)}</td>
-      <td>${fmtCLP(o.fbPrice)}</td>
-      <td class="${marginClass(o.fbMarginPct)}">${fmtCLP(o.fbMargin)} · ${fmtPct(o.fbMarginPct)}</td>
+      <td class="fbla-col">${fmtCLP(o.fbPrice)}</td>
+      <td class="fbla-col ${marginClass(o.fbMarginPct)}">${fmtCLP(o.fbMargin)} · ${fmtPct(o.fbMarginPct)}</td>
       <td><button class="mini" data-del="${x.id || ''}" title="Quitar">✕</button></td>
     </tr>`; }).join('');
   wrap.innerHTML = `<table class="histtab">
-    <thead><tr><th>Producto</th><th>Proveedor</th><th>COGS</th><th>Precio ML</th><th>Margen ML</th><th>Precio Fala</th><th>Margen Fala</th><th></th></tr></thead>
+    <thead><tr><th>Producto</th><th>Proveedor</th><th>COGS</th><th>Precio ML</th><th>Margen ML</th><th class="fbla-col">Precio Fala</th><th class="fbla-col">Margen Fala</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table>
     ${_histBackend ? '' : '<p class="hint" style="margin-top:6px">Lista local de este navegador. Para compartirla con el equipo, configura Cloudflare KV (ver DEPLOY.md).</p>'}`;
   wrap.querySelectorAll('tr[data-i]').forEach(tr => tr.onclick = (e) => {
@@ -541,14 +545,14 @@ function paintHistorial() {
       <td>${escapeHtml(x.mlCatName || '')}</td>
       <td>${fmtCLP(o.mlPrice)}</td>
       <td class="${marginClass(o.mlMarginPct)}">${fmtPct(o.mlMarginPct)}</td>
-      <td>${fmtCLP(o.fbPrice)}</td>
-      <td class="${marginClass(o.fbMarginPct)}">${fmtPct(o.fbMarginPct)}</td>
+      <td class="fbla-col">${fmtCLP(o.fbPrice)}</td>
+      <td class="fbla-col ${marginClass(o.fbMarginPct)}">${fmtPct(o.fbMarginPct)}</td>
       <td><button class="mini" data-del="${x.id || ''}" title="Eliminar del historial">✕</button></td>
     </tr>`; }).join('');
   wrap.innerHTML = `<table class="histtab dbtab"><thead><tr>
     <th>ID</th><th>Nombre producto</th><th>Proveedor</th><th>N° Cotización</th>
     ${packHead}<th>Costo FOB</th><th>Landed COGS</th>
-    <th>Súper</th><th>Categoría ML</th><th>Precio Meli</th><th>Margen Meli</th><th>Precio Fala</th><th>Margen Fala</th><th></th>
+    <th>Súper</th><th>Categoría ML</th><th>Precio Meli</th><th>Margen Meli</th><th class="fbla-col">Precio Fala</th><th class="fbla-col">Margen Fala</th><th></th>
   </tr></thead><tbody>${rows}</tbody></table>`;
 
   const toggle = wrap.querySelector('.pack-toggle');
@@ -592,12 +596,12 @@ function catLocalLoad() { try { return JSON.parse(localStorage.getItem(CAT_KEY) 
 function catLocalSave(h) { localStorage.setItem(CAT_KEY, JSON.stringify(h)); }
 async function catLoad() {
   if (_catBackend !== false) {
-    try { const r = await fetch('/api/catalog'); if (r.ok) { _catBackend = true; return await r.json(); } _catBackend = false; } catch (e) { _catBackend = false; }
+    try { const r = await fetch(api('/api/catalog')); if (r.ok) { _catBackend = true; return await r.json(); } _catBackend = false; } catch (e) { _catBackend = false; }
   }
   return catLocalLoad();
 }
 async function catUpsert(item) {
-  if (_catBackend) { try { const r = await fetch('/api/catalog', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(item) }); if (r.ok) return; } catch (e) {} }
+  if (_catBackend) { try { const r = await fetch(api('/api/catalog'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(item) }); if (r.ok) return; } catch (e) {} }
   const h = catLocalLoad(); const i = h.findIndex(x => x.id === item.id); if (i >= 0) h[i] = item; else h.push(item); catLocalSave(h);
 }
 
@@ -635,7 +639,7 @@ function setCatStatus(msg, isErr) {
 // Reemplaza TODO el catálogo en el backend (o local).
 async function catReplace(items) {
   if (_catBackend !== false) {
-    try { const r = await fetch('/api/catalog', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(items) }); if (r.ok) { _catBackend = true; return true; } _catBackend = false; } catch (e) { _catBackend = false; }
+    try { const r = await fetch(api('/api/catalog'), { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(items) }); if (r.ok) { _catBackend = true; return true; } _catBackend = false; } catch (e) { _catBackend = false; }
   }
   catLocalSave(items); return false;
 }
@@ -645,7 +649,7 @@ async function syncFromPG() {
   if (!confirm('Sincronizar el catálogo con ProfitGuard (FOB, proveedor, puerto)?\nSe conservan las dimensiones y precios cargados desde el Excel.')) return;
   setCatStatus('Sincronizando con ProfitGuard…');
   try {
-    const r = await fetch('/api/pg-sync', { method: 'POST' });
+    const r = await fetch(api('/api/pg-sync'), { method: 'POST' });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { setCatStatus('Error: ' + (j.error || r.status) + (j.detail ? ' — ' + j.detail : ''), true); return; }
     setCatStatus(`✓ ${j.items} filas desde ${j.sourcings} sourcings de PG. Ahora importa el Excel para dims y precios.`);
@@ -741,7 +745,7 @@ function paintCatalogo() {
   if (!_catAll.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">El catálogo está vacío. Se carga sincronizando desde ProfitGuard (ver con el equipo).</p>'; return; }
   if (!filtered.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Sin resultados.</p>'; return; }
   const cell = v => (v || v === 0) ? v : '';
-  const mc = (key, v) => `<td class="mcell ${v == null ? '' : marginClass(v)}" data-cell="${key}">${v == null ? '–' : fmtPct(v)}</td>`;
+  const mc = (key, v) => `<td class="mcell ${key.endsWith('-fa') ? 'fbla-col ' : ''}${v == null ? '' : marginClass(v)}" data-cell="${key}">${v == null ? '–' : fmtPct(v)}</td>`;
   const priceInput = (x, field) => `<td><input type="number" class="cat-price" data-id="${x.id}" data-field="${field}" value="${x[field] || ''}" placeholder="–" min="0" step="1"></td>`;
   const rows = filtered.map(x => { const r = catMargins(x); return `
     <tr data-id="${x.id}">
@@ -758,9 +762,9 @@ function paintCatalogo() {
     </tr>`; }).join('');
   wrap.innerHTML = `<table class="histtab dbtab" style="min-width:1700px"><thead><tr>
     <th>SKU</th><th>Título</th><th>Largo</th><th>Alto</th><th>Ancho</th><th>Peso</th><th>Precio FOB</th><th>Proveedor</th><th>Puerto</th><th>Landed COGS</th>
-    <th>Precio Full</th><th>Margen PF Meli</th><th>Margen PF Fala</th>
-    <th>Precio AON</th><th>Margen AON Meli</th><th>Margen AON Fala</th>
-    <th>Precio DOD</th><th>Margen DOD Meli</th><th>Margen DOD Fala</th>
+    <th>Precio Full</th><th>Margen PF Meli</th><th class="fbla-col">Margen PF Fala</th>
+    <th>Precio AON</th><th>Margen AON Meli</th><th class="fbla-col">Margen AON Fala</th>
+    <th>Precio DOD</th><th>Margen DOD Meli</th><th class="fbla-col">Margen DOD Fala</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
   wrap.querySelectorAll('input.cat-price').forEach(inp => inp.addEventListener('input', () => {
     const item = _catAll.find(x => x.id === inp.dataset.id);
@@ -772,7 +776,7 @@ function paintCatalogo() {
 }
 function updateCatRow(tr, item) {
   const r = catMargins(item);
-  const set = (key, v) => { const td = tr.querySelector(`[data-cell="${key}"]`); if (!td) return; td.textContent = (key === 'cogs') ? fmtCLP(v) : (v == null ? '–' : fmtPct(v)); if (key !== 'cogs') td.className = 'mcell ' + (v == null ? '' : marginClass(v)); };
+  const set = (key, v) => { const td = tr.querySelector(`[data-cell="${key}"]`); if (!td) return; td.textContent = (key === 'cogs') ? fmtCLP(v) : (v == null ? '–' : fmtPct(v)); if (key !== 'cogs') td.className = 'mcell ' + (key.endsWith('-fa') ? 'fbla-col ' : '') + (v == null ? '' : marginClass(v)); };
   set('cogs', r.cogs);
   set('full-ml', r.full.ml); set('full-fa', r.full.fa);
   set('aon-ml', r.aon.ml); set('aon-fa', r.aon.fa);
@@ -795,13 +799,50 @@ function exportCatalogoCSV() {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'catalogo_margenes.csv'; a.click();
 }
 
+/* ---------------- País (Chile / Colombia) ---------------- */
+// Aplica al DOM el país activo: bandera activa, oculta Falabella en Colombia, ajusta etiquetas de moneda.
+function applyCountryUI() {
+  document.body.classList.toggle('co', country === 'co');
+  document.querySelectorAll('.flag-btn').forEach(b => b.classList.toggle('active', b.dataset.country === country));
+  const cur = country === 'co' ? 'COP' : 'CLP';
+  const lblP = $('lblPrecio'); if (lblP) lblP.textContent = country === 'co' ? 'Precio de venta ML (COP, con IVA)' : 'Precio de venta (CLP, con IVA)';
+  const lblD = $('lblDolar'); if (lblD) lblD.textContent = 'Dólar (' + cur + '/USD)';
+}
+// Cambia de país: parámetros y base de datos propios de cada uno.
+function switchCountry(c) {
+  if (c === country || (c !== 'cl' && c !== 'co')) return;
+  saveCfg(cfg);                              // guarda los params del país que dejamos
+  country = c; localStorage.setItem('mp_country', c);
+  Object.assign(cfg, loadCfg(c));            // carga params del país nuevo (cfg es const → se muta)
+  _histBackend = null; _catBackend = null;   // re-detectar backend
+  _setSig = ''; _histSig = ''; _catSig = '';
+  applyCountryUI();
+  bindCfgValues();
+  nuevoProducto();                           // limpia el formulario
+  loadView();                                // recarga la comparación del país
+  if (!$('tabHist').classList.contains('hidden')) renderHistorial();
+  if (!$('tabCat').classList.contains('hidden')) renderCatalogo();
+  (async () => {                             // trae los parámetros compartidos del país
+    if (await settingsLoad()) {
+      bindCfgValues(); recompute(); renderHist();
+      if (!$('tabHist').classList.contains('hidden')) renderHistorial();
+      if (!$('tabCat').classList.contains('hidden')) renderCatalogo();
+    }
+    _setSig = JSON.stringify(SHARED_KEYS.map(k => cfg[k]));
+  })();
+  recompute();
+}
+
 /* ---------------- Panel de parámetros ---------------- */
-function bindCfg() {
+function bindCfgValues() {
   $('cfgRep').value = String(cfg.fblaRepIndex);
   $('cfgIva').value = cfg.iva;
   $('cfgApiKey').value = cfg.apiKey || '';
   $('cfgFactorCBM').value = cfg.factorCBM;
   $('cfgDolar').value = cfg.dolar;
+}
+function bindCfg() {
+  bindCfgValues();
   $('btnSaveCfg').onclick = () => {
     cfg.fblaRepIndex = parseInt($('cfgRep').value, 10) || 0;
     cfg.iva = parseFloat($('cfgIva').value) || 0;
@@ -830,6 +871,9 @@ function init() {
   $('mlCatSelect').addEventListener('change', () => { state.mlCatIdx = parseInt($('mlCatSelect').value, 10); recompute(); });
   $('fblaCatSelect').addEventListener('change', () => { state.fblaCatIdx = parseInt($('fblaCatSelect').value, 10); recompute(); });
 
+  // selector de país (banderas)
+  document.querySelectorAll('.flag-btn').forEach(b => b.onclick = () => switchCountry(b.dataset.country));
+
   // pestañas + historial
   document.querySelectorAll('.tab').forEach(t => t.onclick = () => showTab(t.dataset.tab));
   $('btnHistRefresh').onclick = renderHistorial;
@@ -850,6 +894,7 @@ function init() {
   buildCatOptions('ml', '');
   buildCatOptions('fbla', '');
   bindCfg();
+  applyCountryUI();     // pinta el país activo (bandera, Falabella oculta en CO, etiquetas de moneda)
   loadView();
   recompute();
 

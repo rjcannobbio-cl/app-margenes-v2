@@ -13,7 +13,10 @@
    la lista local del navegador (ver DEPLOY.md para crear el binding).
    ============================================================ */
 
-const KEY = 'list';
+// Clave por país: Chile usa 'list' (compatibilidad); Colombia 'list_co'.
+function keyFor(url) {
+  return url.searchParams.get('country') === 'co' ? 'list_co' : 'list';
+}
 
 export async function onRequest({ request, env }) {
   const kv = env.MARGENES_KV;
@@ -21,6 +24,7 @@ export async function onRequest({ request, env }) {
 
   const method = request.method;
   const url = new URL(request.url);
+  const KEY = keyFor(url);
   try {
     if (method === 'GET') {
       const raw = await kv.get(KEY);

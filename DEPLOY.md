@@ -94,6 +94,21 @@ Uso (cada vez que cambie el catálogo en PG):
 > `SHEETS_WEBHOOK_URL` quedaron sin uso; puedes borrar esa variable). Si más adelante quieres
 > exportar, usa el botón "Exportar CSV" del Historial.
 
+## Chile y Colombia (selector de país)
+En la franja superior hay dos banderas (🇨🇱 Chile / 🇨🇴 Colombia). Al clickear una, la app cambia de país:
+- **Parámetros propios** por país (factor CBM, dólar en CLP vs COP, IVA) — guardados por separado en KV
+  (`settings` para Chile, `settings_co` para Colombia).
+- **Base de datos propia** por país: Historial (`list` / `list_co`) y Catálogo (`catalog` / `catalog_co`).
+- **Colombia = solo Mercado Libre** (se ocultan Falabella y el "súper"), con la **tabla de envío de ML Colombia**
+  y precios en **COP**. Las categorías y comisiones se asumen iguales a Chile.
+
+Todo usa el **mismo binding `MARGENES_KV`** (solo cambian las claves), así que no hay que crear nada nuevo para KV.
+
+Para sincronizar el **Catálogo de Colombia** desde ProfitGuard hace falta un secret aparte:
+- Cloudflare → Settings → Variables and Secrets → Add → nombre **`app-margenes-pg-api-key-co`** (Secret),
+  con la API key de la instancia Colombia de ProfitGuard. (Mientras no exista, el Catálogo CO se llena
+  importando el Excel; el sync CO devolverá "falta el secret".)
+
 ## Actualizar la app después
 Cada vez que cambies algo: subes los archivos al repo de GitHub (Add file → Upload / commit) y
 Cloudflare **redepliega solo** en ~1 min. El subdominio y la key se mantienen.

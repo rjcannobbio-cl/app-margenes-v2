@@ -20,13 +20,21 @@ const DEFAULT_CFG = {
   aiModel: ''                 // vacío → usa el default del proveedor
 };
 
-function loadCfg() {
+// Parámetros propios por país. Chile: clave 'mpcfg' (compatibilidad). Colombia: 'mpcfg_co'
+// con dólar por defecto en COP. cfg.country identifica el país activo.
+function loadCfg(country) {
+  country = country || 'cl';
+  const base = Object.assign({}, DEFAULT_CFG, country === 'co' ? { dolar: 4000 } : {}, { country });
+  const lsKey = country === 'co' ? 'mpcfg_co' : 'mpcfg';
   try {
-    const s = JSON.parse(localStorage.getItem('mpcfg') || '{}');
-    return Object.assign({}, DEFAULT_CFG, s);
-  } catch (e) { return Object.assign({}, DEFAULT_CFG); }
+    const s = JSON.parse(localStorage.getItem(lsKey) || '{}');
+    return Object.assign(base, s, { country });
+  } catch (e) { return base; }
 }
-function saveCfg(cfg) { localStorage.setItem('mpcfg', JSON.stringify(cfg)); }
+function saveCfg(cfg) {
+  const lsKey = (cfg && cfg.country === 'co') ? 'mpcfg_co' : 'mpcfg';
+  localStorage.setItem(lsKey, JSON.stringify(cfg));
+}
 
 /* ---------------- Utilidades ---------------- */
 function normalize(s) {
@@ -132,7 +140,20 @@ function billableWeight(pesoFisico, alto, ancho, largo, divisor) {
 }
 
 /* ---------------- Costo de envío ---------------- */
+// Mercado Libre COLOMBIA — costo de envío desde la tabla 2D (peso × precio), en COP.
+function mlShippingCO(price, weight) {
+  const out = { cost: 0, note: '', warn: '' };
+  const t = ML_SHIP_CO;
+  let row = t.rows.find(r => weight <= r.maxKg);
+  if (!row) { row = t.rows[t.rows.length - 1]; out.warn = 'Peso > 90 kg: fuera de la tabla, se usó el último tramo.'; }
+  let pi = t.priceBreaks.findIndex(b => price <= b);
+  if (pi < 0) pi = t.priceBreaks.length;              // ≥ $60.000 → última columna
+  out.cost = row.cols[pi];
+  return out;
+}
+
 function mlShipping(price, weight, isSuper, cfg) {
+  if (cfg && cfg.country === 'co') return mlShippingCO(price, weight);
   const out = { cost: 0, note: '', warn: '' };
   if (isSuper) {
     if (price >= cfg.priceTier2) {

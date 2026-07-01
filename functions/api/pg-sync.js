@@ -18,16 +18,18 @@
      - Binding MARGENES_KV  = KV namespace (el mismo del resto).
    ============================================================ */
 
-const KEY = 'catalog';
 const PG = 'https://app.profitguard.cl/api/v1';
 
 export async function onRequest({ request, env }) {
   const kv = env.MARGENES_KV;
   if (!kv) return json({ error: 'KV no configurado (binding MARGENES_KV)' }, 501);
-  // Acepta el nombre del secret en varias formas (Cloudflare a veces no permite guiones).
-  const token = env['app-margenes-pg-api-key'] || env.app_margenes_pg_api_key ||
-    env.APP_MARGENES_PG_API_KEY || env.PG_API_KEY;
-  if (!token) return json({ error: 'Falta el secret de la API key de ProfitGuard en Cloudflare (app-margenes-pg-api-key)' }, 501);
+  const country = new URL(request.url).searchParams.get('country') === 'co' ? 'co' : 'cl';
+  const KEY = country === 'co' ? 'catalog_co' : 'catalog';
+  // Secret de PG por país (Cloudflare a veces no permite guiones → varios alias).
+  const token = country === 'co'
+    ? (env['app-margenes-pg-api-key-co'] || env.app_margenes_pg_api_key_co || env.APP_MARGENES_PG_API_KEY_CO || env.PG_API_KEY_CO)
+    : (env['app-margenes-pg-api-key'] || env.app_margenes_pg_api_key || env.APP_MARGENES_PG_API_KEY || env.PG_API_KEY);
+  if (!token) return json({ error: 'Falta el secret de la API key de ProfitGuard para ' + (country === 'co' ? 'Colombia (app-margenes-pg-api-key-co)' : 'Chile (app-margenes-pg-api-key)') }, 501);
   if (request.method !== 'POST') return json({ error: 'usa POST' }, 405);
 
   const headers = { Authorization: 'Bearer ' + token, Accept: 'application/json' };

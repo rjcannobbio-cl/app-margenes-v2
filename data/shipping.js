@@ -36,6 +36,34 @@ window.ML_SHIP_NORMAL = [
   { maxKg: 110,  t1: 3790, t2: 6390, t3: 28400 }
 ];
 
+/* ---------- MERCADO LIBRE COLOMBIA — costo de envío (COP, con IVA) ----------
+   Tabla oficial 2D: tramo de PESO facturable (kg) × tramo de PRECIO de venta (COP).
+   priceBreaks = límites superiores de precio: ≤14.999 | 15.000–29.999 | 30.000–59.999 | ≥60.000
+   maxKg = límite superior del tramo de peso.
+*/
+window.ML_SHIP_CO = {
+  priceBreaks: [14999, 29999, 59999],
+  rows: [
+    { maxKg: 0.3, cols: [2500, 2600, 4100, 8000] },
+    { maxKg: 0.5, cols: [2600, 2700, 4200, 8100] },
+    { maxKg: 1,   cols: [2700, 2800, 4300, 8200] },
+    { maxKg: 2,   cols: [2800, 2900, 4500, 8500] },
+    { maxKg: 3,   cols: [2900, 3000, 4600, 8600] },
+    { maxKg: 4,   cols: [3000, 3200, 4700, 10100] },
+    { maxKg: 5,   cols: [3100, 3300, 4800, 10200] },
+    { maxKg: 7,   cols: [3200, 3400, 4900, 10500] },
+    { maxKg: 10,  cols: [3300, 3500, 5000, 15200] },
+    { maxKg: 20,  cols: [3400, 3600, 5100, 25200] },
+    { maxKg: 30,  cols: [3500, 3700, 5200, 41400] },
+    { maxKg: 40,  cols: [3600, 3800, 5300, 49000] },
+    { maxKg: 50,  cols: [3700, 3900, 5400, 66700] },
+    { maxKg: 60,  cols: [3800, 4000, 5500, 69400] },
+    { maxKg: 70,  cols: [3900, 4100, 5600, 71500] },
+    { maxKg: 80,  cols: [4000, 4200, 5700, 72400] },
+    { maxKg: 90,  cols: [4100, 4300, 5800, 75100] }
+  ]
+};
+
 /* ---------- MERCADO LIBRE — productos de supermercado (Full Super) ----------
    Solo válida para precio ≤ $19.990. Aplica a TODAS las ventas (aunque el
    comprador pague el envío). El costo nunca supera el 25% del precio.
