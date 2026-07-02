@@ -6,7 +6,7 @@
 // País activo (Chile por defecto). Cada país tiene sus propios parámetros y base de datos.
 let country = localStorage.getItem('mp_country') || 'cl';
 const cfg = loadCfg(country);
-const state = { mlCatIdx: -1, fblaCatIdx: -1, lastResult: null, arancelPct: 0, hs: '' };
+const state = { mlCatIdx: -1, fblaCatIdx: -1, lastResult: null, arancelPct: 0, hs: '', editingStore: 'hist' };
 
 const $ = (id) => document.getElementById(id);
 const num = (id) => { const v = parseFloat($(id).value.replace(',', '.')); return isNaN(v) ? 0 : v; };
@@ -366,11 +366,12 @@ async function addToComparison() {
   const proveedor = $('inpProveedor').value.trim();
   if (!proveedor) { alert('El proveedor es obligatorio.'); $('inpProveedor').focus(); return; }
   const editing = state.editingId || null;
-  // Preserva Precio Full / DOD (se editan en el Historial) al re-guardar desde la Calculadora.
-  const prev = editing ? ((_histAll || []).find(v => v.id === editing) || viewList.find(v => v.id === editing) || {}) : {};
-  const item = {
+  const store = state.editingStore || 'hist';   // base de la que vino el producto en edición (hist / closed)
+  const prevList = store === 'closed' ? _closedAll : _histAll;
+  const prev = editing ? (prevList.find(v => v.id === editing) || viewList.find(v => v.id === editing) || {}) : {};
+  // Parte del registro anterior (conserva Full/AON/DOD, SKU y Mes de cierre, etc.) y sobreescribe con el formulario.
+  const item = Object.assign({}, prev, {
     id: editing || newId(), ts: Date.now(),
-    precioFull: (prev.precioFull != null ? prev.precioFull : ''), precioAON: (prev.precioAON != null ? prev.precioAON : ''), precioDOD: (prev.precioDOD != null ? prev.precioDOD : ''),
     fecha: new Date().toISOString().slice(0, 19).replace('T', ' '),
     nombre: r.nombre || '(sin nombre)', proveedor: proveedor, cotizacion: $('inpCotizacion').value.trim(), skuProveedor: $('inpSkuProv').value.trim(),
     alto: num('inpAlto'), ancho: num('inpAncho'), largo: num('inpLargo'), peso: num('inpPeso'), fob: num('inpFob'),
@@ -381,14 +382,22 @@ async function addToComparison() {
     dolar: cfg.dolar, factorCBM: cfg.factorCBM,
     cogs: r.ml.cogs, mlPrice: r.ml.price, mlMargin: r.ml.margin, mlMarginPct: r.ml.marginPct,
     fbPrice: r.fbla.price, fbMargin: r.fbla.margin, fbMarginPct: r.fbla.marginPct
-  };
-  await histAdd(item);     // upsert en la base de datos (KV)
-  const vi = viewList.findIndex(v => v.id === item.id);
-  if (vi >= 0) viewList[vi] = item; else viewList.push(item);   // y en la vista
-  renderHist();
-  if (!$('tabHist').classList.contains('hidden')) renderHistorial();
+  });
+  if (store === 'closed') {
+    await closedAdd(item);   // actualiza el registro en Productos cerrados
+    const ci = _closedAll.findIndex(v => v.id === item.id);
+    if (ci >= 0) _closedAll[ci] = item; else _closedAll.push(item);
+    _closedSig = '';
+    if (!$('tabClosed').classList.contains('hidden')) renderClosed();
+  } else {
+    await histAdd(item);     // upsert en el Historial (KV)
+    const vi = viewList.findIndex(v => v.id === item.id);
+    if (vi >= 0) viewList[vi] = item; else viewList.push(item);   // y en la vista de comparación
+    renderHist();
+    if (!$('tabHist').classList.contains('hidden')) renderHistorial();
+  }
   nuevoProducto();         // despeja el formulario para cargar el siguiente
-  setAiStatus(editing ? '✓ Cambios guardados.' : '✓ Producto guardado.', false);
+  setAiStatus(editing ? (store === 'closed' ? '✓ Cambios guardados en Productos cerrados.' : '✓ Cambios guardados.') : '✓ Producto guardado.', false);
 }
 
 function resolveCatIdx(idx, name, list) {
@@ -397,9 +406,11 @@ function resolveCatIdx(idx, name, list) {
   return (idx != null && idx >= 0) ? idx : -1;
 }
 
-// Click en una fila → recarga ese producto al formulario y recalcula el detalle
-function loadFromHist(x) {
+// Click en una fila → recarga ese producto al formulario y recalcula el detalle.
+// source: 'hist' (Historial, por defecto) o 'closed' (Productos cerrados) → define dónde se guardan los cambios.
+function loadFromHist(x, source) {
   if (!x) return;
+  state.editingStore = source || 'hist';
   const set = (id, v) => { $(id).value = (v || v === 0) ? v : ''; };
   $('inpNombre').value = (x.nombre && x.nombre !== '(sin nombre)') ? x.nombre : '';
   $('inpProveedor').value = x.proveedor || '';
@@ -427,7 +438,9 @@ function setEditing(id) {
   const badge = $('editBadge');
   if (state.editingId) {
     $('btnAdd').textContent = '💾 Guardar cambios';
-    badge.textContent = 'Editando un producto guardado — los cambios actualizan ese registro.';
+    badge.textContent = state.editingStore === 'closed'
+      ? 'Editando un producto cerrado — los cambios actualizan Productos cerrados.'
+      : 'Editando un producto guardado — los cambios actualizan ese registro.';
     badge.style.display = '';
   } else {
     $('btnAdd').textContent = '+ Agregar / guardar';
@@ -439,7 +452,7 @@ function setEditing(id) {
 function nuevoProducto() {
   ['inpNombre', 'inpProveedor', 'inpCotizacion', 'inpSkuProv', 'inpAlto', 'inpAncho', 'inpLargo', 'inpPeso', 'inpFob', 'inpPrecioML', 'inpPrecioFB', 'inpHs', 'inpArancel'].forEach(id => $(id).value = '');
   $('inpSuper').checked = false;
-  state.mlCatIdx = -1; state.fblaCatIdx = -1; state.arancelPct = 0; state.hs = '';
+  state.mlCatIdx = -1; state.fblaCatIdx = -1; state.arancelPct = 0; state.hs = ''; state.editingStore = 'hist';
   if ($('hsBadge')) { $('hsBadge').textContent = 'sin deducir'; $('hsBadge').className = 'badge badge-warn'; }
   refreshCatUI();
   markDeduced('ml', false); markDeduced('fbla', false);
@@ -646,7 +659,7 @@ function paintDb(mode) {
   if (toggle) toggle.onclick = (e) => { e.stopPropagation(); packExpanded = !packExpanded; rerender(); };
   wrap.querySelectorAll('tr[data-i]').forEach(tr => tr.onclick = (e) => {
     if (e.target.closest('button') || e.target.closest('.pack-toggle') || e.target.closest('input')) return;
-    showTab('calc'); loadFromHist(filtered[parseInt(tr.dataset.i, 10)]);
+    showTab('calc'); loadFromHist(filtered[parseInt(tr.dataset.i, 10)], mode);
   });
   // Precio Full / DOD editables → recalculan su margen (Meli) y persisten en la base del país.
   wrap.querySelectorAll('input.hist-price').forEach(inp => inp.addEventListener('input', () => {
