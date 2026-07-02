@@ -614,8 +614,8 @@ function paintDb(mode) {
     ? `<td data-hcell="varfa">${fmtPct(varPct(x.precioFull, x.precioAON))}</td><td data-hcell="varad">${fmtPct(varPct(x.precioAON, x.precioDOD))}</td>`
     : '';
   // Datos del cierre (SKU + Mes), solo en Productos cerrados.
-  const closedInfoHead = isClosed ? '<th>SKU cierre</th><th>Mes cierre</th>' : '';
-  const closedInfoCells = x => isClosed ? `<td>${escapeHtml(x.skuCierre || '')}</td><td>${escapeHtml(x.mesCierre || '')}</td>` : '';
+  const closedInfoHead = isClosed ? '<th>SKU cierre</th><th>Mes cierre</th><th>Año cierre</th>' : '';
+  const closedInfoCells = x => isClosed ? `<td>${escapeHtml(x.skuCierre || '')}</td><td>${escapeHtml(x.mesCierre || '')}</td><td>${escapeHtml(x.anioCierre || '')}</td>` : '';
 
   const packHead = packExpanded
     ? `<th class="pack-toggle" title="Agrupar packaging">📦 ◂ Alto</th><th>Largo</th><th>Ancho</th><th>Peso</th>`
@@ -723,7 +723,7 @@ async function closeProduct(item) {
   if (!item) return;
   const r = await askConfirm('¿Estás seguro de que quieres comprar este producto?', 'Sí, comprar', true);
   if (!r) return;
-  item.skuCierre = r.sku; item.mesCierre = r.mes;   // datos del cierre
+  item.skuCierre = r.sku; item.mesCierre = r.mes; item.anioCierre = r.anio;   // datos del cierre
   await closedAdd(item);      // lo agrega a Cerrados
   await histDel(item.id);     // lo saca del Historial
   _histAll = _histAll.filter(x => x.id !== item.id);
@@ -750,16 +750,16 @@ function askConfirm(msg, okLabel, withFields) {
     $('modalMsg').textContent = msg;
     $('modalOk').textContent = okLabel || 'Sí';
     const fields = $('modalFields');
-    if (withFields) { $('modalSku').value = ''; $('modalMes').value = ''; $('modalErr').textContent = ''; fields.classList.remove('hidden'); }
+    if (withFields) { $('modalSku').value = ''; $('modalMes').value = ''; $('modalAnio').value = ''; $('modalErr').textContent = ''; fields.classList.remove('hidden'); }
     else fields.classList.add('hidden');
     $('modalOverlay').classList.remove('hidden');
     if (withFields) setTimeout(() => $('modalSku').focus(), 30);
     const done = v => { $('modalOverlay').classList.add('hidden'); fields.classList.add('hidden'); $('modalOk').onclick = null; $('modalCancel').onclick = null; $('modalOverlay').onclick = null; res(v); };
     $('modalOk').onclick = () => {
       if (withFields) {
-        const sku = $('modalSku').value.trim(), mes = $('modalMes').value;
-        if (!sku || !mes) { $('modalErr').textContent = 'Completa SKU y Mes de cierre.'; return; }
-        done({ sku, mes });
+        const sku = $('modalSku').value.trim(), mes = $('modalMes').value, anio = $('modalAnio').value;
+        if (!sku || !mes || !anio) { $('modalErr').textContent = 'Completa SKU, Mes y Año de cierre.'; return; }
+        done({ sku, mes, anio });
       } else done(true);
     };
     $('modalCancel').onclick = () => done(false);
@@ -771,7 +771,7 @@ function exportHistorialCSV() { exportDbCSV(_histAll, 'historial_productos.csv')
 function exportClosedCSV() { exportDbCSV(_closedAll, 'productos_cerrados.csv'); }
 function exportDbCSV(h, filename) {
   if (!h.length) { alert('No hay productos que exportar.'); return; }
-  const head = ['ID', 'Nombre', 'Proveedor', 'N° Cotización', 'Alto', 'Largo', 'Ancho', 'Peso', 'Costo FOB', 'HS', 'Arancel %', 'Landed COGS', 'Supermercado', 'Categoría ML', 'Precio Meli', 'Margen Meli %', 'Precio Fala', 'Margen Fala %', 'Precio Full', 'Margen Full %', 'Precio AON', 'Margen AON %', 'Precio DOD', 'Margen DOD %', '%Var Full-AON', '%Var AON-DOD', 'SKU cierre', 'Mes cierre'];
+  const head = ['ID', 'Nombre', 'Proveedor', 'N° Cotización', 'Alto', 'Largo', 'Ancho', 'Peso', 'Costo FOB', 'HS', 'Arancel %', 'Landed COGS', 'Supermercado', 'Categoría ML', 'Precio Meli', 'Margen Meli %', 'Precio Fala', 'Margen Fala %', 'Precio Full', 'Margen Full %', 'Precio AON', 'Margen AON %', 'Precio DOD', 'Margen DOD %', '%Var Full-AON', '%Var AON-DOD', 'SKU cierre', 'Mes cierre', 'Año cierre'];
   const q = s => '"' + (s == null ? '' : s).toString().replace(/"/g, '""') + '"';
   const n = v => (v == null || isNaN(v)) ? '' : Math.round(v);
   const p = v => (v == null || isNaN(v)) ? '' : Number(v).toFixed(1).replace('.', ',');
@@ -782,7 +782,7 @@ function exportDbCSV(h, filename) {
       q(compositeId(x)), q(x.nombre), q(x.proveedor), q(x.cotizacion),
       (x.alto || ''), (x.largo || ''), (x.ancho || ''), (x.peso || ''), (x.fob || ''), q(x.hs), (x.arancelPct || x.arancelPct === 0 ? x.arancelPct : ''), n(o.cogs),
       x.isSuper ? 'Sí' : 'No', q(x.mlCatName), n(o.mlPrice), p(o.mlMarginPct), n(o.fbPrice), p(o.fbMarginPct),
-      (x.precioFull || ''), p(histMlMarginPct(x, x.precioFull)), (x.precioAON || ''), p(histMlMarginPct(x, x.precioAON)), (x.precioDOD || ''), p(histMlMarginPct(x, x.precioDOD)), p(varPct(x.precioFull, x.precioAON)), p(varPct(x.precioAON, x.precioDOD)), q(x.skuCierre), q(x.mesCierre)
+      (x.precioFull || ''), p(histMlMarginPct(x, x.precioFull)), (x.precioAON || ''), p(histMlMarginPct(x, x.precioAON)), (x.precioDOD || ''), p(histMlMarginPct(x, x.precioDOD)), p(varPct(x.precioFull, x.precioAON)), p(varPct(x.precioAON, x.precioDOD)), q(x.skuCierre), q(x.mesCierre), q(x.anioCierre)
     ].join(';'));
   }
   const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
