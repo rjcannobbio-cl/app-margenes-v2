@@ -133,6 +133,15 @@
   .flag-btn:hover{color:var(--ink);border-color:var(--faint)}
   .flag-btn.active{color:var(--ink);border-color:var(--accent);box-shadow:0 0 0 2px rgba(255,102,0,.22)}
   /* País = Colombia: solo Mercado Libre (se ocultan las piezas de Falabella) */
+  /* Botón Cerrar producto + modal de confirmación */
+  .btn-close{background:transparent;border:1px solid var(--accent);color:var(--accent);border-radius:6px;cursor:pointer;padding:4px 10px;font-family:inherit;font-weight:700;font-size:12px}
+  .btn-close:hover{background:var(--accent);color:#1b1205}
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px}
+  .modal-overlay.hidden{display:none}
+  .modal{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px 24px;max-width:400px;width:100%;box-shadow:0 12px 44px rgba(0,0,0,.55)}
+  .modal p{margin:0 0 18px;font-size:15px;font-weight:600;line-height:1.4}
+  .modal-actions{display:flex;gap:10px;justify-content:flex-end}
+
   body.co .fbla-col{display:none !important}
   body.co .cl-only{display:none !important}
   .co-only{display:none}
@@ -168,6 +177,7 @@
     <button class="tab active" data-tab="calc" type="button">Calculadora</button>
     <button class="tab" data-tab="hist" type="button">Historial</button>
     <button class="tab" data-tab="cat" type="button">Catálogo</button>
+    <button class="tab" data-tab="closed" type="button">Productos cerrados</button>
   </div>
 
   <div id="tabCalc">
@@ -308,15 +318,37 @@
     <div class="hint" style="margin-bottom:10px">Los márgenes se recalculan en vivo con el factor CBM y el dólar de Parámetros. Los precios Full / AON / DOD son editables (clic en la celda) y persisten.</div>
     <div id="catDbWrap" class="db-wrap"></div>
   </div>
+
+  <div id="tabClosed" class="hidden">
+    <div class="hist-actions">
+      <input type="text" id="closedFilter" class="hist-filter" placeholder="Filtrar: producto, SKU, proveedor, cotización…">
+      <button class="btn ghost" id="btnClosedRefresh" type="button">↻ Actualizar</button>
+      <button class="btn ghost" id="btnClosedExport" type="button">Exportar CSV</button>
+      <span class="muted" id="closedCount"></span>
+    </div>
+    <div class="hint" style="margin-bottom:10px">Productos cerrados (finalizados). Se mueven aquí desde el Historial con el botón “Cerrar”. Con ↩ vuelven al Historial.</div>
+    <div id="closedDbWrap" class="db-wrap"></div>
+  </div>
+</div>
+
+<!-- Modal de confirmación -->
+<div id="modalOverlay" class="modal-overlay hidden">
+  <div class="modal">
+    <p id="modalMsg">¿Estás seguro?</p>
+    <div class="modal-actions">
+      <button class="btn ghost" id="modalCancel" type="button">Cancelar</button>
+      <button class="btn" id="modalOk" type="button">Sí</button>
+    </div>
+  </div>
 </div>
 
 <!-- ?v= versiona los assets: al cambiar el número, el navegador ignora el caché de 4h de Cloudflare. Súbelo en cada deploy que toque JS. -->
-<script src="data/ml_categories.js?v=260702"></script>
-<script src="data/fbla_categories.js?v=260702"></script>
-<script src="data/shipping.js?v=260702"></script>
-<script src="src/app.js?v=260702"></script>
-<script src="src/ai.js?v=260702"></script>
-<script src="src/local-ai.js?v=260702"></script>
-<script src="src/ui.js?v=260702"></script>
+<script src="data/ml_categories.js?v=260703"></script>
+<script src="data/fbla_categories.js?v=260703"></script>
+<script src="data/shipping.js?v=260703"></script>
+<script src="src/app.js?v=260703"></script>
+<script src="src/ai.js?v=260703"></script>
+<script src="src/local-ai.js?v=260703"></script>
+<script src="src/ui.js?v=260703"></script>
 </body>
 </html>

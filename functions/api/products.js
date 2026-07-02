@@ -13,9 +13,11 @@
    la lista local del navegador (ver DEPLOY.md para crear el binding).
    ============================================================ */
 
-// Clave por país: Chile usa 'list' (compatibilidad); Colombia 'list_co'.
+// Clave por país y por store: Historial usa 'list'/'list_co'; Productos cerrados 'closed'/'closed_co'.
 function keyFor(url) {
-  return url.searchParams.get('country') === 'co' ? 'list_co' : 'list';
+  const co = url.searchParams.get('country') === 'co';
+  const base = url.searchParams.get('store') === 'closed' ? 'closed' : 'list';
+  return co ? base + '_co' : base;
 }
 
 export async function onRequest({ request, env }) {

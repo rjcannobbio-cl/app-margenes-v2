@@ -348,6 +348,16 @@ async function liveTick() {
       }
     } catch (e) {}
   }
+  if (!$('tabClosed').classList.contains('hidden') && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('#closedDbWrap'))) {
+    try {
+      const r = await fetch(api('/api/products?store=closed'));
+      if (r.ok) {
+        const list = await r.json();
+        const sig = JSON.stringify(list);
+        if (sig !== _closedSig) { _closedSig = sig; _closedAll = list; paintClosed(); }
+      }
+    } catch (e) {}
+  }
 }
 
 async function addToComparison() {
@@ -533,9 +543,11 @@ function showTab(name) {
   $('tabCalc').classList.toggle('hidden', name !== 'calc');
   $('tabHist').classList.toggle('hidden', name !== 'hist');
   $('tabCat').classList.toggle('hidden', name !== 'cat');
+  $('tabClosed').classList.toggle('hidden', name !== 'closed');
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   if (name === 'hist') renderHistorial();
   if (name === 'cat') renderCatalogo();
+  if (name === 'closed') renderClosed();
 }
 
 function compositeId(x) {
@@ -552,21 +564,30 @@ async function renderHistorial() {
   _histSig = JSON.stringify(_histAll);
   paintHistorial();
 }
-function paintHistorial() {
-  const all = _histAll;
-  // filtro por producto / SKU / proveedor / cotización
-  const q = normalize(($('histFilter') && $('histFilter').value) || '');
+function paintHistorial() { paintDb('hist'); }
+function paintClosed() { paintDb('closed'); }
+// Render genérico de la tabla base de datos: 'hist' (Historial) y 'closed' (Productos cerrados) comparten columnas.
+function paintDb(mode) {
+  const isClosed = mode === 'closed';
+  const all = isClosed ? _closedAll : _histAll;
+  const ids = isClosed ? { filter: 'closedFilter', count: 'closedCount', wrap: 'closedDbWrap' } : { filter: 'histFilter', count: 'histCount', wrap: 'histDbWrap' };
+  const rerender = isClosed ? renderClosed : renderHistorial;
+  const save = isClosed ? closedSaveDebounced : histSaveDebounced;
+  const q = normalize(($(ids.filter) && $(ids.filter).value) || '');
   const filtered = q
     ? all.filter(x => normalize([x.nombre, x.skuProveedor, x.proveedor, x.cotizacion].join(' ')).includes(q))
     : all;
-  $('histCount').textContent = (q ? (filtered.length + '/' + all.length) : all.length) +
+  $(ids.count).textContent = (q ? (filtered.length + '/' + all.length) : all.length) +
     ' producto' + ((q ? filtered.length : all.length) === 1 ? '' : 's') + (_histBackend ? ' · compartido' : ' · solo local');
-  const wrap = $('histDbWrap');
-  if (!all.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Aún no hay productos evaluados. Agrégalos desde la pestaña Calculadora.</p>'; return; }
-  if (!filtered.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Sin resultados para “' + escapeHtml($('histFilter').value) + '”.</p>'; return; }
+  const wrap = $(ids.wrap);
+  if (!all.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">' + (isClosed ? 'Aún no hay productos cerrados. Ciérralos desde el Historial con el botón “Cerrar”.' : 'Aún no hay productos evaluados. Agrégalos desde la pestaña Calculadora.') + '</p>'; return; }
+  if (!filtered.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Sin resultados para “' + escapeHtml($(ids.filter).value) + '”.</p>'; return; }
   const cell = v => (v || v === 0) ? v : '';
   const hprice = (x, field) => `<td><input type="number" class="hist-price" data-id="${x.id || ''}" data-field="${field}" value="${x[field] || ''}" placeholder="–" min="0" step="1"></td>`;
   const hmarg = (key, v) => `<td class="mcell ${v == null ? '' : marginClass(v)}" data-hcell="${key}">${v == null ? '–' : fmtPct(v)}</td>`;
+  const actionCell = x => isClosed
+    ? `<td style="white-space:nowrap"><button class="mini" data-reopen="${x.id || ''}" title="Devolver al Historial">↩</button> <button class="mini" data-del="${x.id || ''}" title="Eliminar definitivamente">✕</button></td>`
+    : `<td style="white-space:nowrap"><button class="btn-close" data-close="${x.id || ''}" type="button">Cerrar</button> <button class="mini" data-del="${x.id || ''}" title="Eliminar del historial">✕</button></td>`;
 
   const packHead = packExpanded
     ? `<th class="pack-toggle" title="Agrupar packaging">📦 ◂ Alto</th><th>Largo</th><th>Ancho</th><th>Peso</th>`
@@ -594,7 +615,7 @@ function paintHistorial() {
       <td class="fbla-col ${marginClass(o.fbMarginPct)}">${fmtPct(o.fbMarginPct)}</td>
       ${hprice(x, 'precioFull')}${hmarg('full', histMlMarginPct(x, x.precioFull))}
       ${hprice(x, 'precioDOD')}${hmarg('dod', histMlMarginPct(x, x.precioDOD))}
-      <td><button class="mini" data-del="${x.id || ''}" title="Eliminar del historial">✕</button></td>
+      ${actionCell(x)}
     </tr>`; }).join('');
   wrap.innerHTML = `<table class="histtab dbtab"><thead><tr>
     <th>ID</th><th>Nombre producto</th><th>Proveedor</th><th>N° Cotización</th>
@@ -604,39 +625,109 @@ function paintHistorial() {
   </tr></thead><tbody>${rows}</tbody></table>`;
 
   const toggle = wrap.querySelector('.pack-toggle');
-  if (toggle) toggle.onclick = (e) => { e.stopPropagation(); packExpanded = !packExpanded; renderHistorial(); };
+  if (toggle) toggle.onclick = (e) => { e.stopPropagation(); packExpanded = !packExpanded; rerender(); };
   wrap.querySelectorAll('tr[data-i]').forEach(tr => tr.onclick = (e) => {
     if (e.target.closest('button') || e.target.closest('.pack-toggle') || e.target.closest('input')) return;
     showTab('calc'); loadFromHist(filtered[parseInt(tr.dataset.i, 10)]);
   });
   // Precio Full / DOD editables → recalculan su margen (Meli) y persisten en la base del país.
   wrap.querySelectorAll('input.hist-price').forEach(inp => inp.addEventListener('input', () => {
-    const item = _histAll.find(x => x.id === inp.dataset.id);
+    const item = all.find(x => x.id === inp.dataset.id);
     if (!item) return;
     item[inp.dataset.field] = inp.value === '' ? '' : (parseFloat(inp.value) || 0);
     updateHistRow(inp.closest('tr'), item);
-    histSaveDebounced(item);
+    save(item);
   }));
   // HS (texto) → solo persiste. Arancel % → recalcula todo (afecta el COGS) y persiste.
   wrap.querySelectorAll('input.hist-hs').forEach(inp => inp.addEventListener('change', () => {
-    const item = _histAll.find(x => x.id === inp.dataset.id); if (!item) return;
-    item.hs = inp.value.trim(); histSaveDebounced(item);
+    const item = all.find(x => x.id === inp.dataset.id); if (!item) return;
+    item.hs = inp.value.trim(); save(item);
   }));
   wrap.querySelectorAll('input.hist-ar').forEach(inp => inp.addEventListener('change', () => {
-    const item = _histAll.find(x => x.id === inp.dataset.id); if (!item) return;
+    const item = all.find(x => x.id === inp.dataset.id); if (!item) return;
     item.arancelPct = inp.value === '' ? '' : (parseFloat(inp.value) || 0);
-    histSaveDebounced(item); paintHistorial();   // el arancel cambia el COGS y los márgenes
+    save(item); paintDb(mode);   // el arancel cambia el COGS y los márgenes
   }));
+  wrap.querySelectorAll('button[data-close]').forEach(b => b.onclick = (e) => { e.stopPropagation(); closeProduct(all.find(x => x.id === b.dataset.close)); });
+  wrap.querySelectorAll('button[data-reopen]').forEach(b => b.onclick = (e) => { e.stopPropagation(); reopenProduct(all.find(x => x.id === b.dataset.reopen)); });
   wrap.querySelectorAll('button[data-del]').forEach(b => b.onclick = async (e) => {
     e.stopPropagation();
-    if (!confirm('¿Eliminar este producto del historial' + (_histBackend ? ' (para todo el equipo)' : '') + '?')) return;
-    await histDel(b.dataset.del); renderHistorial();
+    if (!confirm('¿Eliminar este producto ' + (isClosed ? 'de Productos cerrados' : 'del historial') + (_histBackend ? ' (para todo el equipo)' : '') + '?')) return;
+    await (isClosed ? closedDel(b.dataset.del) : histDel(b.dataset.del)); rerender();
   });
 }
 
-function exportHistorialCSV() {
-  const h = _histAll;
-  if (!h.length) { alert('No hay productos en el historial.'); return; }
+/* ---------------- Productos cerrados (base de datos propia por país) ---------------- */
+const CLOSED_KEY = 'mpclosed';
+let _closedAll = [], _closedSig = '';
+function closedLocalLoad() { try { return JSON.parse(localStorage.getItem(CLOSED_KEY) || '[]'); } catch (e) { return []; } }
+function closedLocalSave(h) { localStorage.setItem(CLOSED_KEY, JSON.stringify(h)); }
+async function closedLoad() {
+  if (_histBackend !== false) {
+    try { const r = await fetch(api('/api/products?store=closed')); if (r.ok) { _histBackend = true; return await r.json(); } _histBackend = false; } catch (e) { _histBackend = false; }
+  }
+  return closedLocalLoad();
+}
+async function closedAdd(item) {
+  if (_histBackend) {
+    try { const r = await fetch(api('/api/products?store=closed'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(item) }); if (r.ok) return; } catch (e) {}
+  }
+  const h = closedLocalLoad(); const i = h.findIndex(x => x.id === item.id); if (i >= 0) h[i] = item; else h.push(item); closedLocalSave(h);
+}
+async function closedDel(id) {
+  if (_histBackend) {
+    try { const r = await fetch(api('/api/products?store=closed&id=' + encodeURIComponent(id)), { method: 'DELETE' }); if (r.ok) return; } catch (e) {}
+  }
+  closedLocalSave(closedLocalLoad().filter(x => x.id !== id));
+}
+const _closedSavers = {};
+function closedSaveDebounced(item) { clearTimeout(_closedSavers[item.id]); _closedSavers[item.id] = setTimeout(() => closedAdd(item), 600); }
+async function renderClosed() {
+  _closedAll = await closedLoad();
+  _closedSig = JSON.stringify(_closedAll);
+  paintClosed();
+}
+// Mueve un producto de Historial → Productos cerrados.
+async function closeProduct(item) {
+  if (!item) return;
+  const ok = await askConfirm('¿Estás seguro de que quieres cerrar este producto?', 'Sí, cerrar');
+  if (!ok) return;
+  await closedAdd(item);      // lo agrega a Cerrados
+  await histDel(item.id);     // lo saca del Historial
+  _histAll = _histAll.filter(x => x.id !== item.id);
+  viewList = viewList.filter(x => x.id !== item.id);
+  _histSig = ''; _closedSig = '';
+  renderHist(); paintHistorial();
+  if (!$('tabClosed').classList.contains('hidden')) renderClosed();
+}
+// Devuelve un producto de Cerrados → Historial.
+async function reopenProduct(item) {
+  if (!item) return;
+  if (!confirm('¿Devolver este producto al Historial?')) return;
+  await histAdd(item);
+  await closedDel(item.id);
+  _closedAll = _closedAll.filter(x => x.id !== item.id);
+  _histSig = ''; _closedSig = '';
+  paintClosed();
+  if (!$('tabHist').classList.contains('hidden')) renderHistorial();
+}
+// Modal de confirmación reutilizable → Promise<boolean>.
+function askConfirm(msg, okLabel) {
+  return new Promise(res => {
+    $('modalMsg').textContent = msg;
+    $('modalOk').textContent = okLabel || 'Sí';
+    $('modalOverlay').classList.remove('hidden');
+    const done = v => { $('modalOverlay').classList.add('hidden'); $('modalOk').onclick = null; $('modalCancel').onclick = null; $('modalOverlay').onclick = null; res(v); };
+    $('modalOk').onclick = () => done(true);
+    $('modalCancel').onclick = () => done(false);
+    $('modalOverlay').onclick = e => { if (e.target === $('modalOverlay')) done(false); };
+  });
+}
+
+function exportHistorialCSV() { exportDbCSV(_histAll, 'historial_productos.csv'); }
+function exportClosedCSV() { exportDbCSV(_closedAll, 'productos_cerrados.csv'); }
+function exportDbCSV(h, filename) {
+  if (!h.length) { alert('No hay productos que exportar.'); return; }
   const head = ['ID', 'Nombre', 'Proveedor', 'N° Cotización', 'Alto', 'Largo', 'Ancho', 'Peso', 'Costo FOB', 'HS', 'Arancel %', 'Landed COGS', 'Supermercado', 'Categoría ML', 'Precio Meli', 'Margen Meli %', 'Precio Fala', 'Margen Fala %', 'Precio Full', 'Margen Full %', 'Precio DOD', 'Margen DOD %'];
   const q = s => '"' + (s == null ? '' : s).toString().replace(/"/g, '""') + '"';
   const n = v => (v == null || isNaN(v)) ? '' : Math.round(v);
@@ -652,7 +743,7 @@ function exportHistorialCSV() {
     ].join(';'));
   }
   const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'historial_productos.csv'; a.click();
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename; a.click();
 }
 
 /* ---------------- Catálogo (DB compartida + simulación en vivo) ---------------- */
@@ -895,13 +986,14 @@ function switchCountry(c) {
   country = c; localStorage.setItem('mp_country', c);
   Object.assign(cfg, loadCfg(c));            // carga params del país nuevo (cfg es const → se muta)
   _histBackend = null; _catBackend = null;   // re-detectar backend
-  _setSig = ''; _histSig = ''; _catSig = '';
+  _setSig = ''; _histSig = ''; _catSig = ''; _closedSig = '';
   applyCountryUI();
   bindCfgValues();
   nuevoProducto();                           // limpia el formulario
   loadView();                                // recarga la comparación del país
   if (!$('tabHist').classList.contains('hidden')) renderHistorial();
   if (!$('tabCat').classList.contains('hidden')) renderCatalogo();
+  if (!$('tabClosed').classList.contains('hidden')) renderClosed();
   (async () => {                             // trae los parámetros compartidos del país
     if (await settingsLoad()) {
       bindCfgValues(); recompute(); renderHist();
@@ -959,6 +1051,9 @@ function init() {
   $('btnHistRefresh').onclick = renderHistorial;
   $('btnHistExport').onclick = exportHistorialCSV;
   $('histFilter').addEventListener('input', debounce(renderHistorial, 200));
+  $('btnClosedRefresh').onclick = renderClosed;
+  $('btnClosedExport').onclick = exportClosedCSV;
+  $('closedFilter').addEventListener('input', debounce(paintClosed, 200));
   $('btnCatRefresh').onclick = renderCatalogo;
   $('btnCatExport').onclick = exportCatalogoCSV;
   $('btnCatSync').onclick = syncFromPG;
