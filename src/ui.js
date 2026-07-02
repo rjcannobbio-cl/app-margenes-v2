@@ -370,7 +370,7 @@ async function addToComparison() {
   const prev = editing ? ((_histAll || []).find(v => v.id === editing) || viewList.find(v => v.id === editing) || {}) : {};
   const item = {
     id: editing || newId(), ts: Date.now(),
-    precioFull: (prev.precioFull != null ? prev.precioFull : ''), precioDOD: (prev.precioDOD != null ? prev.precioDOD : ''),
+    precioFull: (prev.precioFull != null ? prev.precioFull : ''), precioAON: (prev.precioAON != null ? prev.precioAON : ''), precioDOD: (prev.precioDOD != null ? prev.precioDOD : ''),
     fecha: new Date().toISOString().slice(0, 19).replace('T', ' '),
     nombre: r.nombre || '(sin nombre)', proveedor: proveedor, cotizacion: $('inpCotizacion').value.trim(), skuProveedor: $('inpSkuProv').value.trim(),
     alto: num('inpAlto'), ancho: num('inpAncho'), largo: num('inpLargo'), peso: num('inpPeso'), fob: num('inpFob'),
@@ -478,10 +478,17 @@ function histMlMarginPct(x, price) {
 }
 const _histSavers = {};
 function histSaveDebounced(item) { clearTimeout(_histSavers[item.id]); _histSavers[item.id] = setTimeout(() => histAdd(item), 600); }
+// % de descuento entre dos precios (from → to): (from − to) / from.
+function varPct(from, to) { const f = parseFloat(from) || 0, t = parseFloat(to) || 0; return (f > 0 && t > 0) ? (f - t) / f * 100 : null; }
 function updateHistRow(tr, item) {
   const set = (key, v) => { const td = tr.querySelector(`[data-hcell="${key}"]`); if (!td) return; td.textContent = v == null ? '–' : fmtPct(v); td.className = 'mcell ' + (v == null ? '' : marginClass(v)); };
   set('full', histMlMarginPct(item, item.precioFull));
+  set('aon', histMlMarginPct(item, item.precioAON));
   set('dod', histMlMarginPct(item, item.precioDOD));
+  // %Var (solo existen en Productos cerrados; en Historial el querySelector no encuentra nada)
+  const setPlain = (key, v) => { const td = tr.querySelector(`[data-hcell="${key}"]`); if (!td) return; td.textContent = v == null ? '–' : fmtPct(v); };
+  setPlain('varfa', varPct(item.precioFull, item.precioAON));
+  setPlain('varad', varPct(item.precioAON, item.precioDOD));
 }
 
 function renderHist() {
@@ -587,7 +594,12 @@ function paintDb(mode) {
   const hmarg = (key, v) => `<td class="mcell ${v == null ? '' : marginClass(v)}" data-hcell="${key}">${v == null ? '–' : fmtPct(v)}</td>`;
   const actionCell = x => isClosed
     ? `<td style="white-space:nowrap"><button class="mini" data-reopen="${x.id || ''}" title="Devolver al Historial">↩</button> <button class="mini" data-del="${x.id || ''}" title="Eliminar definitivamente">✕</button></td>`
-    : `<td style="white-space:nowrap"><button class="btn-close" data-close="${x.id || ''}" type="button">Cerrar</button> <button class="mini" data-del="${x.id || ''}" title="Eliminar del historial">✕</button></td>`;
+    : `<td style="white-space:nowrap"><button class="btn-close" data-close="${x.id || ''}" type="button">Comprar producto</button> <button class="mini" data-del="${x.id || ''}" title="Eliminar del historial">✕</button></td>`;
+  // %Var solo en Productos cerrados: descuento Full→AON y AON→DOD.
+  const varHead = isClosed ? '<th>%Var Full-AON</th><th>%Var AON-DOD</th>' : '';
+  const varCells = x => isClosed
+    ? `<td data-hcell="varfa">${fmtPct(varPct(x.precioFull, x.precioAON))}</td><td data-hcell="varad">${fmtPct(varPct(x.precioAON, x.precioDOD))}</td>`
+    : '';
 
   const packHead = packExpanded
     ? `<th class="pack-toggle" title="Agrupar packaging">📦 ◂ Alto</th><th>Largo</th><th>Ancho</th><th>Peso</th>`
@@ -614,14 +626,16 @@ function paintDb(mode) {
       <td class="fbla-col">${fmtCLP(o.fbPrice)}</td>
       <td class="fbla-col ${marginClass(o.fbMarginPct)}">${fmtPct(o.fbMarginPct)}</td>
       ${hprice(x, 'precioFull')}${hmarg('full', histMlMarginPct(x, x.precioFull))}
+      ${hprice(x, 'precioAON')}${hmarg('aon', histMlMarginPct(x, x.precioAON))}
       ${hprice(x, 'precioDOD')}${hmarg('dod', histMlMarginPct(x, x.precioDOD))}
+      ${varCells(x)}
       ${actionCell(x)}
     </tr>`; }).join('');
   wrap.innerHTML = `<table class="histtab dbtab"><thead><tr>
     <th>ID</th><th>Nombre producto</th><th>Proveedor</th><th>N° Cotización</th>
     ${packHead}<th>Costo FOB</th><th>Landed COGS</th>
     <th>Súper</th><th>Categoría ML</th><th class="co-only">HS</th><th class="co-only">Arancel %</th><th>Precio Meli</th><th>Margen Meli</th><th class="fbla-col">Precio Fala</th><th class="fbla-col">Margen Fala</th>
-    <th>Precio Full</th><th>Margen Full</th><th>Precio DOD</th><th>Margen DOD</th><th></th>
+    <th>Precio Full</th><th>Margen Full</th><th>Precio AON</th><th>Margen AON</th><th>Precio DOD</th><th>Margen DOD</th>${varHead}<th></th>
   </tr></thead><tbody>${rows}</tbody></table>`;
 
   const toggle = wrap.querySelector('.pack-toggle');
@@ -690,7 +704,7 @@ async function renderClosed() {
 // Mueve un producto de Historial → Productos cerrados.
 async function closeProduct(item) {
   if (!item) return;
-  const ok = await askConfirm('¿Estás seguro de que quieres cerrar este producto?', 'Sí, cerrar');
+  const ok = await askConfirm('¿Estás seguro de que quieres comprar este producto?', 'Sí, comprar');
   if (!ok) return;
   await closedAdd(item);      // lo agrega a Cerrados
   await histDel(item.id);     // lo saca del Historial
@@ -728,7 +742,7 @@ function exportHistorialCSV() { exportDbCSV(_histAll, 'historial_productos.csv')
 function exportClosedCSV() { exportDbCSV(_closedAll, 'productos_cerrados.csv'); }
 function exportDbCSV(h, filename) {
   if (!h.length) { alert('No hay productos que exportar.'); return; }
-  const head = ['ID', 'Nombre', 'Proveedor', 'N° Cotización', 'Alto', 'Largo', 'Ancho', 'Peso', 'Costo FOB', 'HS', 'Arancel %', 'Landed COGS', 'Supermercado', 'Categoría ML', 'Precio Meli', 'Margen Meli %', 'Precio Fala', 'Margen Fala %', 'Precio Full', 'Margen Full %', 'Precio DOD', 'Margen DOD %'];
+  const head = ['ID', 'Nombre', 'Proveedor', 'N° Cotización', 'Alto', 'Largo', 'Ancho', 'Peso', 'Costo FOB', 'HS', 'Arancel %', 'Landed COGS', 'Supermercado', 'Categoría ML', 'Precio Meli', 'Margen Meli %', 'Precio Fala', 'Margen Fala %', 'Precio Full', 'Margen Full %', 'Precio AON', 'Margen AON %', 'Precio DOD', 'Margen DOD %', '%Var Full-AON', '%Var AON-DOD'];
   const q = s => '"' + (s == null ? '' : s).toString().replace(/"/g, '""') + '"';
   const n = v => (v == null || isNaN(v)) ? '' : Math.round(v);
   const p = v => (v == null || isNaN(v)) ? '' : Number(v).toFixed(1).replace('.', ',');
@@ -739,7 +753,7 @@ function exportDbCSV(h, filename) {
       q(compositeId(x)), q(x.nombre), q(x.proveedor), q(x.cotizacion),
       (x.alto || ''), (x.largo || ''), (x.ancho || ''), (x.peso || ''), (x.fob || ''), q(x.hs), (x.arancelPct || x.arancelPct === 0 ? x.arancelPct : ''), n(o.cogs),
       x.isSuper ? 'Sí' : 'No', q(x.mlCatName), n(o.mlPrice), p(o.mlMarginPct), n(o.fbPrice), p(o.fbMarginPct),
-      (x.precioFull || ''), p(histMlMarginPct(x, x.precioFull)), (x.precioDOD || ''), p(histMlMarginPct(x, x.precioDOD))
+      (x.precioFull || ''), p(histMlMarginPct(x, x.precioFull)), (x.precioAON || ''), p(histMlMarginPct(x, x.precioAON)), (x.precioDOD || ''), p(histMlMarginPct(x, x.precioDOD)), p(varPct(x.precioFull, x.precioAON)), p(varPct(x.precioAON, x.precioDOD))
     ].join(';'));
   }
   const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
@@ -1054,7 +1068,6 @@ function init() {
   $('btnClosedRefresh').onclick = renderClosed;
   $('btnClosedExport').onclick = exportClosedCSV;
   $('closedFilter').addEventListener('input', debounce(paintClosed, 200));
-  $('btnCatRefresh').onclick = renderCatalogo;
   $('btnCatExport').onclick = exportCatalogoCSV;
   $('btnCatSync').onclick = syncFromPG;
   $('btnCatImport').onclick = () => $('catFile').click();
