@@ -251,7 +251,7 @@
       </div>
       <div class="actions">
         <button class="btn" id="btnAdd">+ Agregar / guardar</button>
-        <button class="btn ghost" id="btnNew">✦ Nuevo</button>
+        <button class="btn ghost" id="btnNew">🧹 Limpiar</button>
         <button class="btn ghost" id="btnExport">Exportar CSV</button>
         <button class="btn ghost" id="btnClear">Vaciar vista</button>
       </div>
@@ -334,6 +334,16 @@
 <div id="modalOverlay" class="modal-overlay hidden">
   <div class="modal">
     <p id="modalMsg">¿Estás seguro?</p>
+    <div id="modalFields" class="hidden" style="margin-bottom:16px">
+      <label>SKU</label>
+      <input type="text" id="modalSku" placeholder="SKU del producto" autocomplete="off">
+      <label>Mes de cierre</label>
+      <select id="modalMes">
+        <option value="">— selecciona —</option>
+        <option>Enero</option><option>Febrero</option><option>Marzo</option><option>Abril</option><option>Mayo</option>
+      </select>
+      <div id="modalErr" class="ai-status err" style="margin-top:8px"></div>
+    </div>
     <div class="modal-actions">
       <button class="btn ghost" id="modalCancel" type="button">Cancelar</button>
       <button class="btn" id="modalOk" type="button">Sí</button>
@@ -342,12 +352,12 @@
 </div>
 
 <!-- ?v= versiona los assets: al cambiar el número, el navegador ignora el caché de 4h de Cloudflare. Súbelo en cada deploy que toque JS. -->
-<script src="data/ml_categories.js?v=260704"></script>
-<script src="data/fbla_categories.js?v=260704"></script>
-<script src="data/shipping.js?v=260704"></script>
-<script src="src/app.js?v=260704"></script>
-<script src="src/ai.js?v=260704"></script>
-<script src="src/local-ai.js?v=260704"></script>
-<script src="src/ui.js?v=260704"></script>
+<script src="data/ml_categories.js?v=260705"></script>
+<script src="data/fbla_categories.js?v=260705"></script>
+<script src="data/shipping.js?v=260705"></script>
+<script src="src/app.js?v=260705"></script>
+<script src="src/ai.js?v=260705"></script>
+<script src="src/local-ai.js?v=260705"></script>
+<script src="src/ui.js?v=260705"></script>
 </body>
 </html>
