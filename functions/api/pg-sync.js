@@ -34,6 +34,14 @@ export async function onRequest({ request, env }) {
 
   const headers = { Authorization: 'Bearer ' + token, Accept: 'application/json' };
   try {
+    // Modo diagnóstico: POST /api/pg-sync?inspect=1 → muestra los campos de un producto (para verificar dims).
+    if (new URL(request.url).searchParams.get('inspect')) {
+      const r = await fetch(`${PG}/products?page=1&page_size=2`, { headers });
+      const j = await r.json().catch(() => ({}));
+      const arr = j.items || j.data || [];
+      return json({ status: r.status, sampleKeys: arr[0] ? Object.keys(arr[0]) : null, sample: arr[0] || null });
+    }
+
     // 1) Traer TODOS los sourcings (≈6 páginas de 100).
     const sourcings = [];
     for (let page = 1; page <= 60; page++) {
@@ -45,6 +53,26 @@ export async function onRequest({ request, env }) {
       const j = await r.json();
       const items = j.items || j.data || [];
       items.forEach(s => sourcings.push(s));
+      const totalPages = (j.meta && j.meta.total_pages) || 1;
+      if (page >= totalPages) break;
+    }
+
+    // 1b) Traer TODOS los productos → mapa de dimensiones por id de producto.
+    //     PG expone alto/ancho/largo/peso en /products (no en product_sourcings).
+    const dimsById = {};
+    for (let page = 1; page <= 60; page++) {
+      const r = await fetch(`${PG}/products?page=${page}&page_size=100`, { headers });
+      if (!r.ok) break;   // si /products falla, se sigue con las dims preservadas
+      const j = await r.json();
+      const arr = j.items || j.data || [];
+      for (const p of arr) {
+        if (p && p.id != null) dimsById[p.id] = {
+          alto: p.height != null ? p.height : '',
+          ancho: p.width != null ? p.width : '',
+          largo: p.length != null ? p.length : '',
+          peso: p.weight != null ? p.weight : ''
+        };
+      }
       const totalPages = (j.meta && j.meta.total_pages) || 1;
       if (page >= totalPages) break;
     }
@@ -72,6 +100,9 @@ export async function onRequest({ request, env }) {
       const id = 'src' + s.id;
       const old = prevById[id] || {};
       const fobUsd = (s.unitCost && typeof s.unitCost.cents === 'number') ? s.unitCost.cents / 100 : 0;
+      // Dimensiones: preferir las de PG (/products); si faltan, conservar las previas (Excel/edición).
+      const dpg = dimsById[p.id] || {};
+      const dim = f => (dpg[f] !== undefined && dpg[f] !== '' && dpg[f] !== null) ? dpg[f] : keep(old, sku, f, '');
       return {
         id,
         sku,
@@ -80,11 +111,12 @@ export async function onRequest({ request, env }) {
         puerto: (s.port && s.port.name) || '',
         fob: fobUsd,                       // USD — el COGS se simula en la app
         active: p.active !== false,
+        // dimensiones desde PG (respaldo: Excel/edición):
+        alto: dim('alto'),
+        ancho: dim('ancho'),
+        largo: dim('largo'),
+        peso: dim('peso'),
         // preservados (Excel / edición):
-        alto: keep(old, sku, 'alto', ''),
-        ancho: keep(old, sku, 'ancho', ''),
-        largo: keep(old, sku, 'largo', ''),
-        peso: keep(old, sku, 'peso', ''),
         precioFull: keep(old, sku, 'precioFull', ''),
         precioAON: keep(old, sku, 'precioAON', ''),
         precioDOD: keep(old, sku, 'precioDOD', ''),
@@ -97,7 +129,8 @@ export async function onRequest({ request, env }) {
     });
 
     await kv.put(KEY, JSON.stringify(items));
-    return json({ ok: true, sourcings: sourcings.length, items: items.length });
+    const withDims = items.filter(x => x.alto && x.ancho && x.largo && x.peso).length;
+    return json({ ok: true, sourcings: sourcings.length, items: items.length, productsWithDims: Object.keys(dimsById).length, itemsWithDims: withDims });
   } catch (e) {
     return json({ error: String((e && e.message) || e) }, 500);
   }
