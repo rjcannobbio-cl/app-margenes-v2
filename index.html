@@ -135,6 +135,9 @@
   /* País = Colombia: solo Mercado Libre (se ocultan las piezas de Falabella) */
   body.co .fbla-col{display:none !important}
   body.co .cl-only{display:none !important}
+  .co-only{display:none}
+  body.co .co-only{display:block}
+  body.co th.co-only,body.co td.co-only{display:table-cell}
   body.co .catrow{grid-template-columns:1fr}
   body.co .cards{grid-template-columns:1fr}
   body.co .price-row{grid-template-columns:1fr}
@@ -191,6 +194,13 @@
         <div class="catbox fbla-col">
           <div class="top"><span>Categoría Falabella</span><span id="fblaCatBadge" class="badge badge-warn">sin deducir</span></div>
           <select id="fblaCatSelect" size="1"></select>
+        </div>
+      </div>
+      <div class="catbox co-only" id="hsBox">
+        <div class="top"><span>Arancel Colombia (código HS)</span><span id="hsBadge" class="badge badge-warn">sin deducir</span></div>
+        <div class="row2" style="margin-top:2px">
+          <div><input type="text" id="inpHs" placeholder="HS"><div class="hint">código HS (IA)</div></div>
+          <div><input type="number" id="inpArancel" placeholder="0" min="0" step="0.1"><div class="hint">arancel %</div></div>
         </div>
       </div>
       <div class="ai-row">

@@ -6,7 +6,7 @@
 // País activo (Chile por defecto). Cada país tiene sus propios parámetros y base de datos.
 let country = localStorage.getItem('mp_country') || 'cl';
 const cfg = loadCfg(country);
-const state = { mlCatIdx: -1, fblaCatIdx: -1, lastResult: null };
+const state = { mlCatIdx: -1, fblaCatIdx: -1, lastResult: null, arancelPct: 0, hs: '' };
 
 const $ = (id) => document.getElementById(id);
 const num = (id) => { const v = parseFloat($(id).value.replace(',', '.')); return isNaN(v) ? 0 : v; };
@@ -101,6 +101,7 @@ async function autoDeduce() {
     return;
   }
 
+  if (country === 'co') suggestHS();   // en paralelo: HS + arancel (Colombia)
   const myToken = ++deduceToken;
   markDeduced('ml', true, 'IA…'); markDeduced('fbla', true, 'IA…');
   setAiStatus('Consultando IA (Claude)…', false);
@@ -145,13 +146,29 @@ function markDeduced(channel, ok, label) {
   else { el.textContent = 'auto'; el.className = 'badge badge-auto'; }
 }
 
+// Sugerencia de código HS + arancel (Colombia) vía IA; se puede corregir a mano.
+async function suggestHS() {
+  if (country !== 'co') return;
+  const text = deduceText(); if (!text) return;
+  const badge = $('hsBadge'); if (badge) { badge.textContent = 'IA…'; badge.className = 'badge badge-ai'; }
+  try {
+    const r = await aiSuggestHS(text, cfg);
+    if (r.hs) { $('inpHs').value = r.hs; state.hs = r.hs; }
+    if (r.arancel != null) { $('inpArancel').value = r.arancel; state.arancelPct = r.arancel; }
+    if (badge) { badge.textContent = r.hs ? ('HS ' + r.hs + ' · ' + (r.arancel != null ? r.arancel + '%' : '?')) : 'IA'; badge.className = 'badge badge-ai'; }
+    recompute();
+  } catch (e) { if (badge) { badge.textContent = 'IA no disp.'; badge.className = 'badge badge-warn'; } }
+}
+
 /* ---------------- Cálculo y render ---------------- */
 function recompute() {
   const alto = num('inpAlto'), ancho = num('inpAncho'), largo = num('inpLargo');
   const peso = num('inpPeso');
   const cbmUnit = (alto * ancho * largo) / 1000000;    // volumen por unidad (m³) desde dimensiones
   const fob = num('inpFob'), factorCBM = cfg.factorCBM, dolar = cfg.dolar;   // factor CBM y dólar viven en Parámetros
-  const costo = computeLanded(fob, cbmUnit, factorCBM, dolar, cfg);   // landed cost = COGS
+  const arancel = (country === 'co') ? num('inpArancel') : 0;   // arancel por producto (solo Colombia)
+  state.arancelPct = arancel; state.hs = ($('inpHs') && $('inpHs').value.trim()) || '';
+  const costo = computeLanded(fob, cbmUnit, factorCBM, dolar, cfg, arancel);   // landed cost = COGS
   $('landedVal').textContent = fmtCLP(costo);
   $('cbmInfo').textContent = 'CBM/u: ' + (cbmUnit > 0 ? cbmUnit.toFixed(5) : '–') + ' m³';
   const precioML = num('inpPrecioML'), precioFB = num('inpPrecioFB');
@@ -311,7 +328,7 @@ async function liveTick() {
       if (sig !== _setSig) { _setSig = sig; if (!editingCfg()) applySharedSettings(s); }
     }
   } catch (e) {}
-  if (!$('tabHist').classList.contains('hidden') && !document.activeElement.classList.contains('hist-price')) {
+  if (!$('tabHist').classList.contains('hidden') && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('#histDbWrap'))) {
     try {
       const r = await fetch(api('/api/products'));
       if (r.ok) {
@@ -321,7 +338,7 @@ async function liveTick() {
       }
     } catch (e) {}
   }
-  if (!$('tabCat').classList.contains('hidden') && !document.activeElement.classList.contains('cat-price')) {
+  if (!$('tabCat').classList.contains('hidden') && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('#catDbWrap'))) {
     try {
       const r = await fetch(api('/api/catalog'));
       if (r.ok) {
@@ -350,6 +367,7 @@ async function addToComparison() {
     precioML: num('inpPrecioML'), precioFB: num('inpPrecioFB'), isSuper: $('inpSuper').checked,
     mlCatIdx: state.mlCatIdx, mlCatName: r.ml.catName, mlComPct: r.ml.comPct,
     fblaCatIdx: state.fblaCatIdx, fblaCatName: r.fbla.catName, fbComPct: r.fbla.comPct,
+    hs: state.hs, arancelPct: state.arancelPct,
     dolar: cfg.dolar, factorCBM: cfg.factorCBM,
     cogs: r.ml.cogs, mlPrice: r.ml.price, mlMargin: r.ml.margin, mlMarginPct: r.ml.marginPct,
     fbPrice: r.fbla.price, fbMargin: r.fbla.margin, fbMarginPct: r.fbla.marginPct
@@ -379,6 +397,9 @@ function loadFromHist(x) {
   $('inpSkuProv').value = x.skuProveedor || '';
   set('inpAlto', x.alto); set('inpAncho', x.ancho); set('inpLargo', x.largo); set('inpPeso', x.peso); set('inpFob', x.fob);
   set('inpPrecioML', x.precioML); set('inpPrecioFB', x.precioFB);
+  set('inpHs', x.hs); set('inpArancel', x.arancelPct);
+  state.hs = x.hs || ''; state.arancelPct = x.arancelPct || 0;
+  if ($('hsBadge')) { const has = x.hs || x.arancelPct; $('hsBadge').textContent = has ? ('HS ' + (x.hs || '?') + ' · ' + ((x.arancelPct || 0) + '%')) : 'sin deducir'; $('hsBadge').className = 'badge ' + (has ? 'badge-auto' : 'badge-warn'); }
   $('inpSuper').checked = !!x.isSuper;
   state.mlCatIdx = resolveCatIdx(x.mlCatIdx, x.mlCatName, ML_CATEGORIES);
   state.fblaCatIdx = resolveCatIdx(x.fblaCatIdx, x.fblaCatName, FBLA_CATEGORIES);
@@ -406,9 +427,10 @@ function setEditing(id) {
 
 // Limpia el formulario para empezar un producto nuevo.
 function nuevoProducto() {
-  ['inpNombre', 'inpProveedor', 'inpCotizacion', 'inpSkuProv', 'inpAlto', 'inpAncho', 'inpLargo', 'inpPeso', 'inpFob', 'inpPrecioML', 'inpPrecioFB'].forEach(id => $(id).value = '');
+  ['inpNombre', 'inpProveedor', 'inpCotizacion', 'inpSkuProv', 'inpAlto', 'inpAncho', 'inpLargo', 'inpPeso', 'inpFob', 'inpPrecioML', 'inpPrecioFB', 'inpHs', 'inpArancel'].forEach(id => $(id).value = '');
   $('inpSuper').checked = false;
-  state.mlCatIdx = -1; state.fblaCatIdx = -1;
+  state.mlCatIdx = -1; state.fblaCatIdx = -1; state.arancelPct = 0; state.hs = '';
+  if ($('hsBadge')) { $('hsBadge').textContent = 'sin deducir'; $('hsBadge').className = 'badge badge-warn'; }
   refreshCatUI();
   markDeduced('ml', false); markDeduced('fbla', false);
   setEditing(null);
@@ -422,7 +444,7 @@ function nuevoProducto() {
 // historial refleja los valores nuevos sin tener que volver a guardar cada producto.
 function deriveOutputs(x) {
   const cbmUnit = ((x.alto || 0) * (x.ancho || 0) * (x.largo || 0)) / 1000000;
-  const cogs = computeLanded(x.fob || 0, cbmUnit, cfg.factorCBM, cfg.dolar, cfg);
+  const cogs = computeLanded(x.fob || 0, cbmUnit, cfg.factorCBM, cfg.dolar, cfg, x.arancelPct);
   const weight = billableWeight(x.peso || 0, x.alto || 0, x.ancho || 0, x.largo || 0, VOL_DIVISOR);
   const ml = computeChannel('ml', x.precioML || 0, cogs, x.mlComPct || 0, weight, !!x.isSuper, cfg);
   const fb = computeChannel('fbla', x.precioFB || 0, cogs, x.fbComPct || 0, weight, false, cfg);
@@ -440,7 +462,7 @@ function histMlMarginPct(x, price) {
   const p = parseFloat(price) || 0;
   if (!p) return null;
   const cbmUnit = ((x.alto || 0) * (x.ancho || 0) * (x.largo || 0)) / 1000000;
-  const cogs = computeLanded(x.fob || 0, cbmUnit, cfg.factorCBM, cfg.dolar, cfg);
+  const cogs = computeLanded(x.fob || 0, cbmUnit, cfg.factorCBM, cfg.dolar, cfg, x.arancelPct);
   const weight = billableWeight(x.peso || 0, x.alto || 0, x.ancho || 0, x.largo || 0, VOL_DIVISOR);
   return computeChannel('ml', p, cogs, x.mlComPct || 0, weight, !!x.isSuper, cfg).marginPct;
 }
@@ -564,6 +586,8 @@ function paintHistorial() {
       <td>${fmtCLP(o.cogs)}</td>
       <td>${x.isSuper ? 'Sí' : 'No'}</td>
       <td>${escapeHtml(x.mlCatName || '')}</td>
+      <td class="co-only"><input type="text" class="hist-hs" data-id="${x.id || ''}" value="${escapeHtml(x.hs || '')}" placeholder="–" style="width:88px"></td>
+      <td class="co-only"><input type="number" class="hist-ar" data-id="${x.id || ''}" value="${(x.arancelPct || x.arancelPct === 0) ? x.arancelPct : ''}" placeholder="0" min="0" step="0.1" style="width:60px"></td>
       <td>${fmtCLP(o.mlPrice)}</td>
       <td class="${marginClass(o.mlMarginPct)}">${fmtPct(o.mlMarginPct)}</td>
       <td class="fbla-col">${fmtCLP(o.fbPrice)}</td>
@@ -575,7 +599,7 @@ function paintHistorial() {
   wrap.innerHTML = `<table class="histtab dbtab"><thead><tr>
     <th>ID</th><th>Nombre producto</th><th>Proveedor</th><th>N° Cotización</th>
     ${packHead}<th>Costo FOB</th><th>Landed COGS</th>
-    <th>Súper</th><th>Categoría ML</th><th>Precio Meli</th><th>Margen Meli</th><th class="fbla-col">Precio Fala</th><th class="fbla-col">Margen Fala</th>
+    <th>Súper</th><th>Categoría ML</th><th class="co-only">HS</th><th class="co-only">Arancel %</th><th>Precio Meli</th><th>Margen Meli</th><th class="fbla-col">Precio Fala</th><th class="fbla-col">Margen Fala</th>
     <th>Precio Full</th><th>Margen Full</th><th>Precio DOD</th><th>Margen DOD</th><th></th>
   </tr></thead><tbody>${rows}</tbody></table>`;
 
@@ -593,6 +617,16 @@ function paintHistorial() {
     updateHistRow(inp.closest('tr'), item);
     histSaveDebounced(item);
   }));
+  // HS (texto) → solo persiste. Arancel % → recalcula todo (afecta el COGS) y persiste.
+  wrap.querySelectorAll('input.hist-hs').forEach(inp => inp.addEventListener('change', () => {
+    const item = _histAll.find(x => x.id === inp.dataset.id); if (!item) return;
+    item.hs = inp.value.trim(); histSaveDebounced(item);
+  }));
+  wrap.querySelectorAll('input.hist-ar').forEach(inp => inp.addEventListener('change', () => {
+    const item = _histAll.find(x => x.id === inp.dataset.id); if (!item) return;
+    item.arancelPct = inp.value === '' ? '' : (parseFloat(inp.value) || 0);
+    histSaveDebounced(item); paintHistorial();   // el arancel cambia el COGS y los márgenes
+  }));
   wrap.querySelectorAll('button[data-del]').forEach(b => b.onclick = async (e) => {
     e.stopPropagation();
     if (!confirm('¿Eliminar este producto del historial' + (_histBackend ? ' (para todo el equipo)' : '') + '?')) return;
@@ -603,7 +637,7 @@ function paintHistorial() {
 function exportHistorialCSV() {
   const h = _histAll;
   if (!h.length) { alert('No hay productos en el historial.'); return; }
-  const head = ['ID', 'Nombre', 'Proveedor', 'N° Cotización', 'Alto', 'Largo', 'Ancho', 'Peso', 'Costo FOB', 'Landed COGS', 'Supermercado', 'Categoría ML', 'Precio Meli', 'Margen Meli %', 'Precio Fala', 'Margen Fala %', 'Precio Full', 'Margen Full %', 'Precio DOD', 'Margen DOD %'];
+  const head = ['ID', 'Nombre', 'Proveedor', 'N° Cotización', 'Alto', 'Largo', 'Ancho', 'Peso', 'Costo FOB', 'HS', 'Arancel %', 'Landed COGS', 'Supermercado', 'Categoría ML', 'Precio Meli', 'Margen Meli %', 'Precio Fala', 'Margen Fala %', 'Precio Full', 'Margen Full %', 'Precio DOD', 'Margen DOD %'];
   const q = s => '"' + (s == null ? '' : s).toString().replace(/"/g, '""') + '"';
   const n = v => (v == null || isNaN(v)) ? '' : Math.round(v);
   const p = v => (v == null || isNaN(v)) ? '' : Number(v).toFixed(1).replace('.', ',');
@@ -612,7 +646,7 @@ function exportHistorialCSV() {
     const o = deriveOutputs(x);
     lines.push([
       q(compositeId(x)), q(x.nombre), q(x.proveedor), q(x.cotizacion),
-      (x.alto || ''), (x.largo || ''), (x.ancho || ''), (x.peso || ''), (x.fob || ''), n(o.cogs),
+      (x.alto || ''), (x.largo || ''), (x.ancho || ''), (x.peso || ''), (x.fob || ''), q(x.hs), (x.arancelPct || x.arancelPct === 0 ? x.arancelPct : ''), n(o.cogs),
       x.isSuper ? 'Sí' : 'No', q(x.mlCatName), n(o.mlPrice), p(o.mlMarginPct), n(o.fbPrice), p(o.fbMarginPct),
       (x.precioFull || ''), p(histMlMarginPct(x, x.precioFull)), (x.precioDOD || ''), p(histMlMarginPct(x, x.precioDOD))
     ].join(';'));
@@ -641,7 +675,7 @@ async function catUpsert(item) {
 // Landed COGS + márgenes % a los 3 precios, con los parámetros ACTUALES (dólar, factor CBM).
 function catMargins(x) {
   const cbmUnit = ((x.alto || 0) * (x.ancho || 0) * (x.largo || 0)) / 1000000;
-  const cogs = computeLanded(x.fob || 0, cbmUnit, cfg.factorCBM, cfg.dolar, cfg);
+  const cogs = computeLanded(x.fob || 0, cbmUnit, cfg.factorCBM, cfg.dolar, cfg, x.arancelPct);
   const weight = billableWeight(x.peso || 0, x.alto || 0, x.ancho || 0, x.largo || 0, VOL_DIVISOR);
   const m = price => {
     const p = parseFloat(price) || 0;
@@ -788,13 +822,15 @@ function paintCatalogo() {
       <td>${x.fob ? ('US$' + x.fob) : ''}</td>
       <td>${escapeHtml(x.proveedor || '')}</td>
       <td>${escapeHtml(x.puerto || '')}</td>
+      <td class="co-only"><input type="text" class="cat-hs" data-id="${x.id}" value="${escapeHtml(x.hs || '')}" placeholder="–" style="width:88px"></td>
+      <td class="co-only"><input type="number" class="cat-ar" data-id="${x.id}" value="${(x.arancelPct || x.arancelPct === 0) ? x.arancelPct : ''}" placeholder="0" min="0" step="0.1" style="width:60px"></td>
       <td class="mcell" data-cell="cogs">${fmtCLP(r.cogs)}</td>
       ${priceInput(x, 'precioFull')}${mc('full-ml', r.full.ml)}${mc('full-fa', r.full.fa)}
       ${priceInput(x, 'precioAON')}${mc('aon-ml', r.aon.ml)}${mc('aon-fa', r.aon.fa)}
       ${priceInput(x, 'precioDOD')}${mc('dod-ml', r.dod.ml)}${mc('dod-fa', r.dod.fa)}
     </tr>`; }).join('');
   wrap.innerHTML = `<table class="histtab dbtab" style="min-width:1700px"><thead><tr>
-    <th>SKU</th><th>Título</th><th>Largo</th><th>Alto</th><th>Ancho</th><th>Peso</th><th>Precio FOB</th><th>Proveedor</th><th>Puerto</th><th>Landed COGS</th>
+    <th>SKU</th><th>Título</th><th>Largo</th><th>Alto</th><th>Ancho</th><th>Peso</th><th>Precio FOB</th><th>Proveedor</th><th>Puerto</th><th class="co-only">HS</th><th class="co-only">Arancel %</th><th>Landed COGS</th>
     <th>Precio Full</th><th>Margen PF Meli</th><th class="fbla-col">Margen PF Fala</th>
     <th>Precio AON</th><th>Margen AON Meli</th><th class="fbla-col">Margen AON Fala</th>
     <th>Precio DOD</th><th>Margen DOD Meli</th><th class="fbla-col">Margen DOD Fala</th>
@@ -803,6 +839,17 @@ function paintCatalogo() {
     const item = _catAll.find(x => x.id === inp.dataset.id);
     if (!item) return;
     item[inp.dataset.field] = parseFloat(inp.value) || 0;
+    updateCatRow(inp.closest('tr'), item);
+    catSaveDebounced(item);
+  }));
+  // HS (texto) → persiste. Arancel % → recalcula COGS + márgenes en vivo y persiste.
+  wrap.querySelectorAll('input.cat-hs').forEach(inp => inp.addEventListener('change', () => {
+    const item = _catAll.find(x => x.id === inp.dataset.id); if (!item) return;
+    item.hs = inp.value.trim(); catSaveDebounced(item);
+  }));
+  wrap.querySelectorAll('input.cat-ar').forEach(inp => inp.addEventListener('input', () => {
+    const item = _catAll.find(x => x.id === inp.dataset.id); if (!item) return;
+    item.arancelPct = inp.value === '' ? '' : (parseFloat(inp.value) || 0);
     updateCatRow(inp.closest('tr'), item);
     catSaveDebounced(item);
   }));
@@ -817,7 +864,7 @@ function updateCatRow(tr, item) {
 }
 function exportCatalogoCSV() {
   if (!_catAll.length) { alert('El catálogo está vacío.'); return; }
-  const head = ['SKU', 'Título', 'Largo', 'Alto', 'Ancho', 'Peso', 'Precio FOB', 'Proveedor', 'Puerto', 'Landed COGS',
+  const head = ['SKU', 'Título', 'Largo', 'Alto', 'Ancho', 'Peso', 'Precio FOB', 'Proveedor', 'Puerto', 'HS', 'Arancel %', 'Landed COGS',
     'Precio Full', 'Margen PF Meli %', 'Margen PF Fala %', 'Precio AON', 'Margen AON Meli %', 'Margen AON Fala %', 'Precio DOD', 'Margen DOD Meli %', 'Margen DOD Fala %'];
   const q = s => '"' + (s == null ? '' : s).toString().replace(/"/g, '""') + '"';
   const n = v => (v == null || isNaN(v)) ? '' : Math.round(v);
@@ -825,7 +872,7 @@ function exportCatalogoCSV() {
   const lines = [head.join(';')];
   for (const x of _catAll) {
     const r = catMargins(x);
-    lines.push([q(x.sku), q(x.titulo), x.largo || '', x.alto || '', x.ancho || '', x.peso || '', x.fob || '', q(x.proveedor), q(x.puerto), n(r.cogs),
+    lines.push([q(x.sku), q(x.titulo), x.largo || '', x.alto || '', x.ancho || '', x.peso || '', x.fob || '', q(x.proveedor), q(x.puerto), q(x.hs), (x.arancelPct || x.arancelPct === 0 ? x.arancelPct : ''), n(r.cogs),
       x.precioFull || '', p(r.full.ml), p(r.full.fa), x.precioAON || '', p(r.aon.ml), p(r.aon.fa), x.precioDOD || '', p(r.dod.ml), p(r.dod.fa)].join(';'));
   }
   const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
@@ -893,7 +940,7 @@ function bindCfg() {
 /* ---------------- Init ---------------- */
 function init() {
   // recompute en cualquier cambio de input numérico
-  ['inpAlto','inpAncho','inpLargo','inpPeso','inpFob','inpPrecioML','inpPrecioFB'].forEach(id => $(id).addEventListener('input', recompute));
+  ['inpAlto','inpAncho','inpLargo','inpPeso','inpFob','inpPrecioML','inpPrecioFB','inpArancel','inpHs'].forEach(id => $(id).addEventListener('input', recompute));
   $('inpSuper').addEventListener('change', recompute);
 
   // deducción 3 s después de que el usuario deja de escribir (la IA tarda y consume cuota)

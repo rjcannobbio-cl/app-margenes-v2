@@ -124,9 +124,11 @@ function deduceCategory(text, list, nameKey) {
 /* ---------------- Landed cost (COGS) ---------------- */
 // Replica la planilla de costeo: (FOB + CBM_unidad*factorCBM) * dólar * (1 + IVA)
 // cbmUnit (m³) se deriva de las dimensiones; factorCBM es el precio de contenedor (USD/m³).
-function computeLanded(fobUsd, cbmUnit, factorCBM, dolar, cfg) {
+function computeLanded(fobUsd, cbmUnit, factorCBM, dolar, cfg, arancelPct) {
   const base = ((fobUsd || 0) + (cbmUnit || 0) * (factorCBM || 0)) * dolar;
-  return base * (1 + (cfg.iva || 0) / 100);
+  // Colombia: arancel por producto (según código HS). Chile: 0% por el TLC con China → factor 1.
+  const ar = (cfg && cfg.country === 'co') ? (1 + (parseFloat(arancelPct) || 0) / 100) : 1;
+  return base * ar * (1 + (cfg.iva || 0) / 100);
 }
 
 /* ---------------- Peso facturable ---------------- */

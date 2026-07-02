@@ -221,3 +221,27 @@ async function aiSuggestBoth(title, cfg) {
     raw: { mlL1res, fbL1res, ml_hoja: mlHoja, fbla_hoja: fbHoja }
   };
 }
+
+// Sugerencia de código HS (subpartida arancelaria) + arancel% para COLOMBIA.
+// Estimación para simular margen (NO es clasificación aduanera oficial). Editable por el usuario.
+// Devuelve { hs, arancel (número % o null), reason }.
+async function aiSuggestHS(title, cfg) {
+  const schema = {
+    type: 'OBJECT',
+    properties: { hs: { type: 'STRING' }, arancel: { type: 'NUMBER' }, reason: { type: 'STRING' } },
+    required: ['hs', 'arancel']
+  };
+  const p =
+    `Eres experto en clasificación arancelaria de importaciones en COLOMBIA (Arancel de Aduanas, nomenclatura HS/NANDINA).\n` +
+    `Producto que se importa desde China: "${title}".\n` +
+    `Devuelve la SUBPARTIDA arancelaria colombiana (6 dígitos HS; 10 si la conoces) y el GRAVAMEN ARANCELARIO ad valorem general (%) que Colombia aplica a esa subpartida.\n` +
+    `Los aranceles colombianos típicos son 0, 5, 10 o 15%. Da tu mejor estimación oficial (no incluyas IVA ni antidumping).\n` +
+    `Responde SOLO este JSON: {"hs":"<código>","arancel":<número sin signo %>,"reason":"<justificación breve>"}`;
+  const o = parseJSONLoose(await aiText(p, cfg, { schema, maxTokens: 300 })) || {};
+  const arancel = parseFloat(o.arancel);
+  return {
+    hs: (o.hs || '').toString().trim(),
+    arancel: isNaN(arancel) ? null : arancel,
+    reason: (o.reason || '').toString().trim()
+  };
+}
