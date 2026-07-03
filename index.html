@@ -67,6 +67,7 @@
   .catbox .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
   .catbox .top span{font-size:12px;font-weight:700}
   .catbox select{margin-top:6px}
+  .cat-filter{margin-top:6px;font-size:12px;padding:6px 9px}
   .badge{font-size:10px;padding:3px 8px;border-radius:20px;font-weight:700;text-transform:uppercase;letter-spacing:.3px}
   .badge-auto{background:rgba(255,255,255,.08);color:#b9b9c0}
   .badge-warn{background:var(--mid-bg);color:#f0c073}
@@ -199,10 +200,12 @@
       <div class="catrow">
         <div class="catbox">
           <div class="top"><span>Categoría Mercado Libre</span><span id="mlCatBadge" class="badge badge-warn">sin deducir</span></div>
+          <input type="text" id="mlCatFilter" class="cat-filter" placeholder="🔎 Filtrar categoría (ej: mochila)…" autocomplete="off">
           <select id="mlCatSelect" size="1"></select>
         </div>
         <div class="catbox fbla-col">
           <div class="top"><span>Categoría Falabella</span><span id="fblaCatBadge" class="badge badge-warn">sin deducir</span></div>
+          <input type="text" id="fblaCatFilter" class="cat-filter" placeholder="🔎 Filtrar categoría…" autocomplete="off">
           <select id="fblaCatSelect" size="1"></select>
         </div>
       </div>
@@ -358,12 +361,12 @@
 </div>
 
 <!-- ?v= versiona los assets: al cambiar el número, el navegador ignora el caché de 4h de Cloudflare. Súbelo en cada deploy que toque JS. -->
-<script src="data/ml_categories.js?v=260708"></script>
-<script src="data/fbla_categories.js?v=260708"></script>
-<script src="data/shipping.js?v=260708"></script>
-<script src="src/app.js?v=260708"></script>
-<script src="src/ai.js?v=260708"></script>
-<script src="src/local-ai.js?v=260708"></script>
-<script src="src/ui.js?v=260708"></script>
+<script src="data/ml_categories.js?v=260709"></script>
+<script src="data/fbla_categories.js?v=260709"></script>
+<script src="data/shipping.js?v=260709"></script>
+<script src="src/app.js?v=260709"></script>
+<script src="src/ai.js?v=260709"></script>
+<script src="src/local-ai.js?v=260709"></script>
+<script src="src/ui.js?v=260709"></script>
 </body>
 </html>

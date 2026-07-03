@@ -85,8 +85,8 @@ function localDeduce(text) {
 }
 
 function refreshCatUI() {
-  buildCatOptions('ml', '');
-  buildCatOptions('fbla', '');
+  buildCatOptions('ml', ($('mlCatFilter') && $('mlCatFilter').value) || '');
+  buildCatOptions('fbla', ($('fblaCatFilter') && $('fblaCatFilter').value) || '');
 }
 
 async function autoDeduce() {
@@ -454,6 +454,7 @@ function nuevoProducto() {
   $('inpSuper').checked = false;
   state.mlCatIdx = -1; state.fblaCatIdx = -1; state.arancelPct = 0; state.hs = ''; state.editingStore = 'hist';
   if ($('hsBadge')) { $('hsBadge').textContent = 'sin deducir'; $('hsBadge').className = 'badge badge-warn'; }
+  if ($('mlCatFilter')) $('mlCatFilter').value = ''; if ($('fblaCatFilter')) $('fblaCatFilter').value = '';
   refreshCatUI();
   markDeduced('ml', false); markDeduced('fbla', false);
   setEditing(null);
@@ -1103,6 +1104,9 @@ function init() {
   // selects de categoría (la categoría sugerida por IA queda seleccionada; se puede cambiar a mano)
   $('mlCatSelect').addEventListener('change', () => { state.mlCatIdx = parseInt($('mlCatSelect').value, 10); recompute(); });
   $('fblaCatSelect').addEventListener('change', () => { state.fblaCatIdx = parseInt($('fblaCatSelect').value, 10); recompute(); });
+  // Buscador de categoría por texto (para corregir a mano entre las 4.000+ categorías)
+  $('mlCatFilter').addEventListener('input', debounce(() => buildCatOptions('ml', $('mlCatFilter').value), 150));
+  $('fblaCatFilter').addEventListener('input', debounce(() => buildCatOptions('fbla', $('fblaCatFilter').value), 150));
 
   // selector de país (banderas)
   document.querySelectorAll('.flag-btn').forEach(b => b.onclick = () => switchCountry(b.dataset.country));
