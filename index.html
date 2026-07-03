@@ -30,15 +30,19 @@
   .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
   .hidden{display:none}
   .hist-actions{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
-  .db-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px}
-  .dbtab{border:none;border-radius:0;white-space:nowrap;min-width:1100px}
-  .dbtab th{position:sticky;top:0}
-  .dbtab td:first-child{max-width:280px;overflow:hidden;text-overflow:ellipsis}
+  .db-wrap{overflow:auto;max-height:max(360px, calc(100vh - 210px));border:1px solid var(--line);border-radius:12px}
+  table.dbtab{border:none;border-radius:0;white-space:nowrap;min-width:1100px;overflow:visible}
+  .dbtab th{position:sticky;top:0;z-index:2}
+  .dbtab th:first-child{left:0;z-index:3}
+  .dbtab td:first-child{max-width:280px;overflow:hidden;text-overflow:ellipsis;position:sticky;left:0;z-index:1;background:var(--panel)}
+  .histtab tbody tr:nth-child(even) td:first-child{background:#1d1d22}
+  .histtab tbody tr:hover td:first-child{background:#241a10}
   .hist-filter{max-width:360px;flex:1 1 240px}
   .pack-toggle{cursor:pointer;user-select:none;white-space:nowrap}
   .pack-toggle:hover{filter:brightness(1.12)}
-  .cat-price,.hist-price{width:92px;padding:5px 7px;font-size:12px;text-align:right;background:#15151a;border:1px solid var(--line);color:var(--ink);border-radius:6px}
-  .cat-price:focus,.hist-price:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(255,102,0,.18);outline:none}
+  input[type=number].cat-price,input[type=number].hist-price{width:112px;padding:5px 8px;font-size:12px;text-align:right;background:#15151a;border:1px solid var(--line);color:var(--ink);border-radius:6px;-moz-appearance:textfield}
+  .cat-price::-webkit-outer-spin-button,.cat-price::-webkit-inner-spin-button,.hist-price::-webkit-outer-spin-button,.hist-price::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  input.cat-price:focus,input.hist-price:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(255,102,0,.18);outline:none;background:#1e1e26}
   .dbtab td.mcell{font-weight:700;text-align:right}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start}
   @media(max-width:980px){.grid{grid-template-columns:1fr}}
