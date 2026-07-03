@@ -833,6 +833,19 @@ async function renderCatalogo() {
   _catSig = JSON.stringify(_catAll);
   paintCatalogo();
 }
+// Carga un producto del Catálogo en la Calculadora para simular cambios (FOB, packaging, peso…).
+// Sin id → se evalúa como producto nuevo (si se guarda, iría al Historial). Usa el Precio Full como precio de venta.
+function loadCatalogItem(x) {
+  if (!x) return;
+  showTab('calc');
+  loadFromHist({
+    nombre: x.titulo, proveedor: x.proveedor, cotizacion: '', skuProveedor: x.sku,
+    alto: x.alto, ancho: x.ancho, largo: x.largo, peso: x.peso, fob: x.fob,
+    precioML: x.precioFull, precioFB: x.precioFull, isSuper: x.isSuper,
+    mlCatName: x.mlCatName, mlComPct: x.mlComPct, fblaCatName: x.fblaCatName, fbComPct: x.fbComPct,
+    hs: x.hs, arancelPct: x.arancelPct
+  });
+}
 function setCatStatus(msg, isErr) {
   const el = $('catStatus'); if (!el) return;
   el.textContent = msg || ''; el.style.color = isErr ? 'var(--bad)' : 'var(--muted)';
@@ -949,7 +962,7 @@ function paintCatalogo() {
   const mc = (key, v) => `<td class="mcell ${key.endsWith('-fa') ? 'fbla-col ' : ''}${v == null ? '' : marginClass(v)}" data-cell="${key}">${v == null ? '–' : fmtPct(v)}</td>`;
   const priceInput = (x, field) => `<td><input type="number" class="cat-price" data-id="${x.id}" data-field="${field}" value="${x[field] || ''}" placeholder="–" min="0" step="1"></td>`;
   const rows = filtered.map(x => { const r = catMargins(x); return `
-    <tr data-id="${x.id}">
+    <tr data-id="${x.id}" title="Clic para cargar este producto en la Calculadora y simular cambios">
       <td>${escapeHtml(x.sku || '')}</td>
       <td title="${escapeHtml(x.titulo || '')}" style="max-width:240px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(x.titulo || '')}</td>
       <td>${cell(x.largo)}</td><td>${cell(x.alto)}</td><td>${cell(x.ancho)}</td><td>${cell(x.peso)}</td>
@@ -987,6 +1000,11 @@ function paintCatalogo() {
     updateCatRow(inp.closest('tr'), item);
     catSaveDebounced(item);
   }));
+  // Clic en la fila → carga el producto en la Calculadora (sin interferir con la edición de precios/HS/arancel).
+  wrap.querySelectorAll('tbody tr[data-id]').forEach(tr => tr.onclick = (e) => {
+    if (e.target.closest('input')) return;
+    loadCatalogItem(_catAll.find(x => x.id === tr.dataset.id));
+  });
 }
 function updateCatRow(tr, item) {
   const r = catMargins(item);
