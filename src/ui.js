@@ -859,17 +859,19 @@ async function catReplace(items) {
   catLocalSave(items); return false;
 }
 
-// Sincroniza FOB / proveedor / puerto desde ProfitGuard (server-side, key secreta).
+// Sincroniza FOB / proveedor / puerto / dimensiones desde ProfitGuard (server-side, key secreta).
+// El botón ya es la confirmación → sin popup. Conserva los precios y el arancel/HS editados a mano.
 async function syncFromPG() {
-  if (!confirm('Sincronizar el catálogo con ProfitGuard (FOB, proveedor, puerto)?\nSe conservan las dimensiones y precios cargados desde el Excel.')) return;
-  setCatStatus('Sincronizando con ProfitGuard…');
+  setCatStatus('Sincronizando con ProfitGuard… (FOB, proveedor, puerto y dimensiones)');
+  const btn = $('btnCatSync'); if (btn) btn.disabled = true;
   try {
     const r = await fetch(api('/api/pg-sync'), { method: 'POST' });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { setCatStatus('Error: ' + (j.error || r.status) + (j.detail ? ' — ' + j.detail : ''), true); return; }
-    setCatStatus(`✓ ${j.items} filas desde ${j.sourcings} sourcings de PG. Ahora importa el Excel para dims y precios.`);
+    setCatStatus(`✓ Sincronizado: ${j.items} filas · ${j.itemsWithDims != null ? j.itemsWithDims : '—'} con dimensiones. Se conservan los precios y el arancel/HS que hayas editado.`);
     await renderCatalogo();
   } catch (e) { setCatStatus('Error de red al sincronizar: ' + e.message, true); }
+  finally { if (btn) btn.disabled = false; }
 }
 
 // Carga SheetJS (una vez) para leer el .xlsx en el navegador.
