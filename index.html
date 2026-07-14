@@ -183,6 +183,7 @@
     <button class="tab" data-tab="hist" type="button">Historial</button>
     <button class="tab" data-tab="cat" type="button">Catálogo</button>
     <button class="tab" data-tab="closed" type="button">Productos cerrados</button>
+    <button class="tab" data-tab="research" type="button">Investigación</button>
   </div>
 
   <div id="tabCalc">
@@ -335,6 +336,19 @@
     <div class="hint" style="margin-bottom:10px">Productos cerrados (finalizados). Se mueven aquí desde el Historial con el botón “Cerrar”. Con ↩ vuelven al Historial.</div>
     <div id="closedDbWrap" class="db-wrap"></div>
   </div>
+
+  <div id="tabResearch" class="hidden">
+    <div class="hist-actions">
+      <input type="text" id="researchFilter" class="hist-filter" placeholder="Filtrar: categoría L1 u hoja…">
+      <button class="btn" id="btnResearchImport" type="button">⬆ Importar datos (Nubimetrics)</button>
+      <input type="file" id="researchFile" accept=".json" style="display:none">
+      <button class="btn ghost" id="btnResearchExport" type="button">Exportar CSV</button>
+      <span class="muted" id="researchCount"></span>
+      <span class="muted" id="researchStatus" style="flex-basis:100%;margin-top:4px"></span>
+    </div>
+    <div class="hint" style="margin-bottom:10px">Categorías hoja con datos de Nubimetrics (visión global de ML, promedio de los últimos 12 meses). <b>Cuota x seller = ventas (GMV) ÷ competidores profesionales</b>. Los datos se recolectan desde tu sesión de Nubimetrics y se importan aquí (snapshot). Clic en una fila: detalle (próximamente).</div>
+    <div id="researchDbWrap" class="db-wrap"></div>
+  </div>
 </div>
 
 <!-- Modal de confirmación -->
@@ -365,12 +379,12 @@
 </div>
 
 <!-- ?v= versiona los assets: al cambiar el número, el navegador ignora el caché de 4h de Cloudflare. Súbelo en cada deploy que toque JS. -->
-<script src="data/ml_categories.js?v=260711"></script>
-<script src="data/fbla_categories.js?v=260711"></script>
-<script src="data/shipping.js?v=260711"></script>
-<script src="src/app.js?v=260711"></script>
-<script src="src/ai.js?v=260711"></script>
-<script src="src/local-ai.js?v=260711"></script>
-<script src="src/ui.js?v=260711"></script>
+<script src="data/ml_categories.js?v=260712"></script>
+<script src="data/fbla_categories.js?v=260712"></script>
+<script src="data/shipping.js?v=260712"></script>
+<script src="src/app.js?v=260712"></script>
+<script src="src/ai.js?v=260712"></script>
+<script src="src/local-ai.js?v=260712"></script>
+<script src="src/ui.js?v=260712"></script>
 </body>
 </html>

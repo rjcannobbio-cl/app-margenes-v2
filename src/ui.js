@@ -358,6 +358,16 @@ async function liveTick() {
       }
     } catch (e) {}
   }
+  if (!$('tabResearch').classList.contains('hidden')) {
+    try {
+      const r = await fetch(api('/api/research'));
+      if (r.ok) {
+        const list = await r.json();
+        const sig = JSON.stringify(list);
+        if (sig !== _researchSig) { _researchSig = sig; _researchAll = list; paintResearch(); }
+      }
+    } catch (e) {}
+  }
 }
 
 async function addToComparison() {
@@ -565,10 +575,12 @@ function showTab(name) {
   $('tabHist').classList.toggle('hidden', name !== 'hist');
   $('tabCat').classList.toggle('hidden', name !== 'cat');
   $('tabClosed').classList.toggle('hidden', name !== 'closed');
+  $('tabResearch').classList.toggle('hidden', name !== 'research');
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   if (name === 'hist') renderHistorial();
   if (name === 'cat') renderCatalogo();
   if (name === 'closed') renderClosed();
+  if (name === 'research') renderResearch();
 }
 
 function compositeId(x) {
@@ -1034,6 +1046,81 @@ function exportCatalogoCSV() {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'catalogo_margenes.csv'; a.click();
 }
 
+/* ---------------- Investigación de categorías (snapshot de Nubimetrics) ---------------- */
+const RESEARCH_KEY = 'mpresearch';
+let _researchBackend = null, _researchAll = [], _researchSig = '';
+function researchLocalLoad() { try { return JSON.parse(localStorage.getItem(RESEARCH_KEY) || '[]'); } catch (e) { return []; } }
+function researchLocalSave(h) { localStorage.setItem(RESEARCH_KEY, JSON.stringify(h)); }
+async function researchLoad() {
+  if (_researchBackend !== false) {
+    try { const r = await fetch(api('/api/research')); if (r.ok) { _researchBackend = true; return await r.json(); } _researchBackend = false; } catch (e) { _researchBackend = false; }
+  }
+  return researchLocalLoad();
+}
+async function researchReplace(items) {
+  if (_researchBackend !== false) {
+    try { const r = await fetch(api('/api/research'), { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(items) }); if (r.ok) { _researchBackend = true; return true; } _researchBackend = false; } catch (e) { _researchBackend = false; }
+  }
+  researchLocalSave(items); return false;
+}
+function setResearchStatus(msg, isErr) { const el = $('researchStatus'); if (!el) return; el.textContent = msg || ''; el.style.color = isErr ? 'var(--bad)' : 'var(--muted)'; }
+// Cuota de venta por seller = ventas (GMV) / competidores profesionales.
+function researchCuota(x) { const v = parseFloat(x.ventasGmv) || 0, c = parseFloat(x.competidores) || 0; return c > 0 ? v / c : null; }
+async function renderResearch() { _researchAll = await researchLoad(); _researchSig = JSON.stringify(_researchAll); paintResearch(); }
+function paintResearch() {
+  const q = normalize(($('researchFilter') && $('researchFilter').value) || '');
+  const filtered = q ? _researchAll.filter(x => normalize([x.l1, x.leaf].join(' ')).includes(q)) : _researchAll;
+  $('researchCount').textContent = (q ? filtered.length + '/' + _researchAll.length : _researchAll.length) +
+    ' categoría' + ((q ? filtered.length : _researchAll.length) === 1 ? '' : 's') + (_researchBackend ? ' · compartido' : ' · solo local');
+  const wrap = $('researchDbWrap');
+  if (!_researchAll.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Aún no hay datos. Recolecta desde Nubimetrics (script recolector) y usa “Importar datos”.</p>'; return; }
+  if (!filtered.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Sin resultados.</p>'; return; }
+  const intfmt = v => (v != null && v !== '' && !isNaN(v)) ? Math.round(v).toLocaleString('es-CL') : '–';
+  // ordenar por cuota x seller descendente (categoría más atractiva primero)
+  const rows = filtered.slice().sort((a, b) => (researchCuota(b) || 0) - (researchCuota(a) || 0)).map(x => {
+    const cuota = researchCuota(x);
+    return `<tr data-id="${escapeHtml(x.id || '')}">
+      <td>${escapeHtml(x.l1 || '')}</td>
+      <td>${escapeHtml(x.leaf || '')}</td>
+      <td class="mcell">${fmtCLP(x.ventasGmv)}</td>
+      <td class="mcell">${fmtCLP(x.ticket)}</td>
+      <td class="mcell">${intfmt(x.competidores)}</td>
+      <td class="mcell">${cuota != null ? fmtCLP(cuota) : '–'}</td>
+    </tr>`; }).join('');
+  wrap.innerHTML = `<table class="histtab dbtab" style="min-width:1000px"><thead><tr>
+    <th>Categoría L1</th><th>Categoría hoja</th><th>Ventas prom (GMV, 12m)</th><th>Ticket medio (12m)</th><th>Competidores prof. (12m)</th><th>Cuota x seller</th>
+  </tr></thead><tbody>${rows}</tbody></table>`;
+}
+async function importResearchJSON(file) {
+  try {
+    setResearchStatus('Leyendo ' + file.name + '…');
+    let data; try { data = JSON.parse(await file.text()); } catch (e) { setResearchStatus('El archivo no es JSON válido.', true); return; }
+    const arr = Array.isArray(data) ? data : (Array.isArray(data.items) ? data.items : null);
+    if (!arr) { setResearchStatus('El JSON debe ser un array de categorías (o {items:[…]}).', true); return; }
+    const items = arr.map(x => ({
+      id: String(x.id || x.categoryId || x.path || ((x.l1 || '') + '|' + (x.leaf || ''))),
+      l1: x.l1 || x.l1Name || '', leaf: x.leaf || x.leafName || x.name || '', path: x.path || '',
+      ventasGmv: _num(x.ventasGmv != null ? x.ventasGmv : x.gmv),
+      ticket: _num(x.ticket),
+      competidores: _num(x.competidores != null ? x.competidores : x.sellersProfessional)
+    }));
+    await researchReplace(items);
+    _researchAll = items; _researchSig = JSON.stringify(items);
+    paintResearch();
+    setResearchStatus('✓ Importado: ' + items.length + ' categorías.');
+  } catch (e) { setResearchStatus('Error importando: ' + e.message, true); }
+}
+function exportResearchCSV() {
+  if (!_researchAll.length) { alert('No hay datos que exportar.'); return; }
+  const head = ['Categoría L1', 'Categoría hoja', 'Ventas prom GMV 12m', 'Ticket medio 12m', 'Competidores prof 12m', 'Cuota x seller'];
+  const q = s => '"' + (s == null ? '' : s).toString().replace(/"/g, '""') + '"';
+  const n = v => (v == null || v === '' || isNaN(v)) ? '' : Math.round(v);
+  const lines = [head.join(';')];
+  for (const x of _researchAll) lines.push([q(x.l1), q(x.leaf), n(x.ventasGmv), n(x.ticket), n(x.competidores), n(researchCuota(x))].join(';'));
+  const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'investigacion_categorias.csv'; a.click();
+}
+
 /* ---------------- País (Chile / Colombia) ---------------- */
 // Aplica al DOM el país activo: bandera activa, oculta Falabella en Colombia, ajusta etiquetas de moneda.
 function applyCountryUI() {
@@ -1050,7 +1137,8 @@ function switchCountry(c) {
   country = c; localStorage.setItem('mp_country', c);
   Object.assign(cfg, loadCfg(c));            // carga params del país nuevo (cfg es const → se muta)
   _histBackend = null; _catBackend = null;   // re-detectar backend
-  _setSig = ''; _histSig = ''; _catSig = ''; _closedSig = '';
+  _setSig = ''; _histSig = ''; _catSig = ''; _closedSig = ''; _researchSig = '';
+  _researchBackend = null;
   applyCountryUI();
   bindCfgValues();
   nuevoProducto();                           // limpia el formulario
@@ -1058,6 +1146,7 @@ function switchCountry(c) {
   if (!$('tabHist').classList.contains('hidden')) renderHistorial();
   if (!$('tabCat').classList.contains('hidden')) renderCatalogo();
   if (!$('tabClosed').classList.contains('hidden')) renderClosed();
+  if (!$('tabResearch').classList.contains('hidden')) renderResearch();
   (async () => {                             // trae los parámetros compartidos del país
     if (await settingsLoad()) {
       bindCfgValues(); recompute(); renderHist();
@@ -1121,6 +1210,10 @@ function init() {
   $('btnClosedRefresh').onclick = renderClosed;
   $('btnClosedExport').onclick = exportClosedCSV;
   $('closedFilter').addEventListener('input', debounce(paintClosed, 200));
+  $('btnResearchExport').onclick = exportResearchCSV;
+  $('btnResearchImport').onclick = () => $('researchFile').click();
+  $('researchFile').addEventListener('change', e => { const f = e.target.files[0]; if (f) importResearchJSON(f); e.target.value = ''; });
+  $('researchFilter').addEventListener('input', debounce(paintResearch, 200));
   $('btnCatExport').onclick = exportCatalogoCSV;
   $('btnCatSync').onclick = syncFromPG;
   $('btnCatImport').onclick = () => $('catFile').click();
