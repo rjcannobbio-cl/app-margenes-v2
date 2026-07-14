@@ -1,26 +1,26 @@
 /* ============================================================
-   Recolector Nubimetrics → Investigación de categorías (v2, validado)
+   Recolector Nubimetrics → Investigación de categorías (v3, validado en vivo)
 
-   Nubimetrics NO tiene API key (auth por cookie de sesión) → corre EN TU NAVEGADOR,
-   en una pestaña logueada de app.nubimetrics.com. Fuente: "Mercado Libre visión
-   global" (/market/bycategory) = endpoint /api/Market/CategoryData.
+   Corre EN TU NAVEGADOR, en una pestaña logueada de app.nubimetrics.com
+   (auth por cookie de sesión; no hay API key). TODO sale de Nubimetrics: la
+   página tiene CSP que BLOQUEA api.mercadolibre.com, así que el árbol de
+   categorías se arma con /api/shared/categorymarket (mismo origen).
 
-   CLAVE (validado): CategoryData necesita el PATH COMPLETO de la categoría con
-   guiones (ej. MCO1182-MCO442089-MCO2987), NO el id suelto. Una hoja no tiene
-   hijos → se pide su PADRE y se busca la hoja dentro de data.Categories[].
-   Métricas por hoja:
-     unidades = SuccessfulItemsReal · ticket = AverageTicketLocal
-     GMV (venta total) = unidades × ticket   (Gmv/SuccessfulItems son share %, NO usar)
-     competidores prof. = SellersProfessionalReal ?? SellersProfessional  (⚠️ a validar)
+   Cadena validada:
+     categorymarket(id) → { PathFromRoot (JSON string), ChildrenCategories[]{Id,Level,Name} }
+       · hoja = ChildrenCategories vacío.
+     CategoryData(PATH_DEL_PADRE, YYYY-MM-01) → data.Categories[] (hijos con métricas).
+       Buscar la hoja por CategoryId. IMPORTANTE: usar el PATH COMPLETO con guiones.
+     Por hoja: unidades=SuccessfulItemsReal · ticket=AverageTicketLocal
+       GMV = unidades × ticket   (Gmv/SuccessfulItems son share %, NO usar)
+       competidores prof = SellersProfessionalReal ?? SellersProfessional
 
-   USO (en la consola de app.nubimetrics.com, tras escribir 'allow pasting'):
-     NubiCollect.setCountry('cl')          // o 'co'
-     await NubiCollect.sample('MLC5713')   // prueba 1 hoja/mes (valida campos)
-     await NubiCollect.run()               // recorre todo (miles, reanudable)
-     NubiCollect.exportJSON()              // descarga el JSON → importar en la app
-
-   Gotchas cubiertos: AbortController (fetch cuelga), tandas (concurrencia), reanudable
-   por localStorage, categorías 401 marcadas y saltadas.
+   USO (consola de app.nubimetrics.com, con 'allow pasting'):
+     NubiCollect.setCountry('cl')            // o 'co'
+     await NubiCollect.sample('MLC5713')     // valida 1 hoja
+     await NubiCollect.buildLeaves()         // arma el árbol (una vez, se cachea)
+     await NubiCollect.run()                 // baja métricas (12 meses, reanudable)
+     NubiCollect.exportJSON()                // descarga JSON → importar en la app
    ============================================================ */
 
 window.NubiCollect = (() => {
@@ -42,64 +42,56 @@ window.NubiCollect = (() => {
     catch (e) { return { status: 0, json: null }; }
     finally { clearTimeout(t); }
   }
-  // Últimos N meses completos (excluye el mes en curso) como YYYY-MM-01.
-  function lastMonths(n) {
-    const out = [], d = new Date(); d.setDate(1);
-    for (let i = 1; i <= n; i++) { const x = new Date(d); x.setMonth(x.getMonth() - i); out.push(x.toISOString().slice(0, 8) + '01'); }
-    return out;
-  }
+  function lastMonths(n) { const out = [], d = new Date(); d.setDate(1); for (let i = 1; i <= n; i++) { const x = new Date(d); x.setMonth(x.getMonth() - i); out.push(x.toISOString().slice(0, 8) + '01'); } return out; }
+  const anchor = () => lastMonths(1)[0];
+  const unwrap = r => (r.json && (r.json.data != null ? r.json.data : r.json)) || {};
+  const catMarket = id => jget(`/api/shared/categorymarket?category=${id}&language=es&month=${anchor()}&seller_id=${C.seller}&site_id=${C.site}`);
   const catData = (path, month) => jget(`/api/Market/CategoryData?category=${path}&currency=${C.currency}&date=${month}&language=es&seller_id=${C.seller}&site_id=${C.site}`);
   function extract(child) {
     const u = Number(child.SuccessfulItemsReal), t = Number(child.AverageTicketLocal);
-    const prof = child.SellersProfessionalReal != null ? Number(child.SellersProfessionalReal)
-      : (child.SellersProfessional != null ? Number(child.SellersProfessional) : null);
+    const prof = child.SellersProfessionalReal != null ? Number(child.SellersProfessionalReal) : (child.SellersProfessional != null ? Number(child.SellersProfessional) : null);
     return { unidades: isNaN(u) ? null : u, ticket: isNaN(t) ? null : t, gmv: (!isNaN(u) && !isNaN(t)) ? u * t : null, prof: (prof != null && !isNaN(prof)) ? prof : null };
   }
+  function pathOf(cm) { let p = cm.PathFromRoot; try { if (typeof p === 'string') p = JSON.parse(p); } catch (e) { p = null; } return Array.isArray(p) ? p : []; }
 
-  // Prueba rápida: métricas de UNA hoja en el último mes (valida campos antes del run grande).
+  // Prueba: métricas de UNA hoja en el último mes.
   async function sample(leafId) {
-    const pf = await fetch('https://api.mercadolibre.com/categories/' + leafId).then(r => r.json());
-    const ids = (pf.path_from_root || []).map(p => p.id);
+    const g0 = unwrap(await catMarket(leafId));
+    const pfr = pathOf(g0), ids = pfr.map(p => p.Id || p.id);
     const parent = ids.slice(0, -1).join('-');
-    const month = lastMonths(1)[0];
+    const month = anchor();
     const r = await catData(parent, month);
-    const cats = (r.json && (r.json.data || r.json).Categories) || [];
-    const child = cats.find(x => x.CategoryId === leafId);
-    return { status: r.status, month, leaf: pf.name, parent, encontrada: !!child, metricas: child ? extract(child) : null, rawSellers: child ? { SellersProfessional: child.SellersProfessional, SellersProfessionalReal: child.SellersProfessionalReal, SellersPlatinum: child.SellersPlatinum } : null };
+    const child = ((r.json && (r.json.data || r.json).Categories) || []).find(x => x.CategoryId === leafId);
+    return { status: r.status, month, leaf: (pfr.slice(-1)[0] || {}).Name, parent, encontrada: !!child, metricas: child ? extract(child) : null };
   }
 
-  // Enumera categorías hoja vía API pública de ML (id, nombre, L1, path, path del padre).
+  // Enumera hojas caminando el árbol de Nubimetrics (categorymarket). Cachea en localStorage.
   async function buildLeaves() {
     let leaves = load(LK());
     if (leaves && leaves.length) { console.log('[Nubi] hojas cacheadas:', leaves.length); return leaves; }
-    console.log('[Nubi] enumerando hojas de', C.site, '(API pública ML)…');
-    const l1s = await fetch(`https://api.mercadolibre.com/sites/${C.site}/categories`).then(r => r.json());
+    console.log('[Nubi] enumerando árbol de', C.site, 'desde Nubimetrics…');
     leaves = []; const seen = new Set();
-    async function walk(id) {
-      const c = await fetch('https://api.mercadolibre.com/categories/' + id).then(r => r.json()).catch(() => null);
-      if (!c) return;
-      const kids = c.children_categories || [];
+    const rootKids = (unwrap(await catMarket('')).ChildrenCategories) || [];
+    if (!rootKids.length) { console.warn('[Nubi] categorymarket(root) vino vacío — avísame para usar el endpoint de L1.'); return leaves; }
+    console.log('[Nubi] L1 encontrados:', rootKids.length);
+    async function walk(node) {
+      const kids = (unwrap(await catMarket(node.id)).ChildrenCategories) || [];
       if (!kids.length) {
-        if (!seen.has(c.id)) {
-          seen.add(c.id);
-          const pfr = (c.path_from_root || []).map(p => p.id);
-          leaves.push({ id: c.id, leaf: c.name, l1: ((c.path_from_root || [])[0] || {}).name || '', path: pfr.join('-'), parentPath: pfr.slice(0, -1).join('-') });
-        }
+        if (!seen.has(node.id)) { seen.add(node.id); leaves.push({ id: node.id, leaf: node.name, l1: node.l1, path: node.pathIds.join('-'), parentPath: node.pathIds.slice(0, -1).join('-') }); }
         return;
       }
-      for (const k of kids) { await walk(k.id); await sleep(25); }
+      for (const k of kids) { await walk({ id: k.Id, name: k.Name, l1: node.l1, pathIds: node.pathIds.concat(k.Id) }); await sleep(20); }
     }
-    for (const l1 of l1s) { await walk(l1.id); save(LK(), leaves); console.log('[Nubi]', l1.name, '· hojas:', leaves.length); }
-    save(LK(), leaves);
-    return leaves;
+    for (const l1 of rootKids) { await walk({ id: l1.Id, name: l1.Name, l1: l1.Name, pathIds: [l1.Id] }); save(LK(), leaves); console.log('[Nubi]', l1.Name, '· hojas acumuladas:', leaves.length); }
+    save(LK(), leaves); return leaves;
   }
 
-  // Recorre padre × mes (agrupa hojas por padre → mínimas llamadas). Reanudable.
+  // Baja métricas por padre × mes (agrupa hojas por padre). Reanudable.
   async function run({ months = 12, batch = 6, delay = 250 } = {}) {
     const leaves = await buildLeaves();
+    if (!leaves.length) { console.warn('[Nubi] sin hojas — corre buildLeaves() primero.'); return 0; }
     const monthList = lastMonths(months);
-    const data = load(DK()) || {};
-    const done = load(JK()) || {};
+    const data = load(DK()) || {}, done = load(JK()) || {};
     const byParent = {};
     for (const lf of leaves) (byParent[lf.parentPath] = byParent[lf.parentPath] || []).push(lf);
     const jobs = [];
@@ -132,16 +124,13 @@ window.NubiCollect = (() => {
 
   const avg = a => a && a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
   function exportJSON() {
-    const arr = Object.entries(load(DK()) || {}).map(([id, d]) => ({
-      id, l1: d.l1, leaf: d.leaf, path: d.path,
-      ventasGmv: avg(d.gmv), ticket: avg(d.ticket), competidores: avg(d.prof)
-    })).filter(x => x.ventasGmv != null);
+    const arr = Object.entries(load(DK()) || {}).map(([id, d]) => ({ id, l1: d.l1, leaf: d.leaf, path: d.path, ventasGmv: avg(d.gmv), ticket: avg(d.ticket), competidores: avg(d.prof) })).filter(x => x.ventasGmv != null);
     const blob = new Blob([JSON.stringify(arr, null, 2)], { type: 'application/json' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `nubimetrics_investigacion_${C.site}.json`; a.click();
-    console.log('[Nubi] Exportadas', arr.length, 'hojas → importar en la app (Investigación → Importar datos).');
+    console.log('[Nubi] Exportadas', arr.length, 'hojas → importar en la app.');
   }
-  function reset() { [LK(), DK(), JK()].forEach(k => localStorage.removeItem(k)); console.log('[Nubi] progreso borrado para', C.site); }
+  function reset() { [LK(), DK(), JK()].forEach(k => localStorage.removeItem(k)); console.log('[Nubi] progreso borrado'); }
 
   return { setCountry, sample, buildLeaves, run, exportJSON, reset };
 })();
-console.log("NubiCollect v2 →  NubiCollect.setCountry('cl');  await NubiCollect.sample('MLC5713');  await NubiCollect.run();  NubiCollect.exportJSON()");
+console.log("NubiCollect v3 listo → setCountry('cl'); await sample('MLC5713'); await run(); exportJSON()");
