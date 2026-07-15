@@ -1151,16 +1151,12 @@ function openResearchDetail(item) {
   _rdItem = item; _rdMetric = 'gmv';
   $('rdL1').textContent = item.l1 || '';
   $('rdLeaf').textContent = item.leaf || '';
-  // Deep-link a la vista de mercado de ESA hoja en Nubimetrics. Ruta real: /market/bycategory
-  // con #?range=<primer día del mes>&category=<id de la hoja>. (Ranking = pestaña "Publicaciones";
-  // "Lo más buscado" = pestaña "Demanda" de la misma vista.)
-  const leafId = item.id || (item.path || '').split('-').filter(Boolean).pop() || '';
-  const rMonth = (Array.isArray(item.serie) && item.serie.length)
-    ? item.serie[item.serie.length - 1].m.slice(0, 7) + '-01'
-    : (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 8) + '01'; })();
-  // Nota: la página "Rankings de mercado" (sellerranking) NO codifica la categoría en la URL
-  // al navegar por los filtros. Se pasa category= como best-effort (puede que la lea al cargar de cero).
-  const rankUrl = 'https://app.nubimetrics.com/market/sellerranking#?range=' + rMonth + '&category=' + encodeURIComponent(leafId);
+  // Deep-link a "Rankings de mercado". La página SÍ preselecciona la hoja al cargar si se le pasa
+  // el PATH COMPLETO con guiones (no el id suelto) en category=, y un día en range=YYYY-MM-DD.
+  // (Ranking = pestaña "Publicaciones"; "Lo más buscado" = pestaña "Demanda" de la misma vista.)
+  const catPath = item.path || item.id || '';
+  const rDay = new Date().toISOString().slice(0, 10);
+  const rankUrl = 'https://app.nubimetrics.com/market/sellerranking#?category=' + catPath + '&range=' + rDay;
   $('rdRanking').href = rankUrl;
   $('rdTrends').href = rankUrl;
   document.querySelectorAll('.rd-mbtn').forEach(b => b.classList.toggle('active', b.dataset.metric === 'gmv'));
