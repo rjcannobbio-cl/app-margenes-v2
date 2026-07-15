@@ -147,8 +147,8 @@
   .modal p{margin:0 0 18px;font-size:15px;font-weight:600;line-height:1.4}
   .modal-actions{display:flex;gap:10px;justify-content:flex-end}
   /* Reporte de detalle (Investigación) */
-  .rdetail{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 22px;max-width:820px;width:100%;box-shadow:0 12px 44px rgba(0,0,0,.55)}
-  .rd-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px}
+  .rdetail{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 22px;max-width:820px;width:100%;box-shadow:0 12px 44px rgba(0,0,0,.55);max-height:calc(100vh - 40px);overflow-y:auto}
+  .rd-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px;position:sticky;top:-20px;background:var(--panel);padding:20px 0 8px;margin-top:-20px;z-index:6}
   .rd-l1{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px}
   .rd-head h2{margin:2px 0 0;font-size:20px;font-weight:800;letter-spacing:-.2px}
   .rd-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px}
@@ -467,12 +467,12 @@
 </div>
 
 <!-- ?v= versiona los assets: al cambiar el número, el navegador ignora el caché de 4h de Cloudflare. Súbelo en cada deploy que toque JS. -->
-<script src="data/ml_categories.js?v=260719"></script>
-<script src="data/fbla_categories.js?v=260719"></script>
-<script src="data/shipping.js?v=260719"></script>
-<script src="src/app.js?v=260719"></script>
-<script src="src/ai.js?v=260719"></script>
-<script src="src/local-ai.js?v=260719"></script>
-<script src="src/ui.js?v=260719"></script>
+<script src="data/ml_categories.js?v=260720"></script>
+<script src="data/fbla_categories.js?v=260720"></script>
+<script src="data/shipping.js?v=260720"></script>
+<script src="src/app.js?v=260720"></script>
+<script src="src/ai.js?v=260720"></script>
+<script src="src/local-ai.js?v=260720"></script>
+<script src="src/ui.js?v=260720"></script>
 </body>
 </html>
