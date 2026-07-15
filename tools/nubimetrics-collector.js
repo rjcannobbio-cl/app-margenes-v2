@@ -1,19 +1,24 @@
 /* ============================================================
-   Recolector Nubimetrics → Investigación de categorías (v4, batched + robusto)
+   Recolector Nubimetrics → Investigación de categorías (v5, memoria)
 
-   Corre en la consola de app.nubimetrics.com (sesión iniciada). Todo sale de
-   Nubimetrics (la CSP bloquea api.mercadolibre.com). Enumera el árbol con BFS
-   por tandas (rápido), salta categorías 403 (fuera de plan), guarda cada tanda
-   (reanudable) y baja métricas por padre × mes.
+   Corre en la consola de app.nubimetrics.com (sesión iniciada). Enumera el árbol
+   con BFS (categorymarket, mismo origen; la CSP bloquea ML). Los RESULTADOS se
+   guardan en MEMORIA (window._nubiData), no en localStorage (que se llenaba con
+   ~10k categorías). El árbol de hojas sí se cachea en localStorage (más chico).
 
-   Métricas por hoja: unidades=SuccessfulItemsReal · ticket=AverageTicketLocal
+   IMPORTANTE: si venías de una versión anterior, RECARGA la página (F5) antes de
+   pegar esto, para matar scripts viejos que quedaron corriendo.
+
+   Métricas por hoja (una llamada al PADRE trae todas sus hojas):
+     unidades=SuccessfulItemsReal · ticket=AverageTicketLocal
      GMV = unidades × ticket · competidores = SellersProfessionalReal ?? SellersProfessional
+   Muchas categorías dan 401 (fuera del plan de la cuenta) → se saltan (los errores
+   rojos de red en consola son esperables, no rompen nada).
 
    USO:
-     NubiCollect.setCountry('cl')       // o 'co'
-     await NubiCollect.buildLeaves()    // árbol (rápido, por niveles)
-     await NubiCollect.run({months:1})  // 1 mes primero (tabla rápida). Luego run() = 12 meses.
-     NubiCollect.exportJSON()           // descarga JSON → importar en la app
+     NubiCollect.setCountry('cl')        // o 'co'
+     await NubiCollect.run({months:1})   // 1 mes (rápido). Luego run() = 12 meses.
+     NubiCollect.exportJSON()            // descarga JSON → importar en la app
    ============================================================ */
 
 window.NubiCollect = (() => {
@@ -21,10 +26,12 @@ window.NubiCollect = (() => {
   let C = CFG.cl;
   function setCountry(cc) { C = CFG[String(cc).toLowerCase()] || CFG.cl; console.log('[Nubi] País:', cc, C); }
 
-  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  window._nubi = window._nubi || {};                        // { site: { data:{}, done:{} } }
+  const mem = () => (window._nubi[C.site] = window._nubi[C.site] || { data: {}, done: {} });
+  const LK = () => 'nubi_leaves_' + C.site;
   const load = k => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } };
-  const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
-  const LK = () => 'nubi_leaves_' + C.site, DK = () => 'nubi_res_' + C.site, JK = () => 'nubi_done_' + C.site;
+  const saveLeaves = v => { try { localStorage.setItem(LK(), JSON.stringify(v)); } catch (e) { window._nubiLeaves = window._nubiLeaves || {}; window._nubiLeaves[C.site] = v; } };
+  const loadLeaves = () => load(LK()) || (window._nubiLeaves && window._nubiLeaves[C.site]) || null;
 
   async function jget(url, ms = 12000) {
     const ac = new AbortController(); const t = setTimeout(() => ac.abort(), ms);
@@ -38,57 +45,42 @@ window.NubiCollect = (() => {
   const catMarket = id => jget(`/api/shared/categorymarket?category=${id}&language=es&month=${anchor()}&seller_id=${C.seller}&site_id=${C.site}`);
   const catData = (path, month) => jget(`/api/Market/CategoryData?category=${path}&currency=${C.currency}&date=${month}&language=es&seller_id=${C.seller}&site_id=${C.site}`);
   const num = v => { const n = Number(v); return isNaN(n) ? null : n; };
-  function extract(child) {
-    const u = num(child.SuccessfulItemsReal), t = num(child.AverageTicketLocal);
-    const prof = child.SellersProfessionalReal != null ? num(child.SellersProfessionalReal) : num(child.SellersProfessional);
-    return { gmv: (u != null && t != null) ? u * t : null, ticket: t, prof };
-  }
-  async function mapLimit(items, limit, fn) {
-    const out = []; let i = 0;
-    async function worker() { while (i < items.length) { const idx = i++; out[idx] = await fn(items[idx], idx); } }
-    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-    return out;
-  }
+  function extract(c) { const u = num(c.SuccessfulItemsReal), t = num(c.AverageTicketLocal); const p = c.SellersProfessionalReal != null ? num(c.SellersProfessionalReal) : num(c.SellersProfessional); return { gmv: (u != null && t != null) ? u * t : null, ticket: t, prof: p }; }
+  async function mapLimit(items, limit, fn) { let i = 0; async function w() { while (i < items.length) { const idx = i++; await fn(items[idx], idx); } } await Promise.all(Array.from({ length: Math.min(limit, items.length) }, w)); }
 
-  // Enumera hojas por BFS (nivel a nivel, en tandas). Salta 403. Guarda cada tanda.
   async function buildLeaves() {
-    let leaves = load(LK());
+    let leaves = loadLeaves();
     if (leaves && leaves.length) { console.log('[Nubi] hojas cacheadas:', leaves.length); return leaves; }
     leaves = []; const seen = new Set();
     const root = (unwrap(await catMarket('')).ChildrenCategories) || [];
-    if (!root.length) { console.warn('[Nubi] root vacío — avísame.'); return leaves; }
+    if (!root.length) { console.warn('[Nubi] root vacío'); return leaves; }
     console.log('[Nubi] L1:', root.length);
-    let frontier = root.map(l1 => ({ id: l1.Id, name: l1.Name, l1: l1.Name, pathIds: [l1.Id] }));
-    let level = 1, forbidden = 0;
+    let frontier = root.map(l => ({ id: l.Id, name: l.Name, l1: l.Name, pathIds: [l.Id] })), level = 1, forb = 0;
     while (frontier.length) {
       const next = [];
       await mapLimit(frontier, 8, async node => {
         const r = await catMarket(node.id);
-        if (r.status !== 200) { if (r.status === 403) forbidden++; return; }   // fuera de plan / error → saltar
+        if (r.status !== 200) { if (r.status === 403) forb++; return; }
         const kids = (unwrap(r).ChildrenCategories) || [];
         if (!kids.length) { if (!seen.has(node.id)) { seen.add(node.id); leaves.push({ id: node.id, leaf: node.name, l1: node.l1, path: node.pathIds.join('-'), parentPath: node.pathIds.slice(0, -1).join('-') }); } }
         else for (const k of kids) next.push({ id: k.Id, name: k.Name, l1: node.l1, pathIds: node.pathIds.concat(k.Id) });
       });
-      save(LK(), leaves);
-      console.log(`[Nubi] nivel ${level}: ${frontier.length} nodos → hojas ${leaves.length} · sig. ${next.length}${forbidden ? ' · 403 saltados ' + forbidden : ''}`);
+      console.log(`[Nubi] nivel ${level}: ${frontier.length} → hojas ${leaves.length} · sig. ${next.length}${forb ? ' · 403 ' + forb : ''}`);
       frontier = next; level++;
     }
-    save(LK(), leaves);
-    console.log('[Nubi] ✓ árbol listo · hojas:', leaves.length);
+    saveLeaves(leaves); console.log('[Nubi] ✓ árbol · hojas:', leaves.length);
     return leaves;
   }
 
-  // Baja métricas por padre × mes (una llamada al padre = todas sus hojas). Reanudable.
   async function run({ months = 12, limit = 6 } = {}) {
-    const leaves = await buildLeaves();
-    if (!leaves.length) return 0;
+    const leaves = await buildLeaves(); if (!leaves.length) return 0;
     const monthList = lastMonths(months);
-    const data = load(DK()) || {}, done = load(JK()) || {};
+    const M = mem(), data = M.data, done = M.done;
     const byParent = {};
     for (const lf of leaves) (byParent[lf.parentPath] = byParent[lf.parentPath] || []).push(lf);
     const jobs = [];
     for (const p of Object.keys(byParent)) for (const m of monthList) if (!done[p + '@' + m]) jobs.push({ parent: p, month: m });
-    console.log(`[Nubi] ${leaves.length} hojas · ${Object.keys(byParent).length} padres · ${monthList.length} meses · ${jobs.length} llamadas pendientes`);
+    console.log(`[Nubi] ${leaves.length} hojas · ${Object.keys(byParent).length} padres · ${monthList.length} meses · ${jobs.length} pendientes (guardando en memoria)`);
     let n = 0;
     await mapLimit(jobs, limit, async j => {
       const r = await catData(j.parent, j.month);
@@ -102,22 +94,22 @@ window.NubiCollect = (() => {
           if (e.gmv != null) d.gmv.push(e.gmv); if (e.ticket != null) d.ticket.push(e.ticket); if (e.prof != null) d.prof.push(e.prof);
         }
       }
-      if (++n % 60 === 0) { save(DK(), data); save(JK(), done); console.log(`[Nubi] ${n}/${jobs.length} · hojas con datos: ${Object.keys(data).length}`); }
+      if (++n % 100 === 0) console.log(`[Nubi] ${n}/${jobs.length} · hojas con datos: ${Object.keys(data).length}`);
     });
-    save(DK(), data); save(JK(), done);
-    console.log('[Nubi] ✓ Listo. NubiCollect.exportJSON()');
+    console.log('[Nubi] ✓ Listo. hojas con datos:', Object.keys(data).length, '→ NubiCollect.exportJSON()');
     return Object.keys(data).length;
   }
 
   const avg = a => a && a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
   function exportJSON() {
-    const arr = Object.entries(load(DK()) || {}).map(([id, d]) => ({ id, l1: d.l1, leaf: d.leaf, path: d.path, ventasGmv: avg(d.gmv), ticket: avg(d.ticket), competidores: avg(d.prof) })).filter(x => x.ventasGmv != null);
+    const data = mem().data;
+    const arr = Object.entries(data).map(([id, d]) => ({ id, l1: d.l1, leaf: d.leaf, path: d.path, ventasGmv: avg(d.gmv), ticket: avg(d.ticket), competidores: avg(d.prof) })).filter(x => x.ventasGmv != null);
     const blob = new Blob([JSON.stringify(arr, null, 2)], { type: 'application/json' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `nubimetrics_investigacion_${C.site}.json`; a.click();
     console.log('[Nubi] Exportadas', arr.length, 'hojas → importar en la app.');
   }
-  function reset() { [LK(), DK(), JK()].forEach(k => localStorage.removeItem(k)); console.log('[Nubi] progreso borrado'); }
+  function reset() { try { localStorage.removeItem(LK()); localStorage.removeItem('nubi_res_' + C.site); localStorage.removeItem('nubi_done_' + C.site); } catch (e) {} window._nubi[C.site] = { data: {}, done: {} }; console.log('[Nubi] borrado'); }
 
   return { setCountry, buildLeaves, run, exportJSON, reset };
 })();
-console.log("NubiCollect v4 → setCountry('cl'); await buildLeaves(); await run({months:1}); exportJSON()");
+console.log("NubiCollect v5 (memoria) → setCountry('cl'); await run({months:1}); exportJSON()");
