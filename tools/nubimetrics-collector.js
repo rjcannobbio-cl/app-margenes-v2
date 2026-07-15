@@ -45,7 +45,9 @@ window.NubiCollect = (() => {
   const catMarket = id => jget(`/api/shared/categorymarket?category=${id}&language=es&month=${anchor()}&seller_id=${C.seller}&site_id=${C.site}`);
   const catData = (path, month) => jget(`/api/Market/CategoryData?category=${path}&currency=${C.currency}&date=${month}&language=es&seller_id=${C.seller}&site_id=${C.site}`);
   const num = v => { const n = Number(v); return isNaN(n) ? null : n; };
-  function extract(c) { const u = num(c.SuccessfulItemsReal), t = num(c.AverageTicketLocal); const p = c.SellersProfessionalReal != null ? num(c.SellersProfessionalReal) : num(c.SellersProfessional); return { gmv: (u != null && t != null) ? u * t : null, ticket: t, prof: p }; }
+  // competidores = SellersPlatinum ("Vendedores Platinum", el conteo real que muestra la visión global).
+  // OJO: Gmv, SuccessfulItems y SellersProfessional son SHARE %, no absolutos.
+  function extract(c) { const u = num(c.SuccessfulItemsReal), t = num(c.AverageTicketLocal); return { gmv: (u != null && t != null) ? u * t : null, ticket: t, prof: num(c.SellersPlatinum) }; }
   async function mapLimit(items, limit, fn) { let i = 0; async function w() { while (i < items.length) { const idx = i++; await fn(items[idx], idx); } } await Promise.all(Array.from({ length: Math.min(limit, items.length) }, w)); }
 
   async function buildLeaves() {
@@ -108,8 +110,11 @@ window.NubiCollect = (() => {
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `nubimetrics_investigacion_${C.site}.json`; a.click();
     console.log('[Nubi] Exportadas', arr.length, 'hojas → importar en la app.');
   }
-  function reset() { try { localStorage.removeItem(LK()); localStorage.removeItem('nubi_res_' + C.site); localStorage.removeItem('nubi_done_' + C.site); } catch (e) {} window._nubi[C.site] = { data: {}, done: {} }; console.log('[Nubi] borrado'); }
+  // Limpia solo los RESULTADOS (mantiene el árbol de hojas cacheado → re-run rápido).
+  function resetData() { window._nubi[C.site] = { data: {}, done: {} }; console.log('[Nubi] resultados borrados (árbol se conserva)'); }
+  // Limpia TODO (incluido el árbol).
+  function reset() { try { localStorage.removeItem(LK()); } catch (e) {} if (window._nubiLeaves) delete window._nubiLeaves[C.site]; window._nubi[C.site] = { data: {}, done: {} }; console.log('[Nubi] borrado total'); }
 
-  return { setCountry, buildLeaves, run, exportJSON, reset };
+  return { setCountry, buildLeaves, run, exportJSON, reset, resetData };
 })();
-console.log("NubiCollect v5 (memoria) → setCountry('cl'); await run({months:1}); exportJSON()");
+console.log("NubiCollect v6 → setCountry('cl'); resetData(); await run({months:1}); exportJSON()");
