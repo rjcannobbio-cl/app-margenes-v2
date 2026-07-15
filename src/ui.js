@@ -1162,8 +1162,9 @@ function openResearchDetail(item) {
   document.querySelectorAll('.rd-mbtn').forEach(b => b.classList.toggle('active', b.dataset.metric === 'gmv'));
   populateRdRange(item);
   renderRdChart();
-  { const pp = $('p2Panel'); if (pp) { pp.classList.add('hidden'); pp.innerHTML = ''; } }   // P2 se dispara con el botón
+  { const pp = $('p2Panel'); if (pp) { pp.classList.add('hidden'); pp.innerHTML = ''; } const b = $('p2Btn'); if (b) b.style.display = ''; }
   $('rDetailOverlay').classList.remove('hidden');
+  p2LoadCached(item);   // si ya hay análisis guardado, se muestra solo (sin re-analizar)
 }
 const RD_MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 function rdMonthLabel(ym) { const [y, m] = String(ym || '').split('-'); const i = parseInt(m, 10) - 1; return (RD_MESES[i] || m || '') + ' ' + (y || ''); }
@@ -1289,6 +1290,14 @@ function p2Prod(pos, id, body) {
   return { pos, id, name: (body.name || '').slice(0, 90), brand: p2Attr(body, 'BRAND'), attrs, pdp: 'https://www.mercadolibre.cl/p/' + id };
 }
 
+// Carga silenciosa del reporte cacheado al abrir la categoría (no analiza, solo muestra si existe).
+async function p2LoadCached(item) {
+  if (!item) return;
+  try {
+    const c = await (await fetch(api('/api/p2?id=' + encodeURIComponent(item.id)))).json();
+    if (c && c.report && _rdItem && _rdItem.id === item.id) { $('p2Panel').classList.remove('hidden'); renderP2(c.report, item, c.ts); }
+  } catch (e) {}
+}
 async function runP2(item, force) {
   if (!item || _p2Running) return;
   _p2Running = true;
@@ -1405,8 +1414,9 @@ function renderP2(report, item, ts) {
   const bundles = (ai.bundles || []).map(b => `<li style="margin:5px 0">${esc(b)}</li>`).join('');
   const fmt = v => (v != null && !isNaN(v)) ? '$' + Math.round(v).toLocaleString('es-CL') : '–';
 
+  const updStr = ts ? new Date(ts).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
   host.innerHTML =
-    `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h3 style="margin:0;font-size:15px;font-weight:800">🔬 Análisis P2 · ${esc(item.leaf)}</h3><button class="btn ghost" style="font-size:12px;padding:6px 12px" onclick="runP2(_rdItem,true)">↻ Recalcular</button></div>` +
+    `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px;flex-wrap:wrap"><div><h3 style="margin:0;font-size:15px;font-weight:800">🔬 Análisis P2 · ${esc(item.leaf)}</h3><div class="muted" style="font-size:11px;margin-top:2px">Última actualización: <b style="color:var(--ink)">${updStr}</b></div></div><button class="btn" style="font-size:12px;padding:7px 13px" onclick="runP2(_rdItem,true)">🔄 Actualizar análisis</button></div>` +
     (ai._err ? `<div class="p2err" style="margin-bottom:12px">La IA falló (${esc(ai._err)}). Se muestran los datos igual.</div>` : '') +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">📅</div><h3>Estacionalidad</h3></div><div class="p2bars">${bars}</div>${aiLine('Lectura', ai.estacionalidad)}${fbRow('estacionalidad')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">💰</div><h3>Cuota por vendedor</h3><span class="verdict ${cuotaBadge}">${esc((s.cuota || {}).clase || '—')}</span></div><p style="margin:2px 0;font-size:13px">${fmt((s.cuota || {}).cuota)}/vendedor · percentil ${(s.cuota || {}).pct || '?'} · ${s.competidores ? Math.round(s.competidores) + ' competidores' : ''}</p>${aiLine('Lectura', ai.cuota)}${fbRow('cuota')}</div>` +
@@ -1417,7 +1427,8 @@ function renderP2(report, item, ts) {
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">⭐</div><h3>Diferenciación por reseñas</h3></div>${revBlock}${aiLine('Oportunidad', ai.reviewOps)}${fbRow('resenas')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">⚡</div><h3>Diferenciación por upgrades</h3></div>${upgrades || '<span class="muted small">—</span>'}${fbRow('upgrades')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">📦</div><h3>Diferenciación por bundle</h3></div><ul style="margin:4px 0 0;padding-left:18px;font-size:13px">${bundles || '<li class="muted">—</li>'}</ul>${fbRow('bundles')}</div>` +
-    `<div class="hint" style="margin-top:6px">Datos reales: estacionalidad/cuota/tendencia (serie recolectada) + top productos y reseñas (ML vía ProfitGuard). Clusters y diferenciación: IA. ${ts ? '· ' + new Date(ts).toLocaleString('es-CL') : ''}</div>`;
+    `<div class="hint" style="margin-top:6px">Datos reales: estacionalidad/cuota/tendencia (serie recolectada) + top productos y reseñas (ML vía ProfitGuard). Clusters y diferenciación: IA.</div>`;
+  { const b = $('p2Btn'); if (b) b.style.display = 'none'; }   // ya hay reporte visible → el update se hace desde el propio panel
 }
 function p2Fb(btn, catId, sec, ok) {
   btn.parentNode.querySelectorAll('button').forEach(b => b.classList.remove('on')); btn.classList.add('on');
