@@ -156,8 +156,17 @@
   .rd-mbtn{background:var(--panel2);border:1px solid var(--line);color:var(--muted);border-radius:8px;padding:6px 12px;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit}
   .rd-mbtn.active{background:var(--accent);color:#1b1205;border-color:var(--accent)}
   .rd-controls select{width:auto}
+  .rd-range{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .rd-range span{font-size:12px;color:var(--muted);font-weight:600}
+  .rd-range select{width:auto;padding:6px 8px;font-size:12px}
   .rd-yoy{margin-left:auto;font-size:13px;color:var(--muted);font-weight:600}
-  .rd-chart{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px;min-height:210px;display:flex;align-items:center;justify-content:center}
+  .rd-chart{position:relative;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px;min-height:210px;display:flex;align-items:center;justify-content:center}
+  .rd-tip{position:absolute;pointer-events:none;z-index:5;transform:translate(-50%,-114%);background:#121215;border:1px solid var(--accent);border-radius:9px;padding:7px 10px;box-shadow:0 6px 20px rgba(0,0,0,.5);white-space:nowrap;opacity:0;transition:opacity .08s}
+  .rd-tip.on{opacity:1}
+  .rd-tip .tm{font-size:12px;font-weight:800;color:var(--ink);margin-bottom:3px;text-align:center}
+  .rd-tip .tv{font-size:12px;font-weight:600;color:var(--muted);display:flex;align-items:center;gap:6px}
+  .rd-tip .tv b{color:var(--ink);font-weight:800}
+  .rd-tip .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);display:inline-block}
   .rd-links{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
   .rd-note{margin-top:10px}
 
@@ -405,7 +414,7 @@
         <button class="rd-mbtn" data-metric="prof" type="button">Vendedores</button>
         <button class="rd-mbtn" data-metric="ticket" type="button">Ticket medio</button>
       </div>
-      <select id="rdRange"><option value="36">Últimos 36 meses</option><option value="24">24 meses</option><option value="12">12 meses</option></select>
+      <div class="rd-range"><span>Desde</span><select id="rdFrom"></select><span>Hasta</span><select id="rdTo"></select></div>
       <span class="rd-yoy" id="rdYoy"></span>
     </div>
     <div id="rdChart" class="rd-chart"></div>
@@ -413,17 +422,17 @@
       <a id="rdRanking" class="btn" target="_blank" rel="noopener">📊 Ranking de mercado ↗</a>
       <a id="rdTrends" class="btn ghost" target="_blank" rel="noopener">🔎 Lo más buscado del mes ↗</a>
     </div>
-    <div class="hint rd-note">Datos de Nubimetrics (visión global). El gráfico usa la serie mensual recolectada. Ambos botones abren la vista de mercado de esta categoría hoja en Nubimetrics: el <b>ranking</b> está en la pestaña “Publicaciones” y <b>lo más buscado</b> en la pestaña “Demanda”.</div>
+    <div class="hint rd-note">Datos de Nubimetrics. El gráfico usa la serie mensual recolectada. Los botones abren la página de <b>Rankings de mercado</b> de Nubimetrics — ojo: su ranking no permite fijar la categoría hoja por URL, así que puede que tengas que seleccionar la categoría en los filtros de arriba.</div>
   </div>
 </div>
 
 <!-- ?v= versiona los assets: al cambiar el número, el navegador ignora el caché de 4h de Cloudflare. Súbelo en cada deploy que toque JS. -->
-<script src="data/ml_categories.js?v=260716"></script>
-<script src="data/fbla_categories.js?v=260716"></script>
-<script src="data/shipping.js?v=260716"></script>
-<script src="src/app.js?v=260716"></script>
-<script src="src/ai.js?v=260716"></script>
-<script src="src/local-ai.js?v=260716"></script>
-<script src="src/ui.js?v=260716"></script>
+<script src="data/ml_categories.js?v=260717"></script>
+<script src="data/fbla_categories.js?v=260717"></script>
+<script src="data/shipping.js?v=260717"></script>
+<script src="src/app.js?v=260717"></script>
+<script src="src/ai.js?v=260717"></script>
+<script src="src/local-ai.js?v=260717"></script>
+<script src="src/ui.js?v=260717"></script>
 </body>
 </html>

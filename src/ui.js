@@ -1158,22 +1158,36 @@ function openResearchDetail(item) {
   const rMonth = (Array.isArray(item.serie) && item.serie.length)
     ? item.serie[item.serie.length - 1].m.slice(0, 7) + '-01'
     : (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 8) + '01'; })();
-  const catView = 'https://app.nubimetrics.com/market/bycategory#?range=' + rMonth + '&category=' + encodeURIComponent(leafId);
-  $('rdRanking').href = catView;
-  $('rdTrends').href = catView;
+  // Nota: la página "Rankings de mercado" (sellerranking) NO codifica la categoría en la URL
+  // al navegar por los filtros. Se pasa category= como best-effort (puede que la lea al cargar de cero).
+  const rankUrl = 'https://app.nubimetrics.com/market/sellerranking#?range=' + rMonth + '&category=' + encodeURIComponent(leafId);
+  $('rdRanking').href = rankUrl;
+  $('rdTrends').href = rankUrl;
   document.querySelectorAll('.rd-mbtn').forEach(b => b.classList.toggle('active', b.dataset.metric === 'gmv'));
+  populateRdRange(item);
   renderRdChart();
   $('rDetailOverlay').classList.remove('hidden');
 }
+const RD_MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+function rdMonthLabel(ym) { const [y, m] = String(ym || '').split('-'); const i = parseInt(m, 10) - 1; return (RD_MESES[i] || m || '') + ' ' + (y || ''); }
+// Puebla los selectores Desde/Hasta con los meses disponibles de la serie (rango completo por defecto).
+function populateRdRange(item) {
+  const months = (Array.isArray(item.serie) ? item.serie : []).map(p => (p.m || '').slice(0, 7)).filter(Boolean);
+  const opts = months.map(ym => `<option value="${ym}">${rdMonthLabel(ym)}</option>`).join('');
+  const from = $('rdFrom'), to = $('rdTo');
+  from.innerHTML = opts; to.innerHTML = opts;
+  if (months.length) { from.value = months[0]; to.value = months[months.length - 1]; }
+}
 function renderRdChart() {
   const item = _rdItem; if (!item) return;
-  const months = parseInt($('rdRange').value, 10) || 36;
   const serie = Array.isArray(item.serie) ? item.serie : [];
-  const sub = serie.slice(-months);
   const metric = _rdMetric;
+  let fromV = ($('rdFrom') && $('rdFrom').value) || '', toV = ($('rdTo') && $('rdTo').value) || '';
+  if (fromV && toV && fromV > toV) { const t = fromV; fromV = toV; toV = t; }   // por si eligen invertido
+  const sub = serie.filter(p => { const ym = (p.m || '').slice(0, 7); return (!fromV || ym >= fromV) && (!toV || ym <= toV); });
   const points = sub.map(p => ({ m: (p.m || '').slice(0, 7), v: parseFloat(p[metric]) || 0 }));
   if (!points.length) {
-    $('rdChart').innerHTML = '<p class="muted" style="padding:24px;text-align:center;line-height:1.6">Aún no hay serie mensual para esta categoría.<br>Corre el recolector con <b>run({months:36})</b> y re-importa para ver la evolución.</p>';
+    $('rdChart').innerHTML = '<p class="muted" style="padding:24px;text-align:center;line-height:1.6">Aún no hay serie mensual para este rango.<br>Corre el recolector con <b>run({months:36})</b> y re-importa para ver la evolución.</p>';
     $('rdYoy').textContent = '';
     return;
   }
@@ -1187,22 +1201,55 @@ function renderRdChart() {
     ? 'Crecimiento interanual: <b style="color:' + (yoy >= 0 ? 'var(--good)' : 'var(--bad)') + '">' + (yoy >= 0 ? '+' : '') + yoy.toFixed(1) + '%</b>'
     : '<span class="muted">YoY: faltan 13 meses de datos</span>';
   $('rdChart').innerHTML = rdChartSVG(points, metric);
+  wireRdChartHover();
 }
+let _rdGeo = null;
 function rdChartSVG(points, metric) {
   const W = 720, H = 240, padL = 64, padR = 16, padT = 16, padB = 34;
   const vals = points.map(p => p.v), max = Math.max(...vals, 1), min = Math.min(...vals, 0);
   const iw = W - padL - padR, ih = H - padT - padB;
   const X = i => padL + (points.length <= 1 ? iw / 2 : i * iw / (points.length - 1));
   const Y = v => padT + ih - (max - min ? (v - min) / (max - min) : 0) * ih;
-  const line = points.map((p, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ',' + Y(p.v).toFixed(1)).join(' ');
-  const area = 'M' + X(0).toFixed(1) + ',' + (padT + ih) + ' ' + points.map((p, i) => 'L' + X(i).toFixed(1) + ',' + Y(p.v).toFixed(1)).join(' ') + ' L' + X(points.length - 1).toFixed(1) + ',' + (padT + ih) + ' Z';
+  const xs = points.map((p, i) => X(i)), ys = points.map(p => Y(p.v));
+  const line = points.map((p, i) => (i ? 'L' : 'M') + xs[i].toFixed(1) + ',' + ys[i].toFixed(1)).join(' ');
+  const area = 'M' + xs[0].toFixed(1) + ',' + (padT + ih) + ' ' + points.map((p, i) => 'L' + xs[i].toFixed(1) + ',' + ys[i].toFixed(1)).join(' ') + ' L' + xs[points.length - 1].toFixed(1) + ',' + (padT + ih) + ' Z';
   const fmtFull = v => metric === 'prof' ? Math.round(v).toLocaleString('es-CL') : ('$' + Math.round(v).toLocaleString('es-CL'));
   const fmtAxis = v => metric === 'prof' ? Math.round(v) : (v >= 1e9 ? '$' + (v / 1e9).toFixed(1) + 'b' : v >= 1e6 ? '$' + Math.round(v / 1e6) + 'M' : '$' + Math.round(v / 1e3) + 'k');
   const yTicks = [max, (max + min) / 2, min].map(v => `<line x1="${padL}" y1="${Y(v).toFixed(1)}" x2="${W - padR}" y2="${Y(v).toFixed(1)}" stroke="var(--line)" stroke-width="1"/><text x="${padL - 8}" y="${(Y(v) + 3).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--muted)">${fmtAxis(v)}</text>`).join('');
   const idxs = [...new Set([0, Math.floor(points.length / 2), points.length - 1])];
-  const xLabels = idxs.map(i => `<text x="${X(i).toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="10" fill="var(--muted)">${points[i].m}</text>`).join('');
-  const dots = points.map((p, i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="2.6" fill="var(--accent)"><title>${p.m}: ${fmtFull(p.v)}</title></circle>`).join('');
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:720px;display:block">${yTicks}<path d="${area}" fill="rgba(255,102,0,.14)"/><path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2"/>${dots}${xLabels}</svg>`;
+  const xLabels = idxs.map(i => `<text x="${xs[i].toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="10" fill="var(--muted)">${points[i].m}</text>`).join('');
+  const dots = points.map((p, i) => `<circle cx="${xs[i].toFixed(1)}" cy="${ys[i].toFixed(1)}" r="2.6" fill="var(--accent)"/>`).join('');
+  const guide = `<line class="rd-guide" x1="0" y1="${padT}" x2="0" y2="${padT + ih}" stroke="var(--accent)" stroke-width="1" stroke-dasharray="3 3" style="display:none"/>`;
+  const active = `<circle class="rd-active" r="5" fill="var(--accent)" stroke="#121215" stroke-width="2" style="display:none"/>`;
+  const metricName = metric === 'gmv' ? 'Ventas en $' : metric === 'prof' ? 'Vendedores' : 'Ticket medio';
+  _rdGeo = { xs, ys, vals, labels: points.map(p => rdMonthLabel(p.m)), W, H, fmt: fmtFull, metricName };
+  const tip = `<div class="rd-tip"><div class="tm"></div><div class="tv"><span class="dot"></span><span class="tl"></span> : <b></b></div></div>`;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:720px;display:block">${yTicks}<path d="${area}" fill="rgba(255,102,0,.14)"/><path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2"/>${guide}${dots}${active}${xLabels}</svg>${tip}`;
+}
+// Tooltip branded que sigue el cursor: mes en grande ("Marzo 2026") + métrica del eje Y.
+function wireRdChartHover() {
+  const host = $('rdChart'); const svg = host && host.querySelector('svg'); if (!svg || !_rdGeo) return;
+  const tip = host.querySelector('.rd-tip'), guide = svg.querySelector('.rd-guide'), active = svg.querySelector('.rd-active'), g = _rdGeo;
+  function show(idx) {
+    const rect = svg.getBoundingClientRect(), hostRect = host.getBoundingClientRect();
+    const sx = rect.width / g.W, sy = rect.height / g.H;
+    guide.setAttribute('x1', g.xs[idx]); guide.setAttribute('x2', g.xs[idx]); guide.style.display = '';
+    active.setAttribute('cx', g.xs[idx]); active.setAttribute('cy', g.ys[idx]); active.style.display = '';
+    tip.querySelector('.tm').textContent = g.labels[idx];
+    tip.querySelector('.tl').textContent = g.metricName;
+    tip.querySelector('.tv b').textContent = g.fmt(g.vals[idx]);
+    const px = (rect.left - hostRect.left) + g.xs[idx] * sx, py = (rect.top - hostRect.top) + g.ys[idx] * sy;
+    const half = (tip.offsetWidth / 2) || 60;
+    tip.style.left = Math.max(half + 2, Math.min(hostRect.width - half - 2, px)) + 'px';
+    tip.style.top = py + 'px'; tip.classList.add('on');
+  }
+  function hide() { tip.classList.remove('on'); guide.style.display = 'none'; active.style.display = 'none'; }
+  svg.addEventListener('mousemove', e => {
+    const rect = svg.getBoundingClientRect(), sx = rect.width / g.W, mx = (e.clientX - rect.left) / sx;
+    let best = 0, bd = Infinity; for (let i = 0; i < g.xs.length; i++) { const d = Math.abs(g.xs[i] - mx); if (d < bd) { bd = d; best = i; } }
+    show(best);
+  });
+  svg.addEventListener('mouseleave', hide);
 }
 async function importResearchJSON(file) {
   try {
@@ -1332,7 +1379,8 @@ function init() {
   $('researchFilter').addEventListener('input', debounce(paintResearch, 200));
   // Reporte de detalle de categoría (Investigación)
   document.querySelectorAll('.rd-mbtn').forEach(b => b.onclick = () => { _rdMetric = b.dataset.metric; document.querySelectorAll('.rd-mbtn').forEach(x => x.classList.toggle('active', x === b)); renderRdChart(); });
-  $('rdRange').addEventListener('change', renderRdChart);
+  $('rdFrom').addEventListener('change', renderRdChart);
+  $('rdTo').addEventListener('change', renderRdChart);
   $('rdClose').onclick = () => $('rDetailOverlay').classList.add('hidden');
   $('rDetailOverlay').onclick = e => { if (e.target === $('rDetailOverlay')) $('rDetailOverlay').classList.add('hidden'); };
   $('btnCatExport').onclick = exportCatalogoCSV;
