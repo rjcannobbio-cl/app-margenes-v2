@@ -1092,6 +1092,61 @@ function paintResearch() {
   wrap.innerHTML = `<table class="histtab dbtab" style="min-width:1000px"><thead><tr>
     <th>Categoría L1</th><th>Categoría hoja</th><th>Ventas prom (GMV, 12m)</th><th>Ticket medio (12m)</th><th>Competidores prof. (12m)</th><th>Cuota x seller</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
+  wrap.querySelectorAll('tbody tr[data-id]').forEach(tr => { tr.title = 'Clic para ver el reporte de la categoría'; tr.onclick = () => openResearchDetail(_researchAll.find(x => x.id === tr.dataset.id)); });
+}
+
+/* ---------------- Reporte de detalle de categoría ---------------- */
+let _rdItem = null, _rdMetric = 'gmv';
+function openResearchDetail(item) {
+  if (!item) return;
+  _rdItem = item; _rdMetric = 'gmv';
+  $('rdL1').textContent = item.l1 || '';
+  $('rdLeaf').textContent = item.leaf || '';
+  const leafId = (item.path || '').split('-').filter(Boolean).pop() || item.id;
+  $('rdRanking').href = 'https://app.nubimetrics.com/market/sellerranking#?category=' + encodeURIComponent(leafId);
+  $('rdTrends').href = 'https://app.nubimetrics.com/market/bytrends#?category=' + encodeURIComponent(leafId);
+  document.querySelectorAll('.rd-mbtn').forEach(b => b.classList.toggle('active', b.dataset.metric === 'gmv'));
+  renderRdChart();
+  $('rDetailOverlay').classList.remove('hidden');
+}
+function renderRdChart() {
+  const item = _rdItem; if (!item) return;
+  const months = parseInt($('rdRange').value, 10) || 36;
+  const serie = Array.isArray(item.serie) ? item.serie : [];
+  const sub = serie.slice(-months);
+  const metric = _rdMetric;
+  const points = sub.map(p => ({ m: (p.m || '').slice(0, 7), v: parseFloat(p[metric]) || 0 }));
+  if (!points.length) {
+    $('rdChart').innerHTML = '<p class="muted" style="padding:24px;text-align:center;line-height:1.6">Aún no hay serie mensual para esta categoría.<br>Corre el recolector con <b>run({months:36})</b> y re-importa para ver la evolución.</p>';
+    $('rdYoy').textContent = '';
+    return;
+  }
+  // YoY: último mes vs 12 meses antes (necesita ≥13 puntos consecutivos)
+  let yoy = null;
+  if (serie.length >= 13) {
+    const cur = parseFloat(serie[serie.length - 1][metric]) || 0, prev = parseFloat(serie[serie.length - 13][metric]) || 0;
+    if (prev > 0) yoy = (cur - prev) / prev * 100;
+  }
+  $('rdYoy').innerHTML = yoy != null
+    ? 'Crecimiento interanual: <b style="color:' + (yoy >= 0 ? 'var(--good)' : 'var(--bad)') + '">' + (yoy >= 0 ? '+' : '') + yoy.toFixed(1) + '%</b>'
+    : '<span class="muted">YoY: faltan 13 meses de datos</span>';
+  $('rdChart').innerHTML = rdChartSVG(points, metric);
+}
+function rdChartSVG(points, metric) {
+  const W = 720, H = 240, padL = 64, padR = 16, padT = 16, padB = 34;
+  const vals = points.map(p => p.v), max = Math.max(...vals, 1), min = Math.min(...vals, 0);
+  const iw = W - padL - padR, ih = H - padT - padB;
+  const X = i => padL + (points.length <= 1 ? iw / 2 : i * iw / (points.length - 1));
+  const Y = v => padT + ih - (max - min ? (v - min) / (max - min) : 0) * ih;
+  const line = points.map((p, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ',' + Y(p.v).toFixed(1)).join(' ');
+  const area = 'M' + X(0).toFixed(1) + ',' + (padT + ih) + ' ' + points.map((p, i) => 'L' + X(i).toFixed(1) + ',' + Y(p.v).toFixed(1)).join(' ') + ' L' + X(points.length - 1).toFixed(1) + ',' + (padT + ih) + ' Z';
+  const fmtFull = v => metric === 'prof' ? Math.round(v).toLocaleString('es-CL') : ('$' + Math.round(v).toLocaleString('es-CL'));
+  const fmtAxis = v => metric === 'prof' ? Math.round(v) : (v >= 1e9 ? '$' + (v / 1e9).toFixed(1) + 'b' : v >= 1e6 ? '$' + Math.round(v / 1e6) + 'M' : '$' + Math.round(v / 1e3) + 'k');
+  const yTicks = [max, (max + min) / 2, min].map(v => `<line x1="${padL}" y1="${Y(v).toFixed(1)}" x2="${W - padR}" y2="${Y(v).toFixed(1)}" stroke="var(--line)" stroke-width="1"/><text x="${padL - 8}" y="${(Y(v) + 3).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--muted)">${fmtAxis(v)}</text>`).join('');
+  const idxs = [...new Set([0, Math.floor(points.length / 2), points.length - 1])];
+  const xLabels = idxs.map(i => `<text x="${X(i).toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="10" fill="var(--muted)">${points[i].m}</text>`).join('');
+  const dots = points.map((p, i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="2.6" fill="var(--accent)"><title>${p.m}: ${fmtFull(p.v)}</title></circle>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:720px;display:block">${yTicks}<path d="${area}" fill="rgba(255,102,0,.14)"/><path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2"/>${dots}${xLabels}</svg>`;
 }
 async function importResearchJSON(file) {
   try {
@@ -1104,7 +1159,8 @@ async function importResearchJSON(file) {
       l1: x.l1 || x.l1Name || '', leaf: x.leaf || x.leafName || x.name || '', path: x.path || '',
       ventasGmv: _num(x.ventasGmv != null ? x.ventasGmv : x.gmv),
       ticket: _num(x.ticket),
-      competidores: _num(x.competidores != null ? x.competidores : x.sellersProfessional)
+      competidores: _num(x.competidores != null ? x.competidores : x.sellersProfessional),
+      serie: Array.isArray(x.serie) ? x.serie : []
     }));
     await researchReplace(items);
     _researchAll = items; _researchSig = JSON.stringify(items);
@@ -1216,6 +1272,11 @@ function init() {
   $('btnResearchImport').onclick = () => $('researchFile').click();
   $('researchFile').addEventListener('change', e => { const f = e.target.files[0]; if (f) importResearchJSON(f); e.target.value = ''; });
   $('researchFilter').addEventListener('input', debounce(paintResearch, 200));
+  // Reporte de detalle de categoría (Investigación)
+  document.querySelectorAll('.rd-mbtn').forEach(b => b.onclick = () => { _rdMetric = b.dataset.metric; document.querySelectorAll('.rd-mbtn').forEach(x => x.classList.toggle('active', x === b)); renderRdChart(); });
+  $('rdRange').addEventListener('change', renderRdChart);
+  $('rdClose').onclick = () => $('rDetailOverlay').classList.add('hidden');
+  $('rDetailOverlay').onclick = e => { if (e.target === $('rDetailOverlay')) $('rDetailOverlay').classList.add('hidden'); };
   $('btnCatExport').onclick = exportCatalogoCSV;
   $('btnCatSync').onclick = syncFromPG;
   $('btnCatImport').onclick = () => $('catFile').click();

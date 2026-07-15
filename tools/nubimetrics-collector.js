@@ -102,8 +102,8 @@ window.NubiCollect = (() => {
         for (const lf of byParent[j.parent]) {
           const child = cats.find(x => x.CategoryId === lf.id); if (!child) continue;
           const e = extract(child);
-          const d = data[lf.id] || (data[lf.id] = { l1: lf.l1, leaf: lf.leaf, path: lf.path, gmv: [], ticket: [], prof: [] });
-          if (e.gmv != null) d.gmv.push(e.gmv); if (e.ticket != null) d.ticket.push(e.ticket); if (e.prof != null) d.prof.push(e.prof);
+          const d = data[lf.id] || (data[lf.id] = { l1: lf.l1, leaf: lf.leaf, path: lf.path, serie: {} });
+          d.serie[j.month] = { gmv: e.gmv, ticket: e.ticket, prof: e.prof };   // serie mensual por hoja
         }
       }
       if (++n % 100 === 0) { saveDead(dead); console.log(`[Nubi] ${n}/${jobs.length} · hojas con datos: ${Object.keys(data).length} · nuevos 401: ${newDead}`); }
@@ -124,14 +124,24 @@ window.NubiCollect = (() => {
   }
   function exportJSON() {
     const d = mem().data;
-    const arr = Object.entries(d).map(([id, x]) => ({ id, l1: x.l1, leaf: x.leaf, path: x.path, ventasGmv: avg(x.gmv), ticket: avg(x.ticket), competidores: avg(x.prof) })).filter(x => x.ventasGmv > 0);
-    const blob = new Blob([JSON.stringify(arr, null, 2)], { type: 'application/json' });
+    const arr = Object.entries(d).map(([id, x]) => {
+      const serie = Object.keys(x.serie || {}).sort().map(m => ({ m, gmv: x.serie[m].gmv, ticket: x.serie[m].ticket, prof: x.serie[m].prof }));
+      const last12 = serie.slice(-12);
+      return {
+        id, l1: x.l1, leaf: x.leaf, path: x.path,
+        ventasGmv: avg(last12.map(s => s.gmv).filter(v => v != null)),
+        ticket: avg(last12.map(s => s.ticket).filter(v => v != null)),
+        competidores: avg(last12.map(s => s.prof).filter(v => v != null)),
+        serie
+      };
+    }).filter(x => x.ventasGmv > 0);
+    const blob = new Blob([JSON.stringify(arr)], { type: 'application/json' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `nubimetrics_investigacion_${C.site}.json`; a.click();
-    console.log('[Nubi] Exportadas', arr.length, 'hojas (con ventas > 0) → importar en la app.');
+    console.log('[Nubi] Exportadas', arr.length, 'hojas (con ventas > 0, con serie mensual) → importar en la app.');
   }
   function resetData() { window._nubi[C.site] = { data: {}, done: {} }; console.log('[Nubi] resultados borrados (árbol se conserva)'); }
   function reset() { try { localStorage.removeItem(LK()); localStorage.removeItem(XK()); } catch (e) {} if (window._nubiLeaves) delete window._nubiLeaves[C.site]; window._nubi[C.site] = { data: {}, done: {} }; console.log('[Nubi] borrado total (árbol + resultados + 401)'); }
 
   return { setCountry, buildLeaves, run, coverage, exportJSON, reset, resetData };
 })();
-console.log("NubiCollect v7 → setCountry('cl'); reset(); await run({months:1}); coverage(); exportJSON()");
+console.log("NubiCollect v8 (serie mensual) → setCountry('cl'); resetData(); await run({months:36}); coverage(); exportJSON()");
