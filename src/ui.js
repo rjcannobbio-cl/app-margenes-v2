@@ -1049,6 +1049,37 @@ function exportCatalogoCSV() {
 /* ---------------- Investigación de categorías (snapshot de Nubimetrics) ---------------- */
 const RESEARCH_KEY = 'mpresearch';
 let _researchBackend = null, _researchAll = [], _researchSig = '';
+// Canibalización: categorías hoja donde ET Brands YA tiene publicaciones. ML ya no
+// permite consultas anónimas, así que vamos autenticados por el proxy /api/pg-passthrough
+// (token de PG en el servidor): listamos los ítems propios y resolvemos su category_id.
+// Cache local 7 días por país. Se recalcula en segundo plano y repinta la tabla.
+let _myCats = new Set();
+async function ptApp(path, query) {
+  try { const r = await fetch(api('/api/pg-passthrough'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path, query }) }); if (!r.ok) return null; const j = await r.json(); return (j && j.body != null) ? j.body : null; } catch (e) { return null; }
+}
+async function loadMyCats(force) {
+  const site = country === 'co' ? 'MCO' : 'MLC';
+  const key = 'mp_mycats_' + site;
+  if (!force) { try { const c = JSON.parse(localStorage.getItem(key) || 'null'); if (c && c.ts && (Date.now() - c.ts < 7 * 864e5) && Array.isArray(c.ids)) { _myCats = new Set(c.ids); return; } } catch (e) {} }
+  const me = await ptApp('/users/me', {});
+  const sellerId = me && me.id; if (!sellerId) return;   // sin proxy/token: canibalización sólo por flag del import
+  // 1) IDs de los ítems propios (páginas de 100, tope de offset 1000).
+  const items = [];
+  for (let off = 0; off <= 1000; off += 100) {
+    const s = await ptApp('/users/' + sellerId + '/items/search', { limit: '100', offset: String(off) });
+    const res = (s && s.results) || []; items.push(...res);
+    if (!res.length || off + 100 >= ((s && s.paging && s.paging.total) || items.length)) break;
+  }
+  if (!items.length) return;
+  // 2) category_id vía multiget (lotes de 20, de a 6 en paralelo).
+  const cats = new Set(), chunks = [];
+  for (let i = 0; i < items.length; i += 20) chunks.push(items.slice(i, i + 20));
+  for (let i = 0; i < chunks.length; i += 6) {
+    const rs = await Promise.all(chunks.slice(i, i + 6).map(ch => ptApp('/items', { ids: ch.join(','), attributes: 'id,category_id' })));
+    for (const arr of rs) if (Array.isArray(arr)) for (const e of arr) if (e && e.code === 200 && e.body && e.body.category_id) cats.add(e.body.category_id);
+  }
+  if (cats.size) { _myCats = cats; try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), ids: [...cats] })); } catch (e) {} }
+}
 function researchLocalLoad() { try { return JSON.parse(localStorage.getItem(RESEARCH_KEY) || '[]'); } catch (e) { return []; } }
 function researchLocalSave(h) { localStorage.setItem(RESEARCH_KEY, JSON.stringify(h)); }
 async function researchLoad() {
@@ -1066,7 +1097,21 @@ async function researchReplace(items) {
 function setResearchStatus(msg, isErr) { const el = $('researchStatus'); if (!el) return; el.textContent = msg || ''; el.style.color = isErr ? 'var(--bad)' : 'var(--muted)'; }
 // Cuota de venta por seller = ventas (GMV) / competidores profesionales.
 function researchCuota(x) { const v = parseFloat(x.ventasGmv) || 0, c = parseFloat(x.competidores) || 0; return c > 0 ? v / c : null; }
-async function renderResearch() { _researchAll = await researchLoad(); _researchSig = JSON.stringify(_researchAll); paintResearch(); }
+// Crecimiento interanual del GMV ACUMULADO del año (YTD): ene–mes actual vs mismo período del año anterior.
+function researchYtdYoY(x) {
+  const s = Array.isArray(x.serie) ? x.serie : [];
+  if (s.length < 13) return null;
+  const last = s[s.length - 1].m.slice(0, 7).split('-').map(Number);   // [año, mes] del último dato
+  const curYear = last[0], curMonth = last[1];
+  const sumYtd = year => {
+    let t = 0, any = false;
+    for (const p of s) { const [py, pm] = p.m.slice(0, 7).split('-').map(Number); if (py === year && pm <= curMonth) { const v = parseFloat(p.gmv); if (!isNaN(v)) { t += v; any = true; } } }
+    return any ? t : null;
+  };
+  const cur = sumYtd(curYear), prev = sumYtd(curYear - 1);
+  return (cur != null && prev != null && prev > 0) ? (cur - prev) / prev * 100 : null;
+}
+async function renderResearch() { _researchAll = await researchLoad(); _researchSig = JSON.stringify(_researchAll); paintResearch(); loadMyCats().then(() => paintResearch()).catch(() => {}); }
 function paintResearch() {
   const q = normalize(($('researchFilter') && $('researchFilter').value) || '');
   const conVentas = _researchAll.filter(x => (parseFloat(x.ventasGmv) || 0) > 0);   // omite categorías con 0 ventas
@@ -1079,18 +1124,22 @@ function paintResearch() {
   if (!filtered.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Sin resultados.</p>'; return; }
   const intfmt = v => (v != null && v !== '' && !isNaN(v)) ? Math.round(v).toLocaleString('es-CL') : '–';
   // ordenar por cuota x seller descendente (categoría más atractiva primero)
+  const yoyCell = x => { const y = researchYtdYoY(x); if (y == null) return '<td class="mcell muted">–</td>'; const col = y >= 0 ? 'var(--good)' : 'var(--bad)'; return `<td class="mcell" style="color:${col};font-weight:600">${y >= 0 ? '+' : ''}${y.toFixed(1)}%</td>`; };
+  const canibCell = x => (x.canibalizacion || _myCats.has(x.id)) ? '<td style="text-align:center"><span style="color:var(--accent);font-weight:700" title="Ya tenemos productos publicados en esta categoría">● Sí</span></td>' : '<td style="text-align:center" class="muted">–</td>';
   const rows = filtered.slice().sort((a, b) => (researchCuota(b) || 0) - (researchCuota(a) || 0)).map(x => {
     const cuota = researchCuota(x);
     return `<tr data-id="${escapeHtml(x.id || '')}">
       <td>${escapeHtml(x.l1 || '')}</td>
       <td>${escapeHtml(x.leaf || '')}</td>
+      ${canibCell(x)}
       <td class="mcell">${fmtCLP(x.ventasGmv)}</td>
+      ${yoyCell(x)}
       <td class="mcell">${fmtCLP(x.ticket)}</td>
       <td class="mcell">${intfmt(x.competidores)}</td>
       <td class="mcell">${cuota != null ? fmtCLP(cuota) : '–'}</td>
     </tr>`; }).join('');
-  wrap.innerHTML = `<table class="histtab dbtab" style="min-width:1000px"><thead><tr>
-    <th>Categoría L1</th><th>Categoría hoja</th><th>Ventas prom (GMV, 12m)</th><th>Ticket medio (12m)</th><th>Competidores prof. (12m)</th><th>Cuota x seller</th>
+  wrap.innerHTML = `<table class="histtab dbtab" style="min-width:1120px"><thead><tr>
+    <th>Categoría L1</th><th>Categoría hoja</th><th title="Categorías donde ET Brands ya tiene productos publicados">Canibalización</th><th>Ventas prom (GMV, 12m)</th><th title="Crecimiento del GMV acumulado del año (ene–mes actual) vs mismo período del año anterior">Crec. YoY (YTD)</th><th>Ticket medio (12m)</th><th>Competidores prof. (12m)</th><th>Cuota x seller</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
   wrap.querySelectorAll('tbody tr[data-id]').forEach(tr => { tr.title = 'Clic para ver el reporte de la categoría'; tr.onclick = () => openResearchDetail(_researchAll.find(x => x.id === tr.dataset.id)); });
 }
@@ -1160,6 +1209,7 @@ async function importResearchJSON(file) {
       ventasGmv: _num(x.ventasGmv != null ? x.ventasGmv : x.gmv),
       ticket: _num(x.ticket),
       competidores: _num(x.competidores != null ? x.competidores : x.sellersProfessional),
+      canibalizacion: !!x.canibalizacion,
       serie: Array.isArray(x.serie) ? x.serie : []
     }));
     await researchReplace(items);
@@ -1170,11 +1220,12 @@ async function importResearchJSON(file) {
 }
 function exportResearchCSV() {
   if (!_researchAll.length) { alert('No hay datos que exportar.'); return; }
-  const head = ['Categoría L1', 'Categoría hoja', 'Ventas prom GMV 12m', 'Ticket medio 12m', 'Competidores prof 12m', 'Cuota x seller'];
+  const head = ['Categoría L1', 'Categoría hoja', 'Canibalización', 'Ventas prom GMV 12m', 'Crec YoY YTD %', 'Ticket medio 12m', 'Competidores prof 12m', 'Cuota x seller'];
   const q = s => '"' + (s == null ? '' : s).toString().replace(/"/g, '""') + '"';
   const n = v => (v == null || v === '' || isNaN(v)) ? '' : Math.round(v);
+  const p1 = v => (v == null || isNaN(v)) ? '' : v.toFixed(1);
   const lines = [head.join(';')];
-  for (const x of _researchAll) lines.push([q(x.l1), q(x.leaf), n(x.ventasGmv), n(x.ticket), n(x.competidores), n(researchCuota(x))].join(';'));
+  for (const x of _researchAll) lines.push([q(x.l1), q(x.leaf), (x.canibalizacion || _myCats.has(x.id)) ? 'Sí' : 'No', n(x.ventasGmv), p1(researchYtdYoY(x)), n(x.ticket), n(x.competidores), n(researchCuota(x))].join(';'));
   const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'investigacion_categorias.csv'; a.click();
 }
