@@ -1,5 +1,5 @@
 /* ============================================================
-   Recolector Nubimetrics → Investigación de categorías (v7)
+   Recolector Nubimetrics → Investigación de categorías (v9)
 
    Corre en la consola de app.nubimetrics.com (sesión iniciada). Fuente: "Mercado
    por Categorías / visión global" = /api/Market/CategoryData. Árbol vía
@@ -10,17 +10,22 @@
      competidores = SellersPlatinum ("Vendedores Platinum")
      (Gmv, SuccessfulItems y SellersProfessional son SHARE %, NO se usan.)
 
-   Novedades v7:
-     · Árbol se cachea con flag "complete" → nunca reusa una enumeración a medias.
-     · Padres que dan 401/403 (fuera del plan de la cuenta) se cachean y se SALTAN
-       en los próximos runs (más rápido). coverage() muestra hojas con datos por L1.
+   Novedades v9 — PERSISTENCIA + REANUDACIÓN:
+     · Los resultados (data + done) se guardan en IndexedDB del navegador, no en
+       memoria. Sobreviven a reloads y REINICIOS del PC → run() REANUDA donde quedó.
+       (Antes vivían en window._nubi y se perdían al reiniciar.)
+     · Flush automático cada 200 llamadas + al terminar. Ideal para bajar 36 meses
+       en varias sesiones: si se corta, vuelve a app.nubimetrics.com, pega esto y
+       corre run({months:36}) otra vez — salta lo ya hecho y sigue.
+     · Árbol se cachea con flag "complete" (nunca reusa enumeración a medias).
+       Padres 401/403 (fuera del plan) se cachean y se saltan.
 
    USO:
-     NubiCollect.setCountry('cl')        // o 'co'
-     NubiCollect.reset()                 // solo la 1ª vez o si el árbol quedó a medias
-     await NubiCollect.run({months:1})   // 1 mes (rápido). Luego run() = 12 meses.
-     NubiCollect.coverage()              // cuántas hojas con datos por L1
-     NubiCollect.exportJSON()            // descarga JSON → importar en la app
+     NubiCollect.setCountry('cl')         // o 'co'
+     await NubiCollect.run({months:36})   // baja/reanuda 36 meses (resumible)
+     NubiCollect.coverage()               // cuántas hojas con datos por L1
+     NubiCollect.exportJSON()             // descarga JSON → importar en la app
+   Reinicio a mitad de camino → repetir run({months:36}); continúa solo.
    ============================================================ */
 
 window.NubiCollect = (() => {
@@ -33,6 +38,31 @@ window.NubiCollect = (() => {
   const LK = () => 'nubi_leaves_' + C.site, XK = () => 'nubi_dead_' + C.site;
   const load = k => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } };
   const store = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } };
+
+  // ---- Persistencia en IndexedDB (resiste reloads y reinicios del PC) ----
+  const DBK = () => 'nubi_' + C.site;
+  function openDB() {
+    return new Promise((res, rej) => {
+      const r = indexedDB.open(DBK(), 1);
+      r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains('kv')) r.result.createObjectStore('kv'); };
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    });
+  }
+  async function idbGet(k) { try { const db = await openDB(); return await new Promise(res => { const q = db.transaction('kv', 'readonly').objectStore('kv').get(k); q.onsuccess = () => res(q.result); q.onerror = () => res(null); }); } catch (e) { return null; } }
+  async function idbSet(k, v) { try { const db = await openDB(); return await new Promise(res => { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').put(v, k); t.oncomplete = () => res(true); t.onerror = () => res(false); }); } catch (e) { return false; } }
+  async function idbClear() { try { const db = await openDB(); return await new Promise(res => { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').clear(); t.oncomplete = () => res(true); t.onerror = () => res(false); }); } catch (e) { return false; } }
+  // Carga lo persistido a memoria (sin pisar lo que ya haya en memoria de esta sesión).
+  async function loadPersisted() {
+    const M = mem();
+    if (M._loaded) return;
+    const pd = await idbGet('data'), pn = await idbGet('done');
+    if (pd) for (const k in pd) if (!M.data[k]) M.data[k] = pd[k];
+    if (pn) for (const k in pn) if (M.done[k] == null) M.done[k] = pn[k];
+    M._loaded = true;
+    const n = Object.keys(M.data).length, j = Object.keys(M.done).length;
+    if (n || j) console.log('[Nubi] reanudando desde IndexedDB · hojas con datos:', n, '· jobs hechos:', j);
+  }
+  async function flush() { const M = mem(); await idbSet('data', M.data); await idbSet('done', M.done); }
 
   // Árbol de hojas: se guarda { complete, leaves }. Solo se reusa si complete=true.
   function saveLeaves(leaves, complete) { if (!store(LK(), { complete: !!complete, leaves })) { window._nubiLeaves = window._nubiLeaves || {}; window._nubiLeaves[C.site] = { complete, leaves }; } }
@@ -84,6 +114,7 @@ window.NubiCollect = (() => {
 
   async function run({ months = 12, limit = 6 } = {}) {
     const leaves = await buildLeaves(); if (!leaves.length) return 0;
+    await loadPersisted();   // ← reanuda lo ya bajado (IndexedDB)
     const monthList = lastMonths(months);
     const M = mem(), data = M.data, done = M.done, dead = deadSet();
     const byParent = {};
@@ -92,6 +123,7 @@ window.NubiCollect = (() => {
     const jobs = [];
     for (const p of parents) for (const m of monthList) if (!done[p + '@' + m]) jobs.push({ parent: p, month: m });
     console.log(`[Nubi] ${leaves.length} hojas · ${Object.keys(byParent).length} padres (${dead.size} saltados por 401) · ${monthList.length} meses · ${jobs.length} pendientes`);
+    if (!jobs.length) { console.log('[Nubi] ✓ nada pendiente (ya está todo bajado) → coverage() / exportJSON()'); return Object.keys(data).length; }
     let n = 0, newDead = 0;
     await mapLimit(jobs, limit, async j => {
       const r = await catData(j.parent, j.month);
@@ -106,9 +138,9 @@ window.NubiCollect = (() => {
           d.serie[j.month] = { gmv: e.gmv, ticket: e.ticket, prof: e.prof };   // serie mensual por hoja
         }
       }
-      if (++n % 100 === 0) { saveDead(dead); console.log(`[Nubi] ${n}/${jobs.length} · hojas con datos: ${Object.keys(data).length} · nuevos 401: ${newDead}`); }
+      if (++n % 200 === 0) { saveDead(dead); await flush(); console.log(`[Nubi] ${n}/${jobs.length} · hojas con datos: ${Object.keys(data).length} · nuevos 401: ${newDead} · guardado ✓`); }
     });
-    saveDead(dead);
+    saveDead(dead); await flush();
     console.log('[Nubi] ✓ Listo. hojas con datos:', Object.keys(data).length, '· padres 401 cacheados:', dead.size, '→ coverage() / exportJSON()');
     return Object.keys(data).length;
   }
@@ -139,9 +171,10 @@ window.NubiCollect = (() => {
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `nubimetrics_investigacion_${C.site}.json`; a.click();
     console.log('[Nubi] Exportadas', arr.length, 'hojas (con ventas > 0, con serie mensual) → importar en la app.');
   }
-  function resetData() { window._nubi[C.site] = { data: {}, done: {} }; console.log('[Nubi] resultados borrados (árbol se conserva)'); }
-  function reset() { try { localStorage.removeItem(LK()); localStorage.removeItem(XK()); } catch (e) {} if (window._nubiLeaves) delete window._nubiLeaves[C.site]; window._nubi[C.site] = { data: {}, done: {} }; console.log('[Nubi] borrado total (árbol + resultados + 401)'); }
+  async function resetData() { window._nubi[C.site] = { data: {}, done: {} }; await idbClear(); console.log('[Nubi] resultados borrados (memoria + IndexedDB; árbol se conserva)'); }
+  async function reset() { try { localStorage.removeItem(LK()); localStorage.removeItem(XK()); } catch (e) {} if (window._nubiLeaves) delete window._nubiLeaves[C.site]; window._nubi[C.site] = { data: {}, done: {} }; await idbClear(); console.log('[Nubi] borrado total (árbol + resultados + 401 + IndexedDB)'); }
+  async function progress() { await loadPersisted(); return coverage(); }
 
-  return { setCountry, buildLeaves, run, coverage, exportJSON, reset, resetData };
+  return { setCountry, buildLeaves, run, coverage, exportJSON, reset, resetData, progress };
 })();
-console.log("NubiCollect v8 (serie mensual) → setCountry('cl'); resetData(); await run({months:36}); coverage(); exportJSON()");
+console.log("NubiCollect v9 (persistente/resumible) → setCountry('cl'); await run({months:36}); coverage(); exportJSON()  ·  si se reinicia el PC, repite run({months:36}) y continúa solo.");
