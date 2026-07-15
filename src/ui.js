@@ -1151,9 +1151,16 @@ function openResearchDetail(item) {
   _rdItem = item; _rdMetric = 'gmv';
   $('rdL1').textContent = item.l1 || '';
   $('rdLeaf').textContent = item.leaf || '';
-  const leafId = (item.path || '').split('-').filter(Boolean).pop() || item.id;
-  $('rdRanking').href = 'https://app.nubimetrics.com/market/sellerranking#?category=' + encodeURIComponent(leafId);
-  $('rdTrends').href = 'https://app.nubimetrics.com/market/bytrends#?category=' + encodeURIComponent(leafId);
+  // Deep-link a la vista de mercado de ESA hoja en Nubimetrics. Ruta real: /market/bycategory
+  // con #?range=<primer día del mes>&category=<id de la hoja>. (Ranking = pestaña "Publicaciones";
+  // "Lo más buscado" = pestaña "Demanda" de la misma vista.)
+  const leafId = item.id || (item.path || '').split('-').filter(Boolean).pop() || '';
+  const rMonth = (Array.isArray(item.serie) && item.serie.length)
+    ? item.serie[item.serie.length - 1].m.slice(0, 7) + '-01'
+    : (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 8) + '01'; })();
+  const catView = 'https://app.nubimetrics.com/market/bycategory#?range=' + rMonth + '&category=' + encodeURIComponent(leafId);
+  $('rdRanking').href = catView;
+  $('rdTrends').href = catView;
   document.querySelectorAll('.rd-mbtn').forEach(b => b.classList.toggle('active', b.dataset.metric === 'gmv'));
   renderRdChart();
   $('rDetailOverlay').classList.remove('hidden');
