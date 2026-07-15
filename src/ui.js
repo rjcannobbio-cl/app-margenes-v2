@@ -1069,11 +1069,13 @@ function researchCuota(x) { const v = parseFloat(x.ventasGmv) || 0, c = parseFlo
 async function renderResearch() { _researchAll = await researchLoad(); _researchSig = JSON.stringify(_researchAll); paintResearch(); }
 function paintResearch() {
   const q = normalize(($('researchFilter') && $('researchFilter').value) || '');
-  const filtered = q ? _researchAll.filter(x => normalize([x.l1, x.leaf].join(' ')).includes(q)) : _researchAll;
-  $('researchCount').textContent = (q ? filtered.length + '/' + _researchAll.length : _researchAll.length) +
-    ' categoría' + ((q ? filtered.length : _researchAll.length) === 1 ? '' : 's') + (_researchBackend ? ' · compartido' : ' · solo local');
+  const conVentas = _researchAll.filter(x => (parseFloat(x.ventasGmv) || 0) > 0);   // omite categorías con 0 ventas
+  const filtered = q ? conVentas.filter(x => normalize([x.l1, x.leaf].join(' ')).includes(q)) : conVentas;
+  $('researchCount').textContent = (q ? filtered.length + '/' + conVentas.length : conVentas.length) +
+    ' categoría' + ((q ? filtered.length : conVentas.length) === 1 ? '' : 's') + ' con ventas' + (_researchBackend ? ' · compartido' : ' · solo local');
   const wrap = $('researchDbWrap');
   if (!_researchAll.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Aún no hay datos. Recolecta desde Nubimetrics (script recolector) y usa “Importar datos”.</p>'; return; }
+  if (!conVentas.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Ninguna categoría con ventas > 0.</p>'; return; }
   if (!filtered.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Sin resultados.</p>'; return; }
   const intfmt = v => (v != null && v !== '' && !isNaN(v)) ? Math.round(v).toLocaleString('es-CL') : '–';
   // ordenar por cuota x seller descendente (categoría más atractiva primero)
