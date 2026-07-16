@@ -14,7 +14,8 @@
      - cost  = COGS en CLP (costo puesto en bodega)
      - fob   = costo FOB en USD (sourcing) | null
      - abc   = clase A/B/C/D/F (top rotación → cola) | null
-     - vel   = velocidad REAL (promedio semanal de las últimas semanas) | null
+     - vel   = velocidad REAL (promedio de las semanas completas CON ventas) | null
+     - velWeeks = nº de semanas con ventas usadas para el promedio
      - velTeo= velocidad teórica precalculada por PG (referencia) | null
      - stock = stock total
 
@@ -71,14 +72,14 @@ export async function onRequest({ request, env }) {
             row.velTeo = it.weeklySalesSpeed != null ? Math.round(it.weeklySalesSpeed) : null;
             row.stock = it.totalStock != null ? it.totalStock : null;
             row.abc = (it.category || '').toUpperCase() || null;
-            // Velocidad REAL: promedio de las semanas COMPLETAS (excluye la parcial en curso).
-            if (typeof it.averageWeeklySales === 'number') row.vel = Math.round(it.averageWeeklySales);
-            else {
-              const now = Date.now();
-              const done = (it.weeklySales || []).filter(w => new Date(w.endDate).getTime() < now).slice(-4);
-              if (done.length) row.vel = Math.round(done.reduce((a, w) => a + (w.units || 0), 0) / done.length);
-              else if (it.weeklySalesSpeed != null) row.vel = Math.round(it.weeklySalesSpeed);
-            }
+            // Velocidad REAL: promedio SOLO de las semanas completas en que hubo ventas
+            // (proxy de "semanas con stock"), excluyendo la parcial en curso. PG no expone
+            // el stock histórico por semana, así que una semana con 0 ventas se asume quiebre.
+            const now = Date.now();
+            const done = (it.weeklySales || []).filter(w => new Date(w.endDate).getTime() < now);
+            const active = done.filter(w => (w.units || 0) > 0);
+            row.velWeeks = active.length;
+            row.vel = active.length ? Math.round(active.reduce((a, w) => a + (w.units || 0), 0) / active.length) : 0;
           } catch (e) {}
         })(),
         (async () => {

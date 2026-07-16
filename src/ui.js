@@ -1357,7 +1357,7 @@ function p2OwnTxt(own) {
   if (!own || !own.products || !own.products.length) return '';
   return own.products.slice(0, 14).map(p => `- ${p.name} [${p.brand || 's/marca'}]${p.active ? '' : ' (inactivo)'}`
     + (p.abc ? ` · clase ${p.abc}` : '')
-    + (p.vel != null ? ` · vende ${p.vel} u/sem (real)` : '')
+    + (p.vel != null ? ` · vende ${p.vel} u/sem (real, semanas con stock)` : '')
     + ` · COGS $${(p.cost || 0).toLocaleString('es-CL')}`
     + (p.fob != null ? ` · FOB US$${p.fob}` : '')
     + (p.stock != null ? ` · stock ${p.stock}` : '')).join('\n');
@@ -1641,7 +1641,7 @@ function renderP2Own(own) {
   const abcCell = p => p.abc ? `<span style="font-weight:800;color:${abcColor[p.abc] || 'var(--muted)'}">${esc(p.abc)}</span>` : '–';
   const rows = act.slice(0, 14).map(p => `<tr><td>${esc(p.name)}</td><td>${esc(p.brand || '')}</td>` +
     `<td style="text-align:center">${abcCell(p)}</td>` +
-    `<td style="text-align:right;font-weight:700;color:${p.vel > 0 ? 'var(--good)' : 'var(--muted)'}">${p.vel != null ? p.vel + ' u/sem' : '–'}</td>` +
+    `<td style="text-align:right"${p.velWeeks ? ` title="Promedio de ${p.velWeeks} semana${p.velWeeks === 1 ? '' : 's'} con ventas (con stock)"` : ''}>${p.vel != null ? `<b style="color:${p.vel > 0 ? 'var(--good)' : 'var(--muted)'};font-variant-numeric:tabular-nums">${p.vel}</b><span class="muted" style="font-size:11px"> /sem</span>` : '–'}</td>` +
     `<td style="text-align:right">${p.stock != null ? p.stock : '–'}</td>` +
     `<td style="text-align:right">$${(p.cost || 0).toLocaleString('es-CL')}</td>` +
     `<td style="text-align:right">${p.fob != null ? 'US$' + p.fob : '–'}</td></tr>`).join('');
