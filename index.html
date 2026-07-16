@@ -218,6 +218,7 @@
   .p2deep .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
   .p2deep select{width:auto;padding:6px 8px;font-size:12px}
   .p2fab{position:fixed;right:30px;bottom:26px;z-index:130;box-shadow:0 8px 24px rgba(0,0,0,.55);padding:11px 16px}
+  #p2DeepOverlay,#p2CtxOverlay{z-index:200}   /* por encima del modal de detalle P2 (z-index 100) */
 
   body.co .fbla-col{display:none !important}
   body.co .cl-only{display:none !important}
@@ -416,6 +417,7 @@
       <input type="file" id="researchFile" accept=".json" style="display:none">
       <button class="btn ghost" id="btnResearchExport" type="button">Exportar CSV</button>
       <button class="btn ghost cl-only" id="p2BatchBtn" type="button" title="Pre-computa el P2 de las 500 categorías más atractivas (cuota x seller) y las guarda. Reanudable.">🔬 Pre-analizar top 500</button>
+      <button class="btn ghost" id="p2CtxBtn" type="button" title="Contexto del negocio que la IA usa en TODOS los análisis P2">⚙️ Contexto IA</button>
       <button class="btn ghost hidden" id="p2BatchStop" type="button" style="border-color:var(--bad);color:var(--bad)">■ Detener</button>
       <span class="muted" id="researchCount"></span>
       <span class="muted" id="researchStatus" style="flex-basis:100%;margin-top:4px"></span>
@@ -445,6 +447,19 @@
     </div>
     <div style="margin-top:16px"><button class="btn" id="p2DeepImport" type="button">Importar y analizar</button></div>
     <div class="hint" id="p2DeepStatus" style="margin-top:8px"></div>
+  </div>
+</div>
+
+<!-- Modal: contexto de negocio para la IA -->
+<div id="p2CtxOverlay" class="modal-overlay hidden">
+  <div class="rdetail" style="max-width:640px">
+    <div class="rd-head">
+      <div><div class="rd-l1">Contexto para la IA</div><h2 style="font-size:18px">Modelo de negocio ET Brands</h2></div>
+      <button class="mini" id="p2CtxClose" type="button" title="Cerrar">✕</button>
+    </div>
+    <p class="hint" style="margin:0 0 8px">Este texto se antepone a <b>todos</b> los análisis P2 (diagnóstico, análisis profundo y chat). Es como el "brief" permanente de la IA: no reentrena el modelo, pero le da el marco en cada consulta. Se guarda para todo el equipo.</p>
+    <textarea id="p2CtxText" style="width:100%;min-height:280px;resize:vertical;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:9px;padding:10px;font-family:inherit;font-size:13px;line-height:1.5"></textarea>
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn" id="p2CtxSave" type="button">Guardar</button><button class="btn ghost" id="p2CtxReset" type="button">Restaurar sugerido</button><span class="hint" id="p2CtxStatus" style="align-self:center"></span></div>
   </div>
 </div>
 
@@ -503,12 +518,12 @@
 </div>
 
 <!-- ?v= versiona los assets: al cambiar el número, el navegador ignora el caché de 4h de Cloudflare. Súbelo en cada deploy que toque JS. -->
-<script src="data/ml_categories.js?v=260724"></script>
-<script src="data/fbla_categories.js?v=260724"></script>
-<script src="data/shipping.js?v=260724"></script>
-<script src="src/app.js?v=260724"></script>
-<script src="src/ai.js?v=260724"></script>
-<script src="src/local-ai.js?v=260724"></script>
-<script src="src/ui.js?v=260724"></script>
+<script src="data/ml_categories.js?v=260725"></script>
+<script src="data/fbla_categories.js?v=260725"></script>
+<script src="data/shipping.js?v=260725"></script>
+<script src="src/app.js?v=260725"></script>
+<script src="src/ai.js?v=260725"></script>
+<script src="src/local-ai.js?v=260725"></script>
+<script src="src/ui.js?v=260725"></script>
 </body>
 </html>

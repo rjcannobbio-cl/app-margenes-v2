@@ -1415,14 +1415,42 @@ async function runP2(item, force) {
   } finally { _p2Running = false; }
 }
 
+/* --- Contexto de negocio de ET Brands: se antepone a TODOS los prompts de P2 para que
+   la IA diagnostique según el modelo real (marcas propias, importación, etc.). Editable
+   y guardado en KV (compartido por el equipo). Es "entrenamiento por contexto" (few-shot):
+   no reentrena el modelo, pero le da el marco en cada consulta. --- */
+const P2_BIZ_DEFAULT = `MODELO DE NEGOCIO DE ET BRANDS (tenlo SIEMPRE presente al diagnosticar):
+- ET Brands IMPORTA sus propios productos desde China y los vende en Mercado Libre Chile (y Falabella).
+- SOLO vende productos que importa ET Brands, bajo MARCAS 100% PROPIAS (ej.: Hosser, Zeker, Howell, Overfit, Duke, Ibrah, Colton, Galanta, Homely, Luxgear, Planex). NO revende marcas de terceros.
+- Por eso las oportunidades deben ser: CREAR o MEJORAR un producto de marca propia para importar y diferenciarlo de la competencia (que suele ser otros importadores/revendedores, marcas chicas o marcas grandes).
+- Prioriza upgrades y bundles BARATOS de fabricar en China pero de ALTO VALOR PERCIBIDO, que habiliten un ticket más alto y mejor margen.
+- Nunca recomiendes "revender la marca X" ni "ser distribuidor de X". Recomienda con qué PRODUCTO PROPIO entrar, qué specs priorizar y cómo diferenciarlo.
+- Considera logística de Mercado Libre (Full) y que el costeo parte del FOB China + factor CBM.`;
+let _bizCtx = null;
+async function loadBizCtx() {
+  if (_bizCtx != null) return;
+  try { const c = await (await fetch(api('/api/p2?id=__bizctx'))).json(); _bizCtx = (c && c.report && typeof c.report.text === 'string') ? c.report.text : ''; }
+  catch (e) { _bizCtx = ''; }
+}
+function bizContext() { return (_bizCtx && _bizCtx.trim()) ? _bizCtx.trim() : P2_BIZ_DEFAULT; }
+async function openP2CtxModal() { await loadBizCtx(); $('p2CtxText').value = bizContext(); $('p2CtxStatus').textContent = ''; $('p2CtxOverlay').classList.remove('hidden'); }
+async function saveP2Ctx() {
+  const text = $('p2CtxText').value || '';
+  $('p2CtxStatus').textContent = 'Guardando…';
+  try { await p2CachePut('__bizctx', { text }); _bizCtx = text; $('p2CtxStatus').innerHTML = '<span style="color:var(--good)">Guardado ✓ · aplica a los próximos análisis</span>'; }
+  catch (e) { $('p2CtxStatus').textContent = 'Error al guardar: ' + (e.message || e); }
+}
+
 async function p2AI(item, stats, products, reviews) {
+  await loadBizCtx();
   const cfg = loadCfg(country);
   const seas = stats.seasonality.map(s => s.mo + ' ' + s.idx).join(', ');
   const prod = products.map(p => '#' + p.pos + ' ' + p.name + ' | ' + p.attrs).join('\n');
   const revTxt = (reviews || []).map(r => r.name + ' (' + (r.avg || '?') + '★, ' + (r.total || 0) + '): ' + (r.samples || []).map(s => s.rate + '★ "' + s.content + '"').join(' | ')).join('\n');
   const fb = p2Feedback(item.id);
   const prompt =
-    'Eres analista de sourcing de ET Brands (importan de China y venden en Mercado Libre Chile). Analiza la categoría "' + item.leaf + '" (' + item.l1 + ').\n\n' +
+    bizContext() + '\n\n' +
+    'Eres analista de sourcing de ET Brands. Analiza la categoría "' + item.leaf + '" (' + item.l1 + ') para decidir si vale la pena entrar con un producto de marca propia y con cuál.\n\n' +
     'ESTACIONALIDAD (índice 100=promedio, prom. 3 años): ' + seas + '\n' +
     'TENDENCIA YoY: ' + (stats.trend.yoy != null ? stats.trend.yoy.toFixed(1) + '%' : 's/d') + ' (' + stats.trend.dir + ')\n' +
     'CUOTA x vendedor: ' + (stats.cuota.clase) + ' (percentil ' + (stats.cuota.pct || '?') + ')\n\n' +
@@ -1543,10 +1571,12 @@ function p2RankAgg(rows) {
   return { ventas, unidades, topSellers, catPct: Math.round(rows.filter(r => r.catalogo).length / rows.length * 100), fullPct: Math.round(rows.filter(r => r.full).length / rows.length * 100) };
 }
 async function p2DeepAI(item, rows, agg) {
+  await loadBizCtx();
   const cfg = loadCfg(country);
   const top = rows.slice(0, 60).map(r => `#${r.pos} ${r.titulo} | ${Math.round(r.unidades)}u $${(r.ventas / 1e6).toFixed(1)}M tk$${Math.round(r.ticket).toLocaleString('es-CL')} ${r.full ? 'FULL' : ''}${r.catalogo ? ' CAT' : ''} [${r.vendedor}]`).join('\n');
   const prompt =
-    'Eres analista de sourcing de ET Brands (importan de China, venden en Mercado Libre Chile). Análisis PROFUNDO de la categoría "' + item.leaf + '" con el ranking REAL de Nubimetrics (top ' + rows.length + ', ventas y unidades EXACTAS del mes).\n\n' +
+    bizContext() + '\n\n' +
+    'Eres analista de sourcing de ET Brands. Análisis PROFUNDO de la categoría "' + item.leaf + '" con el ranking REAL de Nubimetrics (top ' + rows.length + ', ventas y unidades EXACTAS del mes).\n\n' +
     'TOTALES top: ventas $' + (agg.ventas / 1e6).toFixed(0) + 'M · unidades ' + Math.round(agg.unidades).toLocaleString('es-CL') + '.\n' +
     'Vendedores líderes: ' + agg.topSellers.slice(0, 6).map(s => s.name + ' (' + (s.ventas / 1e6).toFixed(0) + 'M, ' + s.n + ' pub)').join(', ') + '.\n' +
     'Catálogo ' + agg.catPct + '% · Full ' + agg.fullPct + '% del top.\n\n' +
@@ -1578,9 +1608,10 @@ function renderP2Deep(deep) {
 // Abre el popup de importación profunda (los selectores se pueblan la 1ª vez).
 function openP2DeepModal() {
   const y = $('p2DeepYear'), mo = $('p2DeepMonth');
-  if (y && !y.options.length) { const now = new Date().getFullYear(); let o = ''; for (let yr = now; yr >= 2023; yr--) o += `<option value="${yr}">${yr}</option>`; y.innerHTML = o; }
-  if (mo && !mo.options.length) mo.innerHTML = RD_MESES.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');
+  if (y && !y.options.length) { const now = new Date().getFullYear(); let o = '<option value="">—</option>'; for (let yr = now; yr >= 2023; yr--) o += `<option value="${yr}">${yr}</option>`; y.innerHTML = o; }
+  if (mo && !mo.options.length) mo.innerHTML = '<option value="">—</option>' + RD_MESES.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');
   $('p2DeepStatus').textContent = ''; $('p2DeepFile').value = '';
+  if (y) y.value = ''; if (mo) mo.value = '';   // vacíos por defecto (se autocompletan del nombre del archivo)
   if (_p2Item) $('p2DeepTitle').textContent = _p2Item.leaf;
   $('p2DeepOverlay').classList.remove('hidden');
 }
@@ -1588,6 +1619,7 @@ async function runP2DeepImport() {
   const item = _p2Item; if (!item) return;
   const f = $('p2DeepFile').files[0], st = $('p2DeepStatus');
   if (!f) { st.textContent = 'Elegí el archivo .xlsx del ranking.'; return; }
+  if (!$('p2DeepYear').value || !$('p2DeepMonth').value) { st.textContent = 'Elegí el año y el mes al que corresponde el ranking.'; return; }
   if (_p2Busy) return; _p2Busy = true; st.textContent = 'Leyendo Excel y analizando con IA…';
   try {
     const rows = await parseRankingXlsx(f); if (!rows.length) throw new Error('El Excel no tiene filas de ranking.');
@@ -1619,9 +1651,10 @@ function p2ChatContext(report) {
   return c;
 }
 async function p2Ask(item, question) {
+  await loadBizCtx();
   const report = _p2Report, cfg = loadCfg(country);
   const hist = (report.chat || []).slice(-3).map(m => 'P: ' + m.q + '\nR: ' + m.a).join('\n');
-  const prompt = 'Eres analista de sourcing de ET Brands. Responde la pregunta del equipo sobre esta categoría de forma accionable y concisa (máx ~130 palabras). Si falta info, dilo y sugiere qué mirar.\n\nCONTEXTO:\n' + p2ChatContext(report) + (hist ? '\nCONVERSACIÓN PREVIA:\n' + hist + '\n' : '') + '\nPREGUNTA: ' + question + '\n\nResponde en texto plano, directo.';
+  const prompt = bizContext() + '\n\nEres analista de sourcing de ET Brands. Responde la pregunta del equipo sobre esta categoría de forma accionable y concisa (máx ~130 palabras), consistente con el modelo de negocio de arriba. Si falta info, dilo y sugiere qué mirar.\n\nCONTEXTO DEL ANÁLISIS:\n' + p2ChatContext(report) + (hist ? '\nCONVERSACIÓN PREVIA:\n' + hist + '\n' : '') + '\nPREGUNTA: ' + question + '\n\nResponde en texto plano, directo.';
   return await aiText(prompt, cfg, { maxTokens: 700 });
 }
 function wireP2Interactive(item) {
@@ -1774,6 +1807,12 @@ function init() {
   { const o = $('p2DeepOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
   { const fi = $('p2DeepFile'); if (fi) fi.onchange = () => { const n = (fi.files[0] && fi.files[0].name) || ''; const m = n.match(/(20\d\d)-(\d\d)/); if (m) { $('p2DeepYear').value = m[1]; $('p2DeepMonth').value = String(+m[2]); } }; }
   { const im = $('p2DeepImport'); if (im) im.onclick = runP2DeepImport; }
+  // Modal "Contexto IA"
+  { const b = $('p2CtxBtn'); if (b) b.onclick = openP2CtxModal; }
+  { const c = $('p2CtxClose'); if (c) c.onclick = () => $('p2CtxOverlay').classList.add('hidden'); }
+  { const o = $('p2CtxOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
+  { const s = $('p2CtxSave'); if (s) s.onclick = saveP2Ctx; }
+  { const r = $('p2CtxReset'); if (r) r.onclick = () => { $('p2CtxText').value = P2_BIZ_DEFAULT; }; }
   // Reporte de detalle de categoría (Investigación)
   document.querySelectorAll('.rd-mbtn').forEach(b => b.onclick = () => { _rdMetric = b.dataset.metric; document.querySelectorAll('.rd-mbtn').forEach(x => x.classList.toggle('active', x === b)); renderRdChart(); });
   $('rdFrom').addEventListener('change', renderRdChart);
