@@ -1163,6 +1163,7 @@ function openResearchDetail(item) {
   populateRdRange(item);
   renderRdChart();
   { const pp = $('p2Panel'); if (pp) { pp.classList.add('hidden'); pp.innerHTML = ''; } const b = $('p2Btn'); if (b) b.style.display = ''; }
+  _p2ChatOpen = false; _p2DeepOpen = false; _p2Busy = false;   // reset UI interactiva P2 al cambiar de categoría
   $('rDetailOverlay').classList.remove('hidden');
   p2LoadCached(item);   // si ya hay análisis guardado, se muestra solo (sin re-analizar)
 }
@@ -1406,6 +1407,7 @@ async function runP2(item, force) {
     if (country === 'co') { host.innerHTML = '<div class="p2err">El análisis P2 con datos de ML está disponible por ahora solo para Chile.</div>'; _p2Running = false; return; }
 
     const report = await computeP2Report(item, load);
+    try { const prev = await p2CacheGet(item.id); if (prev && prev.report) { if (prev.report.deep) report.deep = prev.report.deep; if (prev.report.chat) report.chat = prev.report.chat; } } catch (e) {}   // conserva profundo + chat al recalcular
     renderP2(report, item, Date.now());
     try { await p2CachePut(item.id, report); } catch (e) {}
   } catch (e) {
@@ -1442,6 +1444,7 @@ function p2Feedback(catId) { try { return localStorage.getItem('p2fb_' + catId) 
 function p2SaveFeedback(catId, note) { try { const cur = p2Feedback(catId); localStorage.setItem('p2fb_' + catId, (cur ? cur + ' | ' : '') + note); } catch (e) {} }
 
 function renderP2(report, item, ts) {
+  _p2Report = report; _p2Ts = ts; _p2Item = item;
   const host = $('p2Panel'); const s = report.stats || {}, ai = report.ai || {}, prods = report.products || [], revs = report.reviews || [];
   const byPos = {}; prods.forEach(p => byPos[p.pos] = p);
   const esc = escapeHtml;
@@ -1477,6 +1480,7 @@ function renderP2(report, item, ts) {
   host.innerHTML =
     `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px;flex-wrap:wrap"><div><h3 style="margin:0;font-size:15px;font-weight:800">🔬 Análisis P2 · ${esc(item.leaf)}</h3><div class="muted" style="font-size:11px;margin-top:2px">Última actualización: <b style="color:var(--ink)">${updStr}</b></div></div><button class="btn" style="font-size:12px;padding:7px 13px" onclick="runP2(_rdItem,true)">🔄 Actualizar análisis</button></div>` +
     (ai._err ? `<div class="p2err" style="margin-bottom:12px">La IA falló (${esc(ai._err)}). Se muestran los datos igual.</div>` : '') +
+    `<div class="p2tool"><button class="btn ghost" style="font-size:12px;padding:7px 12px" id="p2ChatToggle">💬 Pregúntale a la IA</button><button class="btn ${report.deep ? 'ghost' : ''}" style="font-size:12px;padding:7px 12px" id="p2DeepToggle">📊 ${report.deep ? 'Re-analizar en profundidad' : 'Analizar en profundidad'}</button></div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">📅</div><h3>Estacionalidad</h3></div><div class="p2bars">${bars}</div>${aiLine('Lectura', ai.estacionalidad)}${fbRow('estacionalidad')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">💰</div><h3>Cuota por vendedor</h3><span class="verdict ${cuotaBadge}">${esc((s.cuota || {}).clase || '—')}</span></div><p style="margin:2px 0;font-size:13px">${fmt((s.cuota || {}).cuota)}/vendedor · percentil ${(s.cuota || {}).pct || '?'} · ${s.competidores ? Math.round(s.competidores) + ' competidores' : ''}</p>${aiLine('Lectura', ai.cuota)}${fbRow('cuota')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">📈</div><h3>Tendencia</h3><span class="verdict ${s.trend && s.trend.yoy >= 0 ? 'p2-good' : 'p2-bad'}">${esc((s.trend || {}).dir || '—')}</span></div><p style="margin:2px 0"><b style="color:${trendCol};font-size:20px">${s.trend && s.trend.yoy != null ? (s.trend.yoy >= 0 ? '+' : '') + s.trend.yoy.toFixed(1) + '%' : '–'}</b> <span class="muted small">YoY (últimos 12m vs previos)</span></p>${aiLine('Lectura', ai.tendencia)}${fbRow('tendencia')}</div>` +
@@ -1486,8 +1490,12 @@ function renderP2(report, item, ts) {
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">⭐</div><h3>Diferenciación por reseñas</h3></div>${revBlock}${aiLine('Oportunidad', ai.reviewOps)}${fbRow('resenas')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">⚡</div><h3>Diferenciación por upgrades</h3></div>${upgrades || '<span class="muted small">—</span>'}${fbRow('upgrades')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">📦</div><h3>Diferenciación por bundle</h3></div><ul style="margin:4px 0 0;padding-left:18px;font-size:13px">${bundles || '<li class="muted">—</li>'}</ul>${fbRow('bundles')}</div>` +
-    `<div class="hint" style="margin-top:6px">Datos reales: estacionalidad/cuota/tendencia (serie recolectada) + top productos y reseñas (ML vía ProfitGuard). Clusters y diferenciación: IA.</div>`;
+    (report.deep ? renderP2Deep(report.deep) : '') +
+    (_p2DeepOpen ? renderP2DeepImport() : '') +
+    ((_p2ChatOpen || (report.chat && report.chat.length)) ? renderP2Chat(report) : '') +
+    `<div class="hint" style="margin-top:6px">Datos reales: estacionalidad/cuota/tendencia (serie recolectada) + top productos y reseñas (ML vía ProfitGuard). Clusters y diferenciación: IA. El análisis profundo usa el ranking real de Nubimetrics que importes.</div>`;
   { const b = $('p2Btn'); if (b) b.style.display = 'none'; }   // ya hay reporte visible → el update se hace desde el propio panel
+  wireP2Interactive(item);
 }
 function p2Fb(btn, catId, sec, ok) {
   btn.parentNode.querySelectorAll('button').forEach(b => b.classList.remove('on')); btn.classList.add('on');
@@ -1496,6 +1504,140 @@ function p2Fb(btn, catId, sec, ok) {
 function p2FbEdit(catId, sec) {
   const t = prompt('¿Qué corregirías del análisis de "' + sec + '"? (se usará para afinar el próximo análisis de esta categoría)');
   if (t) { p2SaveFeedback(catId, sec + ': ' + t); alert('Guardado. Usa "↻ Recalcular" para re-analizar con tu corrección.'); }
+}
+
+/* --- P2 interactivo: "Pregúntale a la IA" + "Analizar en profundidad" (ranking Nubimetrics) --- */
+let _p2Report = null, _p2Ts = 0, _p2Item = null, _p2ChatOpen = false, _p2DeepOpen = false, _p2Busy = false;
+
+// "+$41.3M" → 41300000 · "+360" → 360 · "$115.321,00" → 115321
+function nubiNum(v) {
+  let s = String(v == null ? '' : v).replace(/[+$\s]/g, '').trim();
+  if (!s) return 0;
+  const suf = s.slice(-1);
+  if (/[MmKk]/.test(suf)) { const b = parseFloat(s.slice(0, -1).replace(',', '.')); return isNaN(b) ? 0 : Math.round(b * (/[Mm]/.test(suf) ? 1e6 : 1e3)); }
+  const n = parseFloat(s.replace(/\./g, '').replace(',', '.')); return isNaN(n) ? 0 : n;
+}
+async function parseRankingXlsx(file) {
+  await loadXLSX();
+  const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+  const sh = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sh, { defval: '' });
+  const si = v => /^s/i.test(String(v || '').trim());
+  return rows.map(r => {
+    const ventas = nubiNum(_pick(r, ['Ventas en $', 'Ventas'])), unidades = nubiNum(_pick(r, ['Unidades vendidas', 'Unidades']));
+    const precio = nubiNum(_pick(r, ['Último precio', 'Ultimo precio', 'Precio']));
+    return {
+      pos: nubiNum(_pick(r, ['#'])) || 0, titulo: String(_pick(r, ['Título', 'Titulo']) || '').trim(),
+      vendedor: String(_pick(r, ['Vendedores', 'Vendedor']) || '').trim(), exposicion: String(_pick(r, ['Exposición']) || '').trim(),
+      ventas, unidades, precio, ticket: (unidades > 0 && ventas > 0) ? Math.round(ventas / unidades) : precio,
+      catalogo: si(_pick(r, ['Catálogo'])), flex: si(_pick(r, ['Flex'])), full: si(_pick(r, ['Full']))
+    };
+  }).filter(x => x.titulo);
+}
+function p2RankAgg(rows) {
+  const ventas = rows.reduce((a, r) => a + (r.ventas || 0), 0), unidades = rows.reduce((a, r) => a + (r.unidades || 0), 0);
+  const bySeller = {};
+  for (const r of rows) { const k = r.vendedor || '?'; (bySeller[k] = bySeller[k] || { name: k, ventas: 0, n: 0 }); bySeller[k].ventas += r.ventas || 0; bySeller[k].n++; }
+  const topSellers = Object.values(bySeller).sort((a, b) => b.ventas - a.ventas);
+  return { ventas, unidades, topSellers, catPct: Math.round(rows.filter(r => r.catalogo).length / rows.length * 100), fullPct: Math.round(rows.filter(r => r.full).length / rows.length * 100) };
+}
+async function p2DeepAI(item, rows, agg) {
+  const cfg = loadCfg(country);
+  const top = rows.slice(0, 60).map(r => `#${r.pos} ${r.titulo} | ${Math.round(r.unidades)}u $${(r.ventas / 1e6).toFixed(1)}M tk$${Math.round(r.ticket).toLocaleString('es-CL')} ${r.full ? 'FULL' : ''}${r.catalogo ? ' CAT' : ''} [${r.vendedor}]`).join('\n');
+  const prompt =
+    'Eres analista de sourcing de ET Brands (importan de China, venden en Mercado Libre Chile). Análisis PROFUNDO de la categoría "' + item.leaf + '" con el ranking REAL de Nubimetrics (top ' + rows.length + ', ventas y unidades EXACTAS del mes).\n\n' +
+    'TOTALES top: ventas $' + (agg.ventas / 1e6).toFixed(0) + 'M · unidades ' + Math.round(agg.unidades).toLocaleString('es-CL') + '.\n' +
+    'Vendedores líderes: ' + agg.topSellers.slice(0, 6).map(s => s.name + ' (' + (s.ventas / 1e6).toFixed(0) + 'M, ' + s.n + ' pub)').join(', ') + '.\n' +
+    'Catálogo ' + agg.catPct + '% · Full ' + agg.fullPct + '% del top.\n\n' +
+    'PUBLICACIONES (pos · título · unidades · ventas · ticket · logística · vendedor):\n' + top + '\n\n' +
+    'Devuelve SOLO JSON: {"resumen":"2-3 frases accionables para decidir si entrar y con qué producto",' +
+    '"clusters":[{"nombre":"subcategoría por specs","unidades":<suma unidades del cluster>,"ejemplos":["título corto"]}],' +
+    '"gap":"dónde hay muchas unidades con pocas publicaciones (hueco de oferta), concreto y con números",' +
+    '"concentracion":"qué tan concentrado está el mercado entre vendedores y qué implica para entrar",' +
+    '"oportunidades":["acción concreta 1","acción concreta 2","acción concreta 3"]}';
+  const raw = await aiText(prompt, cfg, { maxTokens: 2600 });
+  return parseJSONLoose(raw) || { _err: 'La IA no devolvió JSON' };
+}
+function renderP2Deep(deep) {
+  const esc = escapeHtml, ai = deep.ai || {};
+  const per = deep.period ? ((RD_MESES[deep.period.month - 1] || '') + ' ' + deep.period.year) : '';
+  const clusters = (ai.clusters || []).map(c => `<div class="p2clcard"><div class="p2clhead"><span>${esc(c.nombre || '')}</span><span class="sh">${c.unidades ? Math.round(c.unidades).toLocaleString('es-CL') + ' u' : ''}</span></div>${(c.ejemplos || []).slice(0, 3).map(t => `<div class="prod" style="font-size:11px;color:var(--muted)">${esc(t)}</div>`).join('')}</div>`).join('');
+  const sellers = (deep.agg && deep.agg.topSellers || []).slice(0, 5).map(s => `${esc(s.name)} <span class="muted">($${(s.ventas / 1e6).toFixed(0)}M·${s.n})</span>`).join(' · ');
+  return `<div class="p2sec" style="border-color:var(--accent)"><div class="p2sec-h"><div class="ic">🔬</div><h3>Análisis profundo · ranking real</h3><span class="verdict p2-hot">${esc(per)}</span></div>` +
+    `<p class="small muted" style="margin:2px 0 8px">Top ${deep.n || 0} publicaciones reales de Nubimetrics · ${deep.tot ? '$' + (deep.tot.ventas / 1e6).toFixed(0) + 'M · ' + Math.round(deep.tot.unidades).toLocaleString('es-CL') + ' u' : ''} · Catálogo ${deep.agg ? deep.agg.catPct : '?'}% · Full ${deep.agg ? deep.agg.fullPct : '?'}%</p>` +
+    (ai._err ? `<div class="p2err">La IA falló (${esc(ai._err)}).</div>` : '') +
+    (ai.resumen ? `<div class="p2ai"><span class="tag">🤖 Resumen</span>${esc(ai.resumen)}</div>` : '') +
+    (clusters ? `<div class="p2clgrid" style="margin-top:8px">${clusters}</div>` : '') +
+    (ai.gap ? `<div class="p2gap" style="margin-top:8px"><b>🎯 Gap oferta/demanda:</b> ${esc(ai.gap)}</div>` : '') +
+    (ai.concentracion ? `<div class="p2ai"><span class="tag">🏪 Concentración</span>${esc(ai.concentracion)}</div>` : '') +
+    (sellers ? `<div class="small muted" style="margin-top:6px">Líderes: ${sellers}</div>` : '') +
+    ((ai.oportunidades && ai.oportunidades.length) ? `<div style="margin-top:8px"><b style="font-size:12px">Oportunidades:</b><ul style="margin:4px 0 0;padding-left:18px;font-size:13px">${ai.oportunidades.map(o => `<li>${esc(o)}</li>`).join('')}</ul></div>` : '') +
+    `<div class="p2fb"><button onclick="_p2DeepOpen=true;renderP2(_p2Report,_p2Item,_p2Ts)">↻ Reimportar / cambiar mes</button></div></div>`;
+}
+function renderP2DeepImport() {
+  const now = new Date().getFullYear(); let yOpts = '';
+  for (let y = now; y >= 2023; y--) yOpts += `<option value="${y}">${y}</option>`;
+  const mOpts = RD_MESES.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');
+  return `<div class="p2deep"><div style="font-weight:800;font-size:13px">📊 Analizar en profundidad — importar ranking de Nubimetrics</div>` +
+    `<p class="small muted" style="margin:4px 0 2px">Exportá el ranking (pestaña <b>Publicaciones</b>) de esta categoría desde Nubimetrics y súbelo. Trae ventas y unidades <b>exactas</b> del top 100 para un diagnóstico más específico.</p>` +
+    `<div class="row"><input type="file" id="p2DeepFile" accept=".xlsx"> <span>Año</span><select id="p2DeepYear">${yOpts}</select> <span>Mes</span><select id="p2DeepMonth">${mOpts}</select> <button class="btn" id="p2DeepImport" style="font-size:12px;padding:7px 12px">Importar y analizar</button></div>` +
+    `<span class="hint" id="p2DeepStatus" style="display:block;margin-top:4px"></span></div>`;
+}
+function renderP2Chat(report) {
+  const esc = escapeHtml;
+  const thread = (report.chat || []).map(m => `<div class="p2msg"><div class="q">🧑 ${esc(m.q)}</div><div class="a">🤖 ${esc(m.a)}</div></div>`).join('') ||
+    '<div class="small muted">Preguntá lo que quieras sobre esta categoría (specs a priorizar, precio objetivo, riesgos, ideas de producto/bundle…). La IA responde con todo el contexto del análisis.</div>';
+  return `<div class="p2chat"><div style="font-weight:800;font-size:13px;margin-bottom:2px">💬 Pregúntale a la IA</div>${thread}` +
+    `<textarea id="p2ChatInput" placeholder="Ej: ¿qué specs priorizo para diferenciarme? ¿precio objetivo? ¿qué bundle tiene más sentido?"></textarea>` +
+    `<div style="margin-top:6px"><button class="btn" id="p2ChatSend" style="font-size:12px;padding:7px 14px">Preguntar</button></div></div>`;
+}
+function p2ChatContext(report) {
+  const s = report.stats || {}, ai = report.ai || {};
+  let c = 'Categoría: ' + report.cat.leaf + ' (' + report.cat.l1 + ').\n';
+  c += 'Estacionalidad (idx 100=prom): ' + (s.seasonality || []).map(x => x.mo + x.idx).join(' ') + '.\n';
+  c += 'Cuota x vendedor: ' + ((s.cuota || {}).clase) + ' (pct ' + ((s.cuota || {}).pct) + '). Tendencia: ' + ((s.trend || {}).dir) + ' ' + ((s.trend || {}).yoy != null ? s.trend.yoy.toFixed(0) + '%' : '') + '. Ticket ~$' + Math.round(s.ticket || 0).toLocaleString('es-CL') + '.\n';
+  c += 'Top productos ML: ' + (report.products || []).slice(0, 12).map(p => '#' + p.pos + ' ' + p.name).join('; ') + '.\n';
+  if (ai.clusters) c += 'Clusters: ' + ai.clusters.map(cl => cl.nombre).join(', ') + '.\n';
+  if (ai.gap) c += 'Gap: ' + ai.gap + '\n';
+  if (ai.reviewOps) c += 'Reseñas: ' + ai.reviewOps + '\n';
+  if (report.deep && report.deep.ai) c += 'ANÁLISIS PROFUNDO (ranking real Nubimetrics): ' + (report.deep.ai.resumen || '') + ' Gap: ' + (report.deep.ai.gap || '') + '\n';
+  return c;
+}
+async function p2Ask(item, question) {
+  const report = _p2Report, cfg = loadCfg(country);
+  const hist = (report.chat || []).slice(-3).map(m => 'P: ' + m.q + '\nR: ' + m.a).join('\n');
+  const prompt = 'Eres analista de sourcing de ET Brands. Responde la pregunta del equipo sobre esta categoría de forma accionable y concisa (máx ~130 palabras). Si falta info, dilo y sugiere qué mirar.\n\nCONTEXTO:\n' + p2ChatContext(report) + (hist ? '\nCONVERSACIÓN PREVIA:\n' + hist + '\n' : '') + '\nPREGUNTA: ' + question + '\n\nResponde en texto plano, directo.';
+  return await aiText(prompt, cfg, { maxTokens: 700 });
+}
+function wireP2Interactive(item) {
+  const host = $('p2Panel'); if (!host) return;
+  const ct = host.querySelector('#p2ChatToggle'); if (ct) ct.onclick = () => { _p2ChatOpen = !_p2ChatOpen; renderP2(_p2Report, item, _p2Ts); };
+  const dt = host.querySelector('#p2DeepToggle'); if (dt) dt.onclick = () => { _p2DeepOpen = !_p2DeepOpen; renderP2(_p2Report, item, _p2Ts); };
+  const send = host.querySelector('#p2ChatSend');
+  if (send) send.onclick = async () => {
+    const ta = host.querySelector('#p2ChatInput'); const q = (ta && ta.value || '').trim(); if (!q || _p2Busy) return;
+    _p2Busy = true; send.disabled = true; send.textContent = 'Pensando…';
+    let a; try { a = await p2Ask(item, q); } catch (e) { a = '(Error: ' + (e.message || e) + ')'; }
+    _p2Report.chat = _p2Report.chat || []; _p2Report.chat.push({ q, a });
+    try { await p2CachePut(item.id, _p2Report); } catch (e) {}
+    _p2Busy = false; renderP2(_p2Report, item, _p2Ts);
+  };
+  const fileInput = host.querySelector('#p2DeepFile');
+  if (fileInput) fileInput.onchange = () => { const n = (fileInput.files[0] && fileInput.files[0].name) || ''; const m = n.match(/(20\d\d)-(\d\d)/); if (m) { const y = host.querySelector('#p2DeepYear'), mo = host.querySelector('#p2DeepMonth'); if (y) y.value = m[1]; if (mo) mo.value = String(+m[2]); } };
+  const imp = host.querySelector('#p2DeepImport');
+  if (imp) imp.onclick = async () => {
+    const f = host.querySelector('#p2DeepFile').files[0], st = host.querySelector('#p2DeepStatus');
+    if (!f) { if (st) st.textContent = 'Elegí el archivo .xlsx del ranking.'; return; }
+    if (_p2Busy) return; _p2Busy = true; if (st) st.textContent = 'Leyendo Excel y analizando con IA…';
+    try {
+      const rows = await parseRankingXlsx(f); if (!rows.length) throw new Error('El Excel no tiene filas de ranking.');
+      const agg = p2RankAgg(rows), ai = await p2DeepAI(item, rows, agg).catch(e => ({ _err: String(e.message || e) }));
+      const yr = +host.querySelector('#p2DeepYear').value, mo = +host.querySelector('#p2DeepMonth').value;
+      _p2Report.deep = { period: { year: yr, month: mo }, n: rows.length, tot: { ventas: agg.ventas, unidades: agg.unidades }, agg: { catPct: agg.catPct, fullPct: agg.fullPct, topSellers: agg.topSellers.slice(0, 8) }, ai, rows: rows.slice(0, 100).map(r => ({ pos: r.pos, titulo: r.titulo, unidades: r.unidades, ventas: r.ventas, ticket: r.ticket, vendedor: r.vendedor, full: r.full, catalogo: r.catalogo })) };
+      try { await p2CachePut(item.id, _p2Report); } catch (e) {}
+      _p2DeepOpen = false; _p2Busy = false; renderP2(_p2Report, item, _p2Ts);
+    } catch (e) { if (st) st.textContent = 'Error: ' + (e.message || e); _p2Busy = false; }
+  };
 }
 
 async function importResearchJSON(file) {

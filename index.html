@@ -207,6 +207,16 @@
   .p2spin{display:inline-block;width:26px;height:26px;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:p2spin 0.8s linear infinite;margin-bottom:10px}
   @keyframes p2spin{to{transform:rotate(360deg)}}
   .p2err{background:var(--bad-bg);border:1px solid var(--bad);border-radius:9px;padding:11px 13px;color:#f0b4b4;font-size:13px}
+  .p2tool{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  .p2chat{background:#121215;border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:12px}
+  .p2msg{margin:8px 0;font-size:13px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  .p2msg:last-of-type{border-bottom:none}
+  .p2msg .q{color:var(--accent-d);font-weight:700}
+  .p2msg .a{color:var(--ink);margin-top:3px;white-space:pre-wrap;line-height:1.5}
+  .p2chat textarea{width:100%;min-height:54px;resize:vertical;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:8px;font-family:inherit;font-size:13px;margin-top:6px}
+  .p2deep{background:#121215;border:1px dashed var(--accent);border-radius:10px;padding:14px;margin-top:12px}
+  .p2deep .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
+  .p2deep select{width:auto;padding:6px 8px;font-size:12px}
 
   body.co .fbla-col{display:none !important}
   body.co .cl-only{display:none !important}
@@ -473,12 +483,12 @@
 </div>
 
 <!-- ?v= versiona los assets: al cambiar el número, el navegador ignora el caché de 4h de Cloudflare. Súbelo en cada deploy que toque JS. -->
-<script src="data/ml_categories.js?v=260722"></script>
-<script src="data/fbla_categories.js?v=260722"></script>
-<script src="data/shipping.js?v=260722"></script>
-<script src="src/app.js?v=260722"></script>
-<script src="src/ai.js?v=260722"></script>
-<script src="src/local-ai.js?v=260722"></script>
-<script src="src/ui.js?v=260722"></script>
+<script src="data/ml_categories.js?v=260723"></script>
+<script src="data/fbla_categories.js?v=260723"></script>
+<script src="data/shipping.js?v=260723"></script>
+<script src="src/app.js?v=260723"></script>
+<script src="src/ai.js?v=260723"></script>
+<script src="src/local-ai.js?v=260723"></script>
+<script src="src/ui.js?v=260723"></script>
 </body>
 </html>
