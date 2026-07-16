@@ -1,107 +1,176 @@
 /* ============================================================
-   Cloudflare Pages Function — catálogo PROPIO de ET Brands por categoría.
+   Cloudflare Pages Function — catálogo PROPIO de ET Brands por categoría ML.
 
-   Para que el análisis P2 sepa qué vende ya ET Brands en una categoría (marca
-   propia REAL, costo, costo FOB, clase ABC y velocidad de venta REAL de las
-   últimas semanas), busca en ProfitGuard los productos cuyo NOMBRE matchea el
-   término (derivado del nombre de la categoría hoja) y los enriquece.
+   El objetivo: dado el id de categoría hoja de ML (el mismo del P2), decir qué
+   vende ya ET Brands EXACTAMENTE en esa categoría, con su marca real, precio,
+   margen bruto, costo (COGS), costo FOB, clase ABC y velocidad de venta real.
 
-   OJO: el REST /products NO soporta búsqueda por texto (solo brand_id/sku/page).
-   Por eso traemos el catálogo paginado y filtramos por nombre en la Function.
+   Cómo (y por qué así):
+   - El REST /products de PG NO busca por texto ni por categoría; y el filtro
+     "category" del search de ítems de ML se ignora vía passthrough. Por eso NO
+     se puede matchear por nombre (frágil: "Bases"→"Bas"→"basura"...).
+   - Solución: se indexan UNA vez los ítems activos del vendedor en ML con su
+     category_id REAL (multiget) y se cachea en KV (refresco ~24h). Cada P2 solo
+     filtra ese índice por su categoría → match preciso. El índice trae precio y
+     SKU (seller_custom_field); el SKU se cruza con PG para costo/FOB/velocidad.
 
-   Ruta: GET /api/pg-own?q=<término>   (?country=co no soportado aún)
-   Devuelve { ok, brand, q, products:[{name,sku,brand,active,cost,fob,abc,vel,velTeo,stock}], n }
-     - cost  = COGS en CLP (costo puesto en bodega)
-     - fob   = costo FOB en USD (sourcing) | null
-     - abc   = clase A/B/C/D/F (top rotación → cola) | null
-     - vel   = velocidad REAL (promedio de las semanas completas CON ventas) | null
-     - velWeeks = nº de semanas con ventas usadas para el promedio
-     - velTeo= velocidad teórica precalculada por PG (referencia) | null
-     - stock = stock total
+   Rutas (CL; ?country=co no soportado aún):
+     GET /api/pg-own?build=1        → (re)construye el índice ML del vendedor en KV
+     GET /api/pg-own?cat=<catId>    → productos propios en esa categoría (usa el índice)
+       Si el índice no existe: { ok:true, products:[], n:0, needBuild:true }
 
    Usa el mismo secreto de PG que pg-sync (solo Chile por ahora).
    ============================================================ */
 
 const PG = 'https://app.profitguard.cl/api/v1';
-
-const DIACRITICS = new RegExp('[\\u0300-\\u036f]', 'g');
-function norm(s) { return (s == null ? '' : String(s)).toLowerCase().normalize('NFD').replace(DIACRITICS, ''); }
+const ML_INTEGRATION_CL = 1;
+const ML_SELLER_CL = '613899966';
+const IDX_KEY = 'ml_own_index';         // KV: { ts, seller, items:[{id,cat,sku,price,qty}] }
+const IDX_TTL = 24 * 3600 * 1000;       // refrescar el índice cada 24h
 
 export async function onRequest({ request, env }) {
   const url = new URL(request.url);
   if (url.searchParams.get('country') === 'co') return json({ error: 'Catálogo propio aún no configurado para Colombia' }, 501);
-  const q = (url.searchParams.get('q') || '').trim();
-  if (q.length < 3) return json({ ok: true, products: [], n: 0 });
   const token = env['app-margenes-pg-api-key'] || env.app_margenes_pg_api_key || env.APP_MARGENES_PG_API_KEY || env.PG_API_KEY;
   if (!token) return json({ error: 'Falta el secret de ProfitGuard (app-margenes-pg-api-key)' }, 501);
+  const kv = env.MARGENES_KV;
+  if (!kv) return json({ error: 'KV no configurado (binding MARGENES_KV)' }, 501);
   const headers = { Authorization: 'Bearer ' + token, Accept: 'application/json' };
-  const nq = norm(q);
 
   try {
-    // 1) Traer el catálogo COMPLETO (paginado en paralelo) — el REST no filtra por texto.
-    const first = await fetch(`${PG}/products?page=1&page_size=100`, { headers });
-    if (!first.ok) { const d = (await first.text().catch(() => '')).slice(0, 200); return json({ error: `ProfitGuard ${first.status}`, detail: d }, 502); }
-    const fj = await first.json();
-    let all = fj.items || fj.data || [];
-    const totalPages = Math.min((fj.meta && fj.meta.total_pages) || 1, 15);
-    if (totalPages > 1) {
-      const rest = await Promise.all(Array.from({ length: totalPages - 1 }, (_, i) =>
-        fetch(`${PG}/products?page=${i + 2}&page_size=100`, { headers }).then(r => r.ok ? r.json() : { items: [] }).catch(() => ({ items: [] }))));
-      for (const p of rest) all = all.concat(p.items || p.data || []);
+    // --- Construir/refrescar el índice ML del vendedor (llamada dedicada, acota subrequests). ---
+    if (url.searchParams.get('build')) {
+      const idx = await buildIndex(headers, kv);
+      return json({ ok: true, n: idx.items.length, ts: idx.ts });
     }
 
-    // 2) Filtrar por NOMBRE que contiene el término (acento/caso-insensible) y acotar.
-    let matched = all.filter(p => norm(p.name).includes(nq));
-    matched.sort((a, b) => ((b.active !== false) - (a.active !== false)));
-    matched = matched.slice(0, 16);
+    const cat = (url.searchParams.get('cat') || '').trim();
+    if (!cat) return json({ error: 'falta cat (id de categoría ML)' }, 400);
 
-    // 3) Enriquecer cada match: velocidad REAL (sales_speed) + FOB (sourcing).
-    const products = await Promise.all(matched.map(async p => {
-      const cost = (p.unitCost && typeof p.unitCost.cents === 'number') ? Math.round(p.unitCost.cents / 100) : 0;
-      const row = {
-        name: (p.name || '').slice(0, 80), sku: p.sku || '', brand: (p.brand && p.brand.name) || '',
-        active: p.active !== false, cost, fob: null, abc: null, vel: null, velTeo: null, stock: null
-      };
-      await Promise.all([
-        (async () => {
-          if (!p.sku) return;
-          try {
-            const sr = await fetch(`${PG}/sales_speed/products?sku=${encodeURIComponent(p.sku)}&week_count=6`, { headers });
-            if (!sr.ok) return;
-            const it = ((await sr.json()).items || [])[0]; if (!it) return;
-            row.velTeo = it.weeklySalesSpeed != null ? Math.round(it.weeklySalesSpeed) : null;
-            row.stock = it.totalStock != null ? it.totalStock : null;
-            row.abc = (it.category || '').toUpperCase() || null;
-            // Velocidad REAL: promedio SOLO de las semanas completas en que hubo ventas
-            // (proxy de "semanas con stock"), excluyendo la parcial en curso. PG no expone
-            // el stock histórico por semana, así que una semana con 0 ventas se asume quiebre.
-            const now = Date.now();
-            const done = (it.weeklySales || []).filter(w => new Date(w.endDate).getTime() < now);
-            const active = done.filter(w => (w.units || 0) > 0);
-            row.velWeeks = active.length;
-            row.vel = active.length ? Math.round(active.reduce((a, w) => a + (w.units || 0), 0) / active.length) : 0;
-          } catch (e) {}
-        })(),
-        (async () => {
-          if (!p.id) return;
-          try {
-            const fr = await fetch(`${PG}/product_sourcings?product_id=${p.id}&page_size=5`, { headers });
-            if (!fr.ok) return;
-            const it = ((await fr.json()).items || [])[0]; if (!it || !it.unitCost) return;
-            row.fob = Math.round((it.unitCost.cents || 0) / 100);   // USD (costo FOB)
-          } catch (e) {}
-        })()
-      ]);
-      return row;
-    }));
+    let idx = null;
+    try { idx = JSON.parse((await kv.get(IDX_KEY)) || 'null'); } catch (e) {}
+    if (!idx || !Array.isArray(idx.items)) return json({ ok: true, cat, products: [], n: 0, needBuild: true });
+    const stale = !idx.ts || (Date.now() - idx.ts) > IDX_TTL;
 
-    // Marca dominante entre los activos (para el encabezado).
+    // Filtrar el índice por la categoría exacta y agrupar por SKU (un producto = varios listings).
+    const hits = idx.items.filter(it => it.cat === cat);
+    const bySku = new Map(); const noSku = [];
+    for (const it of hits) {
+      if (it.sku) {
+        const cur = bySku.get(it.sku);
+        // representativo: el listing con más stock disponible
+        if (!cur || (it.qty || 0) > (cur.qty || 0)) bySku.set(it.sku, it);
+      } else noSku.push(it);
+    }
+
+    const skus = [...bySku.keys()].slice(0, 16);
+    // Enriquecer cada SKU con datos de PG (marca, COGS, FOB, velocidad real, clase ABC).
+    const enriched = await Promise.all(skus.map(sku => enrichSku(headers, sku, bySku.get(sku))));
+    // Ítems sin SKU en ML: se muestran con lo que hay (título/precio), sin datos de PG.
+    for (const it of noSku.slice(0, 4)) enriched.push({
+      name: (it.title || '').slice(0, 80), sku: '', brand: '', active: true,
+      cost: 0, fob: null, abc: null, vel: null, velWeeks: 0, stock: it.qty != null ? it.qty : null,
+      price: it.price || null, margin: null, ml: it.id
+    });
+
+    const products = enriched.filter(Boolean).sort((a, b) => (b.active - a.active) || ((b.vel || 0) - (a.vel || 0)));
     const bc = {}; for (const p of products) if (p.active && p.brand) bc[p.brand] = (bc[p.brand] || 0) + 1;
     const brand = Object.keys(bc).sort((a, b) => bc[b] - bc[a])[0] || '';
-    return json({ ok: true, brand, q, products, n: products.length });
+    return json({ ok: true, cat, brand, products, n: products.length, ts: idx.ts, stale });
   } catch (e) {
     return json({ error: String((e && e.message) || e) }, 500);
   }
+}
+
+// Trae todos los ítems ACTIVOS del vendedor con su category_id real y los cachea.
+async function buildIndex(headers, kv) {
+  const ids = [];
+  for (let offset = 0; offset < 1000; offset += 100) {
+    const body = await mlGet(headers, `/users/${ML_SELLER_CL}/items/search`, { status: 'active', offset: String(offset), limit: '100' });
+    const res = (body && body.results) || [];
+    ids.push(...res);
+    const total = body && body.paging && body.paging.total || 0;
+    if (offset + 100 >= total || !res.length) break;
+  }
+  const items = [];
+  for (let i = 0; i < ids.length; i += 20) {
+    const chunk = ids.slice(i, i + 20);
+    const arr = await mlGet(headers, '/items', { ids: chunk.join(','), attributes: 'id,category_id,price,seller_custom_field,available_quantity,status' });
+    for (const w of (Array.isArray(arr) ? arr : [])) {
+      const b = w && w.body; if (!b || b.status !== 'active') continue;
+      items.push({ id: b.id, cat: b.category_id || '', sku: (b.seller_custom_field || '').trim(), price: b.price || null, qty: typeof b.available_quantity === 'number' ? b.available_quantity : null });
+    }
+  }
+  const idx = { ts: Date.now(), seller: ML_SELLER_CL, items };
+  await kv.put(IDX_KEY, JSON.stringify(idx));
+  return idx;
+}
+
+// Enriquece un SKU con datos de PG y calcula el margen bruto con el precio ML.
+async function enrichSku(headers, sku, mlItem) {
+  const row = {
+    name: sku, sku, brand: '', active: true, cost: 0, fob: null, abc: null,
+    vel: null, velWeeks: 0, stock: null, price: (mlItem && mlItem.price) || null, margin: null, ml: (mlItem && mlItem.id) || null
+  };
+  // Producto PG (marca, COGS, id). El REST /products sí filtra por sku exacto.
+  let pid = null;
+  try {
+    const pj = await pgGet(headers, '/products', { sku, page_size: '5' });
+    const it = ((pj && (pj.items || pj.data)) || []).find(p => (p.sku || '') === sku);
+    if (it) {
+      pid = it.id;
+      row.name = (it.name || sku).slice(0, 80);
+      row.brand = (it.brand && it.brand.name) || '';
+      row.active = it.active !== false;
+      row.cost = (it.unitCost && typeof it.unitCost.cents === 'number') ? Math.round(it.unitCost.cents / 100) : 0;
+    }
+  } catch (e) {}
+  await Promise.all([
+    (async () => {
+      try {
+        const sr = await pgGet(headers, '/sales_speed/products', { sku, week_count: '6' });
+        const it = ((sr && sr.items) || [])[0]; if (!it) return;
+        row.velTeo = it.weeklySalesSpeed != null ? Math.round(it.weeklySalesSpeed) : null;
+        row.stock = it.totalStock != null ? it.totalStock : row.stock;
+        row.abc = (it.category || '').toUpperCase() || null;
+        // Velocidad REAL: promedio de semanas completas CON ventas (proxy de "con stock").
+        const now = Date.now();
+        const active = (it.weeklySales || []).filter(w => new Date(w.endDate).getTime() < now && (w.units || 0) > 0);
+        row.velWeeks = active.length;
+        row.vel = active.length ? Math.round(active.reduce((a, w) => a + (w.units || 0), 0) / active.length) : 0;
+      } catch (e) {}
+    })(),
+    (async () => {
+      if (!pid) return;
+      try {
+        const fr = await pgGet(headers, '/product_sourcings', { product_id: String(pid), page_size: '5' });
+        const it = ((fr && fr.items) || [])[0]; if (!it || !it.unitCost) return;
+        row.fob = Math.round((it.unitCost.cents || 0) / 100);   // USD
+      } catch (e) {}
+    })()
+  ]);
+  // Margen bruto: precio neto de IVA vs COGS (antes de comisión/envío/ads).
+  if (row.price && row.cost > 0) { const net = row.price / 1.19; row.margin = Math.round((net - row.cost) / net * 100); }
+  return row;
+}
+
+// GET a ML vía passthrough de PG (devuelve el body de ML).
+async function mlGet(headers, path, query) {
+  const r = await fetch(`${PG}/integrations/${ML_INTEGRATION_CL}/passthrough`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ method: 'GET', path, query: query || {} })
+  });
+  if (!r.ok) throw new Error('ML passthrough ' + r.status);
+  const j = await r.json().catch(() => null);
+  return j && (j.body != null ? j.body : j);
+}
+
+// GET al REST de PG.
+async function pgGet(headers, path, query) {
+  const qs = new URLSearchParams(query || {}).toString();
+  const r = await fetch(`${PG}${path}${qs ? '?' + qs : ''}`, { headers });
+  if (!r.ok) throw new Error('PG ' + path + ' ' + r.status);
+  return r.json();
 }
 
 function json(obj, status) {

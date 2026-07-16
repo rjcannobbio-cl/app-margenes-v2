@@ -1350,8 +1350,17 @@ async function computeP2Report(item, onProgress) {
 // Deriva un término de búsqueda del nombre de la hoja (singular) y trae el catálogo propio de PG.
 function p2OwnQuery(leaf) { const w = (leaf || '').trim().split(/\s+/)[0]; if (w.length < 3) return ''; return w.endsWith('es') ? w.slice(0, -2) : (w.endsWith('s') ? w.slice(0, -1) : w); }
 async function p2OwnGet(item) {
-  const q = p2OwnQuery(item.leaf); if (!q) return null;
-  try { const j = await (await fetch(api('/api/pg-own?q=' + encodeURIComponent(q)))).json(); return (j && j.ok) ? j : null; } catch (e) { return null; }
+  const cat = item && item.id; if (!cat) return null;
+  try {
+    let j = await (await fetch(api('/api/pg-own?cat=' + encodeURIComponent(cat)))).json();
+    if (j && j.needBuild) {            // primera vez: construir el índice ML del vendedor y reintentar
+      await fetch(api('/api/pg-own?build=1')).catch(() => {});
+      j = await (await fetch(api('/api/pg-own?cat=' + encodeURIComponent(cat)))).json();
+    } else if (j && j.stale) {         // índice viejo: refrescar en 2º plano para la próxima
+      fetch(api('/api/pg-own?build=1')).catch(() => {});
+    }
+    return (j && j.ok) ? j : null;
+  } catch (e) { return null; }
 }
 function p2OwnTxt(own) {
   if (!own || !own.products || !own.products.length) return '';
@@ -1360,6 +1369,8 @@ function p2OwnTxt(own) {
     + (p.vel != null ? ` · vende ${p.vel} u/sem (real, semanas con stock)` : '')
     + ` · COGS $${(p.cost || 0).toLocaleString('es-CL')}`
     + (p.fob != null ? ` · FOB US$${p.fob}` : '')
+    + (p.price ? ` · precio $${p.price.toLocaleString('es-CL')}` : '')
+    + (p.margin != null ? ` · margen bruto ${p.margin}%` : '')
     + (p.stock != null ? ` · stock ${p.stock}` : '')).join('\n');
 }
 // Convierte **negrita** de la IA a <strong> y limpia asteriscos sueltos, escapando el resto.
@@ -1375,6 +1386,7 @@ async function runP2Batch(n, force) {
   if (country === 'co') { alert('El pre-análisis con datos de ML está disponible por ahora solo para Chile.'); return; }
   if (_p2Batch && _p2Batch.running) return;
   await loadBizCtx();   // asegura el contexto de negocio antes de arrancar
+  await fetch(api('/api/pg-own?build=1')).catch(() => {});   // calienta el índice ML del vendedor una sola vez
   const cats = _researchAll.filter(x => (parseFloat(x.ventasGmv) || 0) > 0)
     .slice().sort((a, b) => (researchCuota(b) || 0) - (researchCuota(a) || 0)).slice(0, n);
   if (!cats.length) { alert('No hay categorías con ventas para analizar. Importa datos primero.'); return; }
@@ -1639,16 +1651,19 @@ function renderP2Own(own) {
   const act = own.products.filter(p => p.active);
   const abcColor = { A: 'var(--good)', B: '#8fd18f', C: 'var(--mid)', D: 'var(--faint)', F: 'var(--bad)' };
   const abcCell = p => p.abc ? `<span style="font-weight:800;color:${abcColor[p.abc] || 'var(--muted)'}">${esc(p.abc)}</span>` : '–';
-  const rows = act.slice(0, 14).map(p => `<tr><td>${esc(p.name)}</td><td>${esc(p.brand || '')}</td>` +
+  const mCol = m => m >= 30 ? 'var(--good)' : (m >= 15 ? 'var(--mid)' : 'var(--bad)');
+  const rows = act.slice(0, 16).map(p => `<tr><td>${esc(p.name)}</td><td>${esc(p.brand || '')}</td>` +
     `<td style="text-align:center">${abcCell(p)}</td>` +
     `<td style="text-align:right"${p.velWeeks ? ` title="Promedio de ${p.velWeeks} semana${p.velWeeks === 1 ? '' : 's'} con ventas (con stock)"` : ''}>${p.vel != null ? `<b style="color:${p.vel > 0 ? 'var(--good)' : 'var(--muted)'};font-variant-numeric:tabular-nums">${p.vel}</b><span class="muted" style="font-size:11px"> /sem</span>` : '–'}</td>` +
     `<td style="text-align:right">${p.stock != null ? p.stock : '–'}</td>` +
-    `<td style="text-align:right">$${(p.cost || 0).toLocaleString('es-CL')}</td>` +
-    `<td style="text-align:right">${p.fob != null ? 'US$' + p.fob : '–'}</td></tr>`).join('');
+    `<td style="text-align:right">${p.cost ? '$' + p.cost.toLocaleString('es-CL') : '–'}</td>` +
+    `<td style="text-align:right">${p.fob != null ? 'US$' + p.fob : '–'}</td>` +
+    `<td style="text-align:right">${p.price ? '$' + p.price.toLocaleString('es-CL') : '–'}</td>` +
+    `<td style="text-align:right;font-weight:700;color:${p.margin != null ? mCol(p.margin) : 'var(--muted)'}">${p.margin != null ? p.margin + '%' : '–'}</td></tr>`).join('');
   const hasA = act.some(p => p.abc === 'A');
   return `<div class="p2sec"><div class="p2sec-h"><div class="ic">🏷️</div><h3>Tu catálogo actual</h3><span class="verdict p2-good">${own.brand ? esc(own.brand) + ' · ' : ''}${act.length} activo${act.length === 1 ? '' : 's'}</span></div>` +
-    `<p class="small muted" style="margin:2px 0 6px">Lo que ET Brands ya vende en esta categoría. <b>Clase</b> = rotación real (A=top ventas … F=congelado), <b>vel.</b> = promedio semanal REAL, <b>COGS</b> = costo en bodega, <b>FOB</b> = costo de fábrica. La IA lo usa para no duplicar y sugerir huecos/mejoras.${hasA ? ' <span style="color:var(--good)">Tenés productos clase A (ganadores) acá.</span>' : ''}</p>` +
-    `<div style="overflow:auto"><table class="p2own"><thead><tr><th style="text-align:left">Producto</th><th style="text-align:left">Marca</th><th style="text-align:center" title="Rotación real: A=top ventas … F=congelado">Clase</th><th style="text-align:right" title="Promedio semanal real de las últimas semanas">Vel. real</th><th style="text-align:right">Stock</th><th style="text-align:right" title="Costo puesto en bodega (CLP)">COGS</th><th style="text-align:right" title="Costo FOB de fábrica (USD)">FOB</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+    `<p class="small muted" style="margin:2px 0 6px">Lo que ET Brands ya vende en esta categoría exacta de ML (match por id de categoría, no por nombre). <b>Clase</b> = rotación real (A=top ventas … F=congelado), <b>vel.</b> = promedio semanal REAL, <b>COGS</b>/<b>FOB</b> = costo en bodega / de fábrica, <b>margen</b> = bruto sobre precio neto de IVA. La IA lo usa para no duplicar y sugerir huecos/mejoras.${hasA ? ' <span style="color:var(--good)">Tenés productos clase A (ganadores) acá.</span>' : ''}</p>` +
+    `<div style="overflow:auto"><table class="p2own"><thead><tr><th style="text-align:left">Producto</th><th style="text-align:left">Marca</th><th style="text-align:center" title="Rotación real: A=top ventas … F=congelado">Clase</th><th style="text-align:right" title="Promedio semanal real de las semanas con stock">Vel. real</th><th style="text-align:right">Stock</th><th style="text-align:right" title="Costo puesto en bodega (CLP)">COGS</th><th style="text-align:right" title="Costo FOB de fábrica (USD)">FOB</th><th style="text-align:right" title="Precio de venta actual en ML (CLP)">Precio</th><th style="text-align:right" title="Margen bruto sobre precio neto de IVA, antes de comisión/envío/ads">Margen</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
 }
 function renderP2Deep(deep) {
   const esc = escapeHtml, ai = deep.ai || {};
