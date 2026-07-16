@@ -835,6 +835,34 @@ function catMargins(x) {
   return { cogs, full: m(x.precioFull), aon: m(x.precioAON), dod: m(x.precioDOD) };
 }
 
+// Índice nombre→entradas de la tabla local de categorías ML (para mapear la categoría real).
+let _mlCatByName = null;
+function mlCatIndex() {
+  if (_mlCatByName) return _mlCatByName;
+  _mlCatByName = new Map();
+  (window.ML_CATEGORIES || []).forEach((c, i) => { const k = normalize(c.name); if (!_mlCatByName.has(k)) _mlCatByName.set(k, []); _mlCatByName.get(k).push(i); });
+  return _mlCatByName;
+}
+// Dado el breadcrumb REAL de ML (["L1",…,"hoja"]), devuelve la comisión de la tabla local.
+function commissionFromRealCat(pathNames) {
+  if (!Array.isArray(pathNames) || !pathNames.length) return null;
+  const leaf = pathNames[pathNames.length - 1], root = pathNames[0];
+  const idxs = mlCatIndex().get(normalize(leaf));
+  if (!idxs || !idxs.length) return null;
+  let chosen = idxs[0];
+  if (idxs.length > 1) { const byRoot = idxs.find(i => normalize((ML_CATEGORIES[i].path || '').split('>')[0]) === normalize(root)); if (byRoot != null) chosen = byRoot; }
+  return { idx: chosen, name: ML_CATEGORIES[chosen].name, cost: ML_CATEGORIES[chosen].cost || 0 };
+}
+// Fija comisión/categoría ML desde la categoría REAL (post-sync). Devuelve cuántas mapeó.
+function applyRealCatCommission(items) {
+  let n = 0;
+  for (const it of (items || [])) { if (!it.mlCatPathReal) continue; const c = commissionFromRealCat(it.mlCatPathReal); if (c) { it.mlCatName = c.name; it.mlComPct = c.cost; it.mlCatIdx = c.idx; n++; } }
+  return n;
+}
+// Marca propia de ET Brands deducida del título (para el P2).
+const ETB_BRANDS = ['Hosser', 'Zeker', 'Howell', 'Overfit', 'Duke', 'Ibrah Music', 'Ibrah', 'Colton', 'Galanta', 'Homely', 'Luxgear', 'Planex', 'Babynest'];
+function ownBrandOf(title) { const t = normalize(title || ''); for (const b of ETB_BRANDS) { if (t.includes(normalize(b))) return b; } return ''; }
+
 const _catSavers = {};
 function catSaveDebounced(item) {
   clearTimeout(_catSavers[item.id]);
@@ -880,8 +908,21 @@ async function syncFromPG() {
     const r = await fetch(api('/api/pg-sync'), { method: 'POST' });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { setCatStatus('Error: ' + (j.error || r.status) + (j.detail ? ' — ' + j.detail : ''), true); return; }
-    setCatStatus(`✓ Sincronizado: ${j.items} filas · ${j.itemsWithDims != null ? j.itemsWithDims : '—'} con dimensiones. Se conservan los precios y el arancel/HS que hayas editado.`);
-    await renderCatalogo();
+    // Paso 2 (una sola pasada): categoría REAL de ML + velocidad de venta, por SKU.
+    setCatStatus(`✓ FOB/dimensiones: ${j.items} filas. Trayendo categoría real y velocidad desde Mercado Libre… (puede tardar ~1 min)`);
+    let e = {};
+    if (country !== 'co') {
+      try { const r2 = await fetch(api('/api/catalog-ml'), { method: 'POST' }); e = await r2.json().catch(() => ({})); if (!r2.ok) e._err = e.error || ('HTTP ' + r2.status); }
+      catch (err) { e._err = err.message; }
+    }
+    // Recargar catálogo enriquecido y fijar la comisión desde la categoría REAL (tabla local).
+    _catAll = await catLoad();
+    const mapped = applyRealCatCommission(_catAll);
+    if (mapped) await catReplace(_catAll);
+    _catSig = JSON.stringify(_catAll); paintCatalogo();
+    setCatStatus(e._err
+      ? `✓ Sincronizado ${j.items} filas (FOB/dims). El paso de categoría real de ML falló (${e._err}); las comisiones quedaron deducidas por título.`
+      : `✓ Sincronizado: ${j.items} filas · ${e.enriched || 0} con categoría real de ML · ${e.withVel || 0} con velocidad · comisión fijada por la categoría real en ${mapped} filas. Se conservan precios y arancel/HS.`);
   } catch (e) { setCatStatus('Error de red al sincronizar: ' + e.message, true); }
   finally { if (btn) btn.disabled = false; }
 }
@@ -1349,17 +1390,29 @@ async function computeP2Report(item, onProgress) {
 }
 // Deriva un término de búsqueda del nombre de la hoja (singular) y trae el catálogo propio de PG.
 function p2OwnQuery(leaf) { const w = (leaf || '').trim().split(/\s+/)[0]; if (w.length < 3) return ''; return w.endsWith('es') ? w.slice(0, -2) : (w.endsWith('s') ? w.slice(0, -1) : w); }
+// El catálogo propio del P2 se lee LOCAL (del Catálogo ya enriquecido con la
+// categoría real de ML + velocidad + margen de contribución). No consulta nada.
 async function p2OwnGet(item) {
   const cat = item && item.id; if (!cat) return null;
   try {
-    let j = await (await fetch(api('/api/pg-own?cat=' + encodeURIComponent(cat)))).json();
-    if (j && j.needBuild) {            // primera vez: construir el índice ML del vendedor y reintentar
-      await fetch(api('/api/pg-own?build=1')).catch(() => {});
-      j = await (await fetch(api('/api/pg-own?cat=' + encodeURIComponent(cat)))).json();
-    } else if (j && j.stale) {         // índice viejo: refrescar en 2º plano para la próxima
-      fetch(api('/api/pg-own?build=1')).catch(() => {});
-    }
-    return (j && j.ok) ? j : null;
+    if (!_catAll || !_catAll.length) { try { _catAll = await catLoad(); } catch (e) {} }
+    const rows = (_catAll || []).filter(x => x.mlCatId && x.mlCatId === cat);
+    if (!rows.length) return { ok: true, cat, brand: '', products: [], n: 0, local: true };
+    const bySku = new Map();   // una fila por sourcing puede repetir SKU → dedup
+    for (const x of rows) { const k = x.sku || x.id; if (!bySku.has(k)) bySku.set(k, x); }
+    const products = [...bySku.values()].map(x => {
+      const m = catMargins(x);
+      return {
+        name: x.titulo || x.sku, sku: x.sku || '', brand: ownBrandOf(x.titulo), active: x.active !== false,
+        cost: Math.round(m.cogs || 0), fob: x.fob || null, abc: x.abc || null,
+        vel: x.vel != null ? x.vel : null, velWeeks: x.velWeeks || 0, stock: x.stock != null ? x.stock : null,
+        price: x.precioAON ? Math.round(x.precioAON) : (x.mlPrice ? Math.round(x.mlPrice) : null),
+        margin: (m.aon && m.aon.ml != null) ? Math.round(m.aon.ml) : null   // margen de CONTRIBUCIÓN a precio AON (ML)
+      };
+    }).sort((a, b) => (b.active - a.active) || ((b.vel || 0) - (a.vel || 0)));
+    const bc = {}; for (const p of products) if (p.active && p.brand) bc[p.brand] = (bc[p.brand] || 0) + 1;
+    const brand = Object.keys(bc).sort((a, b) => bc[b] - bc[a])[0] || '';
+    return { ok: true, cat, brand, products, n: products.length, local: true };
   } catch (e) { return null; }
 }
 function p2OwnTxt(own) {
@@ -1369,8 +1422,8 @@ function p2OwnTxt(own) {
     + (p.vel != null ? ` · vende ${p.vel} u/sem (real, semanas con stock)` : '')
     + ` · COGS $${(p.cost || 0).toLocaleString('es-CL')}`
     + (p.fob != null ? ` · FOB US$${p.fob}` : '')
-    + (p.price ? ` · precio $${p.price.toLocaleString('es-CL')}` : '')
-    + (p.margin != null ? ` · margen bruto ${p.margin}%` : '')
+    + (p.price ? ` · precio AON $${p.price.toLocaleString('es-CL')}` : '')
+    + (p.margin != null ? ` · margen contrib ${p.margin}%` : '')
     + (p.stock != null ? ` · stock ${p.stock}` : '')).join('\n');
 }
 // Convierte **negrita** de la IA a <strong> y limpia asteriscos sueltos, escapando el resto.
@@ -1386,7 +1439,7 @@ async function runP2Batch(n, force) {
   if (country === 'co') { alert('El pre-análisis con datos de ML está disponible por ahora solo para Chile.'); return; }
   if (_p2Batch && _p2Batch.running) return;
   await loadBizCtx();   // asegura el contexto de negocio antes de arrancar
-  await fetch(api('/api/pg-own?build=1')).catch(() => {});   // calienta el índice ML del vendedor una sola vez
+  if (!_catAll || !_catAll.length) { try { _catAll = await catLoad(); } catch (e) {} }   // catálogo local para el match del P2
   const cats = _researchAll.filter(x => (parseFloat(x.ventasGmv) || 0) > 0)
     .slice().sort((a, b) => (researchCuota(b) || 0) - (researchCuota(a) || 0)).slice(0, n);
   if (!cats.length) { alert('No hay categorías con ventas para analizar. Importa datos primero.'); return; }
@@ -1662,8 +1715,8 @@ function renderP2Own(own) {
     `<td style="text-align:right;font-weight:700;color:${p.margin != null ? mCol(p.margin) : 'var(--muted)'}">${p.margin != null ? p.margin + '%' : '–'}</td></tr>`).join('');
   const hasA = act.some(p => p.abc === 'A');
   return `<div class="p2sec"><div class="p2sec-h"><div class="ic">🏷️</div><h3>Tu catálogo actual</h3><span class="verdict p2-good">${own.brand ? esc(own.brand) + ' · ' : ''}${act.length} activo${act.length === 1 ? '' : 's'}</span></div>` +
-    `<p class="small muted" style="margin:2px 0 6px">Lo que ET Brands ya vende en esta categoría exacta de ML (match por id de categoría, no por nombre). <b>Clase</b> = rotación real (A=top ventas … F=congelado), <b>vel.</b> = promedio semanal REAL, <b>COGS</b>/<b>FOB</b> = costo en bodega / de fábrica, <b>margen</b> = bruto sobre precio neto de IVA. La IA lo usa para no duplicar y sugerir huecos/mejoras.${hasA ? ' <span style="color:var(--good)">Tenés productos clase A (ganadores) acá.</span>' : ''}</p>` +
-    `<div style="overflow:auto"><table class="p2own"><thead><tr><th style="text-align:left">Producto</th><th style="text-align:left">Marca</th><th style="text-align:center" title="Rotación real: A=top ventas … F=congelado">Clase</th><th style="text-align:right" title="Promedio semanal real de las semanas con stock">Vel. real</th><th style="text-align:right">Stock</th><th style="text-align:right" title="Costo puesto en bodega (CLP)">COGS</th><th style="text-align:right" title="Costo FOB de fábrica (USD)">FOB</th><th style="text-align:right" title="Precio de venta actual en ML (CLP)">Precio</th><th style="text-align:right" title="Margen bruto sobre precio neto de IVA, antes de comisión/envío/ads">Margen</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+    `<p class="small muted" style="margin:2px 0 6px">Lo que ET Brands ya vende en esta categoría exacta de ML (match por id de categoría real, no por nombre). <b>Clase</b> = rotación real (A=top ventas … F=congelado), <b>vel.</b> = promedio semanal real, <b>COGS</b> = costo landed (de la calculadora), <b>margen</b> = de <b>contribución</b> a precio AON (COGS + comisión + envío). La IA lo usa para no duplicar y sugerir huecos/mejoras.${hasA ? ' <span style="color:var(--good)">Tenés productos clase A (ganadores) acá.</span>' : ''}</p>` +
+    `<div style="overflow:auto"><table class="p2own"><thead><tr><th style="text-align:left">Producto</th><th style="text-align:left">Marca</th><th style="text-align:center" title="Rotación real: A=top ventas … F=congelado">Clase</th><th style="text-align:right" title="Promedio semanal real de las semanas con stock">Vel. real</th><th style="text-align:right">Stock</th><th style="text-align:right" title="Costo landed / COGS (CLP)">COGS</th><th style="text-align:right" title="Costo FOB de fábrica (USD)">FOB</th><th style="text-align:right" title="Precio AON (CLP)">Precio AON</th><th style="text-align:right" title="Margen de contribución a precio AON en ML (precio − COGS − comisión − envío)">Margen contrib.</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
 }
 function renderP2Deep(deep) {
   const esc = escapeHtml, ai = deep.ai || {};
