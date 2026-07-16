@@ -1341,9 +1341,21 @@ async function computeP2Report(item, onProgress) {
     });
     reviews = revs.filter(Boolean);
   }
+  log('Buscando tu catálogo propio en ProfitGuard…');
+  const own = await p2OwnGet(item);
   log('La IA está agrupando productos y buscando oportunidades…');
-  const ai = await p2AI(item, stats, products, reviews).catch(e => ({ _err: String(e.message || e) }));
-  return { v: 1, cat: { l1: item.l1, leaf: item.leaf, id: item.id, path: item.path }, stats, products, reviews, ai, rankUrl: p2RankUrl(item) };
+  const ai = await p2AI(item, stats, products, reviews, own).catch(e => ({ _err: String(e.message || e) }));
+  return { v: 1, cat: { l1: item.l1, leaf: item.leaf, id: item.id, path: item.path }, stats, products, reviews, own, ai, rankUrl: p2RankUrl(item) };
+}
+// Deriva un término de búsqueda del nombre de la hoja (singular) y trae el catálogo propio de PG.
+function p2OwnQuery(leaf) { const w = (leaf || '').trim().split(/\s+/)[0]; if (w.length < 3) return ''; return w.endsWith('es') ? w.slice(0, -2) : (w.endsWith('s') ? w.slice(0, -1) : w); }
+async function p2OwnGet(item) {
+  const q = p2OwnQuery(item.leaf); if (!q) return null;
+  try { const j = await (await fetch(api('/api/pg-own?q=' + encodeURIComponent(q)))).json(); return (j && j.ok) ? j : null; } catch (e) { return null; }
+}
+function p2OwnTxt(own) {
+  if (!own || !own.products || !own.products.length) return '';
+  return own.products.slice(0, 14).map(p => `- ${p.name} [${p.brand || 's/marca'}]${p.active ? '' : ' (inactivo)'} · costo $${(p.cost || 0).toLocaleString('es-CL')}${p.vel != null ? ' · vende ' + p.vel + ' u/sem' : ''}${p.stock != null ? ' · stock ' + p.stock : ''}`).join('\n');
 }
 
 // --- Batch: pre-analizar el top N por cuota x seller (reanudable, throttleado por mlGate). ---
@@ -1446,20 +1458,23 @@ async function saveP2Ctx() {
   catch (e) { $('p2CtxStatus').textContent = 'Error al guardar: ' + (e.message || e); }
 }
 
-async function p2AI(item, stats, products, reviews) {
+async function p2AI(item, stats, products, reviews, own) {
   await loadBizCtx();
   const cfg = loadCfg(country);
   const seas = stats.seasonality.map(s => s.mo + ' ' + s.idx).join(', ');
   const prod = products.map(p => '#' + p.pos + ' ' + p.name + ' | ' + p.attrs).join('\n');
   const revTxt = (reviews || []).map(r => r.name + ' (' + (r.avg || '?') + '★, ' + (r.total || 0) + '): ' + (r.samples || []).map(s => s.rate + '★ "' + s.content + '"').join(' | ')).join('\n');
+  const ownTxt = p2OwnTxt(own);
   const fb = p2Feedback(item.id);
   const prompt =
     bizContext() + '\n\n' +
-    'Eres analista de sourcing de ET Brands. Analiza la categoría "' + item.leaf + '" (' + item.l1 + ') para decidir si vale la pena entrar con un producto de marca propia y con cuál.\n\n' +
+    'Eres analista de sourcing de ET Brands. Analiza la categoría "' + item.leaf + '" (' + item.l1 + ') para decidir si conviene REFORZAR el catálogo o entrar con un producto NUEVO de marca propia, y con cuál.\n\n' +
+    (ownTxt ? ('CATÁLOGO PROPIO ACTUAL DE ET BRANDS EN ESTA CATEGORÍA (marca real ' + (own.brand ? '"' + own.brand + '"' : '') + ', costo y velocidad de venta):\n' + ownTxt + '\nUsa SIEMPRE la marca propia REAL de arriba (NO inventes marcas). NO sugieras "desarrollar" un producto que ya existe en esta lista; sugiere lo que FALTA (specs/segmentos sin cubrir) o mejoras a lo existente. Aprovecha qué se vende rápido (velocidad) y el costo para estimar viabilidad.\n\n') :
+      'NOTA: no se encontró catálogo propio en esta categoría (quizás ET Brands aún no vende acá). Usa la marca propia que corresponda al rubro.\n\n') +
     'ESTACIONALIDAD (índice 100=promedio, prom. 3 años): ' + seas + '\n' +
     'TENDENCIA YoY: ' + (stats.trend.yoy != null ? stats.trend.yoy.toFixed(1) + '%' : 's/d') + ' (' + stats.trend.dir + ')\n' +
     'CUOTA x vendedor: ' + (stats.cuota.clase) + ' (percentil ' + (stats.cuota.pct || '?') + ')\n\n' +
-    'TOP PRODUCTOS MÁS VENDIDOS (ML, con specs):\n' + (prod || '(sin datos)') + '\n\n' +
+    'TOP PRODUCTOS MÁS VENDIDOS DEL MERCADO (ML, con specs):\n' + (prod || '(sin datos)') + '\n\n' +
     'RESEÑAS (muestras reales):\n' + (revTxt || '(sin datos)') + '\n\n' +
     (fb ? 'FEEDBACK PREVIO DEL EQUIPO (respétalo): ' + fb + '\n\n' : '') +
     'Devuelve SOLO un JSON con esta forma exacta:\n' +
@@ -1515,6 +1530,7 @@ function renderP2(report, item, ts) {
     `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px;flex-wrap:wrap"><h3 style="margin:0;font-size:15px;font-weight:800">🔬 Análisis P2 · ${esc(item.leaf)}</h3><div style="text-align:right"><button class="btn" style="font-size:12px;padding:7px 13px${sameDay ? ';opacity:.5;cursor:not-allowed' : ''}" ${sameDay ? 'disabled title="Ya se actualizó hoy · disponible mañana"' : 'onclick="runP2(_rdItem,true)"'}>🔄 Actualizar análisis</button><div class="muted" style="font-size:11px;margin-top:4px">Última actualización: <b style="color:var(--ink)">${updStr}</b>${sameDay ? ' <span style="color:var(--good)">· hoy ✓</span>' : ''}</div></div></div>` +
     (ai._err ? `<div class="p2err" style="margin-bottom:12px">La IA falló (${esc(ai._err)}). Se muestran los datos igual.</div>` : '') +
     `<div class="p2tool"><button class="btn ghost" style="font-size:12px;padding:7px 12px" id="p2ChatToggle">💬 Pregúntale a la IA</button><button class="btn ${report.deep ? 'ghost' : ''}" style="font-size:12px;padding:7px 12px" id="p2DeepToggle">📊 ${report.deep ? 'Re-analizar en profundidad' : 'Analizar en profundidad'}</button></div>` +
+    ('own' in report ? renderP2Own(report.own) : '') +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">📅</div><h3>Estacionalidad</h3></div><div class="p2bars">${bars}</div>${aiLine('Lectura', ai.estacionalidad)}${fbRow('estacionalidad')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">💰</div><h3>Cuota por vendedor</h3><span class="verdict ${cuotaBadge}">${esc((s.cuota || {}).clase || '—')}</span></div><p style="margin:2px 0;font-size:13px">${fmt((s.cuota || {}).cuota)}/vendedor · percentil ${(s.cuota || {}).pct || '?'} · ${s.competidores ? Math.round(s.competidores) + ' competidores' : ''}</p>${aiLine('Lectura', ai.cuota)}${fbRow('cuota')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">📈</div><h3>Tendencia</h3><span class="verdict ${s.trend && s.trend.yoy >= 0 ? 'p2-good' : 'p2-bad'}">${esc((s.trend || {}).dir || '—')}</span></div><p style="margin:2px 0"><b style="color:${trendCol};font-size:20px">${s.trend && s.trend.yoy != null ? (s.trend.yoy >= 0 ? '+' : '') + s.trend.yoy.toFixed(1) + '%' : '–'}</b> <span class="muted small">YoY (últimos 12m vs previos)</span></p>${aiLine('Lectura', ai.tendencia)}${fbRow('tendencia')}</div>` +
@@ -1579,9 +1595,11 @@ async function p2DeepAI(item, rows, agg) {
   await loadBizCtx();
   const cfg = loadCfg(country);
   const top = rows.slice(0, 60).map(r => `#${r.pos} ${r.titulo} | ${Math.round(r.unidades)}u $${(r.ventas / 1e6).toFixed(1)}M tk$${Math.round(r.ticket).toLocaleString('es-CL')} ${r.full ? 'FULL' : ''}${r.catalogo ? ' CAT' : ''} [${r.vendedor}]`).join('\n');
+  const ownTxt = p2OwnTxt(_p2Report && _p2Report.own);
   const prompt =
     bizContext() + '\n\n' +
     'Eres analista de sourcing de ET Brands. Análisis PROFUNDO de la categoría "' + item.leaf + '" con el ranking REAL de Nubimetrics (top ' + rows.length + ', ventas y unidades EXACTAS del mes).\n\n' +
+    (ownTxt ? ('CATÁLOGO PROPIO ACTUAL DE ET BRANDS' + (_p2Report.own && _p2Report.own.brand ? ' (marca "' + _p2Report.own.brand + '")' : '') + ':\n' + ownTxt + '\nUsa la marca propia REAL de arriba y NO propongas duplicar lo que ya existe; enfócate en huecos y mejoras.\n\n') : '') +
     'TOTALES top: ventas $' + (agg.ventas / 1e6).toFixed(0) + 'M · unidades ' + Math.round(agg.unidades).toLocaleString('es-CL') + '.\n' +
     'Vendedores líderes: ' + agg.topSellers.slice(0, 6).map(s => s.name + ' (' + (s.ventas / 1e6).toFixed(0) + 'M, ' + s.n + ' pub)').join(', ') + '.\n' +
     'Catálogo ' + agg.catPct + '% · Full ' + agg.fullPct + '% del top.\n\n' +
@@ -1594,20 +1612,40 @@ async function p2DeepAI(item, rows, agg) {
   const raw = await aiText(prompt, cfg, { maxTokens: 2600 });
   return parseJSONLoose(raw) || { _err: 'La IA no devolvió JSON' };
 }
+function renderP2Own(own) {
+  const esc = escapeHtml;
+  if (!own || !own.products || !own.products.length)
+    return `<div class="p2sec"><div class="p2sec-h"><div class="ic">🏷️</div><h3>Tu catálogo actual</h3><span class="verdict p2-mid">sin productos</span></div><p class="small muted">No se encontraron productos propios de ET Brands en esta categoría (o el nombre no matcheó con ProfitGuard). La IA lo sabe y trata la categoría como entrada nueva.</p></div>`;
+  const act = own.products.filter(p => p.active);
+  const rows = act.slice(0, 14).map(p => `<tr><td>${esc(p.name)}</td><td>${esc(p.brand || '')}</td><td style="text-align:right">$${(p.cost || 0).toLocaleString('es-CL')}</td><td style="text-align:right;font-weight:700;color:${p.vel > 0 ? 'var(--good)' : 'var(--muted)'}">${p.vel != null ? p.vel + ' u/sem' : '–'}</td><td style="text-align:right">${p.stock != null ? p.stock : '–'}</td></tr>`).join('');
+  return `<div class="p2sec"><div class="p2sec-h"><div class="ic">🏷️</div><h3>Tu catálogo actual</h3><span class="verdict p2-good">${own.brand ? esc(own.brand) + ' · ' : ''}${act.length} activo${act.length === 1 ? '' : 's'}</span></div>` +
+    `<p class="small muted" style="margin:2px 0 6px">Productos de ET Brands ya en esta categoría (marca propia real, costo y velocidad de venta). La IA los usa para no duplicar y sugerir huecos/mejoras.</p>` +
+    `<div style="overflow:auto"><table class="p2own"><thead><tr><th style="text-align:left">Producto</th><th style="text-align:left">Marca</th><th style="text-align:right">Costo</th><th style="text-align:right">Velocidad</th><th style="text-align:right">Stock</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
 function renderP2Deep(deep) {
   const esc = escapeHtml, ai = deep.ai || {};
   const per = deep.period ? ((RD_MESES[deep.period.month - 1] || '') + ' ' + deep.period.year) : '';
-  const clusters = (ai.clusters || []).map(c => `<div class="p2clcard"><div class="p2clhead"><span>${esc(c.nombre || '')}</span><span class="sh">${c.unidades ? Math.round(c.unidades).toLocaleString('es-CL') + ' u' : ''}</span></div>${(c.ejemplos || []).slice(0, 3).map(t => `<div class="prod" style="font-size:11px;color:var(--muted)">${esc(t)}</div>`).join('')}</div>`).join('');
-  const sellers = (deep.agg && deep.agg.topSellers || []).slice(0, 5).map(s => `${esc(s.name)} <span class="muted">($${(s.ventas / 1e6).toFixed(0)}M·${s.n})</span>`).join(' · ');
+  const kpi = (l, v) => `<div style="flex:1;min-width:88px;background:#121215;border:1px solid var(--line);border-radius:8px;padding:8px 10px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px">${l}</div><div style="font-size:17px;font-weight:800">${v}</div></div>`;
+  const clusters = (ai.clusters || []).slice().sort((a, b) => (b.unidades || 0) - (a.unidades || 0));
+  const cmax = clusters.reduce((m, c) => Math.max(m, c.unidades || 0), 0);
+  const clBars = clusters.map(c => {
+    const w = cmax ? Math.round((c.unidades || 0) / cmax * 100) : 0;
+    return `<div style="margin:7px 0"><div style="display:flex;justify-content:space-between;font-size:12px"><b>${esc(c.nombre || '')}</b><span class="muted">${c.unidades ? Math.round(c.unidades).toLocaleString('es-CL') + ' u' : ''}</span></div><div style="height:16px;background:var(--panel2);border-radius:4px;overflow:hidden;margin-top:2px"><div style="height:100%;width:${w}%;background:linear-gradient(90deg,var(--accent),var(--accent-d));border-radius:4px"></div></div>${(c.ejemplos && c.ejemplos[0]) ? `<div style="font-size:10px;color:var(--faint);margin-top:1px">ej: ${esc(c.ejemplos[0])}</div>` : ''}</div>`;
+  }).join('');
+  const sellers = (deep.agg && deep.agg.topSellers || []).slice(0, 6);
+  const smax = sellers.reduce((m, s) => Math.max(m, s.ventas || 0), 0);
+  const sBars = sellers.map(s => {
+    const w = smax ? Math.round((s.ventas || 0) / smax * 100) : 0;
+    return `<div style="margin:4px 0"><div style="display:flex;justify-content:space-between;font-size:11px"><span>${esc(s.name)}</span><span class="muted">$${(s.ventas / 1e6).toFixed(0)}M · ${s.n} pub</span></div><div style="height:12px;background:var(--panel2);border-radius:3px;overflow:hidden;margin-top:2px"><div style="height:100%;width:${w}%;background:#6aa9ff;border-radius:3px"></div></div></div>`;
+  }).join('');
   return `<div class="p2sec" style="border-color:var(--accent)"><div class="p2sec-h"><div class="ic">🔬</div><h3>Análisis profundo · ranking real</h3><span class="verdict p2-hot">${esc(per)}</span></div>` +
-    `<p class="small muted" style="margin:2px 0 8px">Top ${deep.n || 0} publicaciones reales de Nubimetrics · ${deep.tot ? '$' + (deep.tot.ventas / 1e6).toFixed(0) + 'M · ' + Math.round(deep.tot.unidades).toLocaleString('es-CL') + ' u' : ''} · Catálogo ${deep.agg ? deep.agg.catPct : '?'}% · Full ${deep.agg ? deep.agg.fullPct : '?'}%</p>` +
     (ai._err ? `<div class="p2err">La IA falló (${esc(ai._err)}).</div>` : '') +
+    `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 10px">${kpi('Venta top', deep.tot ? '$' + (deep.tot.ventas / 1e6).toFixed(0) + 'M' : '–')}${kpi('Unidades', deep.tot ? Math.round(deep.tot.unidades).toLocaleString('es-CL') : '–')}${kpi('Catálogo', (deep.agg ? deep.agg.catPct : '?') + '%')}${kpi('Full', (deep.agg ? deep.agg.fullPct : '?') + '%')}</div>` +
     (ai.resumen ? `<div class="p2ai"><span class="tag">🤖 Resumen</span>${esc(ai.resumen)}</div>` : '') +
-    (clusters ? `<div class="p2clgrid" style="margin-top:8px">${clusters}</div>` : '') +
-    (ai.gap ? `<div class="p2gap" style="margin-top:8px"><b>🎯 Gap oferta/demanda:</b> ${esc(ai.gap)}</div>` : '') +
-    (ai.concentracion ? `<div class="p2ai"><span class="tag">🏪 Concentración</span>${esc(ai.concentracion)}</div>` : '') +
-    (sellers ? `<div class="small muted" style="margin-top:6px">Líderes: ${sellers}</div>` : '') +
-    ((ai.oportunidades && ai.oportunidades.length) ? `<div style="margin-top:8px"><b style="font-size:12px">Oportunidades:</b><ul style="margin:4px 0 0;padding-left:18px;font-size:13px">${ai.oportunidades.map(o => `<li>${esc(o)}</li>`).join('')}</ul></div>` : '') +
+    (clBars ? `<div style="font-weight:800;font-size:12px;margin:12px 0 2px">📊 Demanda por subcategoría (unidades reales)</div>${clBars}` : '') +
+    (ai.gap ? `<div class="p2gap" style="margin-top:10px"><b>🎯 Gap oferta/demanda:</b> ${esc(ai.gap)}</div>` : '') +
+    (sBars ? `<div style="font-weight:800;font-size:12px;margin:12px 0 2px">🏪 Concentración por vendedor (ventas)</div>${sBars}${ai.concentracion ? `<div class="small muted" style="margin-top:4px">${esc(ai.concentracion)}</div>` : ''}` : '') +
+    ((ai.oportunidades && ai.oportunidades.length) ? `<div style="margin-top:10px"><b style="font-size:12px">💡 Oportunidades:</b><ul style="margin:4px 0 0;padding-left:18px;font-size:13px">${ai.oportunidades.map(o => `<li>${esc(o)}</li>`).join('')}</ul></div>` : '') +
     `<div class="p2fb"><button onclick="openP2DeepModal()">↻ Reimportar / cambiar mes</button></div></div>`;
 }
 // Abre el popup de importación profunda (los selectores se pueblan la 1ª vez).
@@ -1649,6 +1687,7 @@ function p2ChatContext(report) {
   c += 'Estacionalidad (idx 100=prom): ' + (s.seasonality || []).map(x => x.mo + x.idx).join(' ') + '.\n';
   c += 'Cuota x vendedor: ' + ((s.cuota || {}).clase) + ' (pct ' + ((s.cuota || {}).pct) + '). Tendencia: ' + ((s.trend || {}).dir) + ' ' + ((s.trend || {}).yoy != null ? s.trend.yoy.toFixed(0) + '%' : '') + '. Ticket ~$' + Math.round(s.ticket || 0).toLocaleString('es-CL') + '.\n';
   c += 'Top productos ML: ' + (report.products || []).slice(0, 12).map(p => '#' + p.pos + ' ' + p.name).join('; ') + '.\n';
+  const ownTxt = p2OwnTxt(report.own); if (ownTxt) c += 'CATÁLOGO PROPIO ET BRANDS' + (report.own && report.own.brand ? ' (marca ' + report.own.brand + ')' : '') + ':\n' + ownTxt + '\n';
   if (ai.clusters) c += 'Clusters: ' + ai.clusters.map(cl => cl.nombre).join(', ') + '.\n';
   if (ai.gap) c += 'Gap: ' + ai.gap + '\n';
   if (ai.reviewOps) c += 'Reseñas: ' + ai.reviewOps + '\n';
