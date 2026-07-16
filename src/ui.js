@@ -1355,7 +1355,18 @@ async function p2OwnGet(item) {
 }
 function p2OwnTxt(own) {
   if (!own || !own.products || !own.products.length) return '';
-  return own.products.slice(0, 14).map(p => `- ${p.name} [${p.brand || 's/marca'}]${p.active ? '' : ' (inactivo)'} · costo $${(p.cost || 0).toLocaleString('es-CL')}${p.vel != null ? ' · vende ' + p.vel + ' u/sem' : ''}${p.stock != null ? ' · stock ' + p.stock : ''}`).join('\n');
+  return own.products.slice(0, 14).map(p => `- ${p.name} [${p.brand || 's/marca'}]${p.active ? '' : ' (inactivo)'}`
+    + (p.abc ? ` · clase ${p.abc}` : '')
+    + (p.vel != null ? ` · vende ${p.vel} u/sem (real)` : '')
+    + ` · COGS $${(p.cost || 0).toLocaleString('es-CL')}`
+    + (p.fob != null ? ` · FOB US$${p.fob}` : '')
+    + (p.stock != null ? ` · stock ${p.stock}` : '')).join('\n');
+}
+// Convierte **negrita** de la IA a <strong> y limpia asteriscos sueltos, escapando el resto.
+function mdBold(t) {
+  let s = escapeHtml(String(t == null ? '' : t));
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\*+/g, '');
+  return s;
 }
 
 // --- Batch: pre-analizar el top N por cuota x seller (reanudable, throttleado por mlGate). ---
@@ -1473,16 +1484,17 @@ async function p2AI(item, stats, products, reviews, own) {
       'NOTA: no se encontró catálogo propio en esta categoría (quizás ET Brands aún no vende acá). Usa la marca propia que corresponda al rubro.\n\n') +
     'ESTACIONALIDAD (índice 100=promedio, prom. 3 años): ' + seas + '\n' +
     'TENDENCIA YoY: ' + (stats.trend.yoy != null ? stats.trend.yoy.toFixed(1) + '%' : 's/d') + ' (' + stats.trend.dir + ')\n' +
-    'CUOTA x vendedor: ' + (stats.cuota.clase) + ' (percentil ' + (stats.cuota.pct || '?') + ')\n\n' +
+    'CUOTA x vendedor: ' + (stats.cuota.clase) + ' (percentil ' + (stats.cuota.pct || '?') + '). IMPORTANTE: es el ingreso promedio por vendedor de TODA la categoría (' + (stats.competidores ? Math.round(stats.competidores) + ' vendedores' : 'el mercado') + '), NO la participación de ET Brands. Percentil alto = categoría donde cada vendedor factura mucho (atractiva), NO significa que ET Brands domine. ET Brands es solo uno más salvo que el catálogo propio de arriba diga lo contrario.\n\n' +
     'TOP PRODUCTOS MÁS VENDIDOS DEL MERCADO (ML, con specs):\n' + (prod || '(sin datos)') + '\n\n' +
     'RESEÑAS (muestras reales):\n' + (revTxt || '(sin datos)') + '\n\n' +
     (fb ? 'FEEDBACK PREVIO DEL EQUIPO (respétalo): ' + fb + '\n\n' : '') +
+    'REGLAS DE ESTILO: sé conciso y escaneable. NO uses markdown (nada de ** ni #). Frases cortas y concretas, con números cuando ayude. Respeta los límites de caracteres.\n' +
     'Devuelve SOLO un JSON con esta forma exacta:\n' +
-    '{"estacionalidad":"1-2 frases con meses peak/valle y qué hacer","cuota":"1 frase","tendencia":"1 frase",' +
+    '{"estacionalidad":"1 frase: meses peak/valle y qué hacer (máx 140 car)","cuota":"1 frase sobre el atractivo de la categoría; NO digas que ET Brands domina salvo evidencia (máx 130 car)","tendencia":"1 frase (máx 110 car)",' +
     '"clusters":[{"nombre":"subcategoría por specs","chips":["FHD","24-27\\""],"pos":[2,3,5],"peso":"8/16"}],' +
-    '"gap":"dónde hay demanda con poca oferta, concreto","reviewOps":"quejas recurrentes = oportunidad, concreto",' +
-    '"upgrades":[{"costo":"BAJO","texto":"upgrade barato de fabricar y alto valor percibido"}],' +
-    '"bundles":["idea de set/bundle concreta"]}';
+    '"gap":"dónde hay demanda con poca oferta, con números (máx 200 car)","reviewOps":"queja recurrente = oportunidad, concreto (máx 160 car)",' +
+    '"upgrades":[{"costo":"BAJO|MEDIO|ALTO","titulo":"3-6 palabras","texto":"por qué (barato de fabricar, alto valor), máx 110 car"}],' +
+    '"bundles":[{"nombre":"nombre del set (3-5 palabras)","para":"segmento objetivo","texto":"qué incluye y por qué, máx 90 car"}]}';
   const raw = await aiText(prompt, cfg, { maxTokens: 2200 });
   return parseJSONLoose(raw) || { _err: 'La IA no devolvió JSON válido' };
 }
@@ -1499,7 +1511,7 @@ function renderP2(report, item, ts) {
   const bars = (s.seasonality || []).map(x => `<div class="p2bar ${x.idx >= 115 ? 'peak' : ''}"><div class="idx">${x.idx}</div><div class="col" style="height:${Math.max(6, Math.min(100, x.idx * 0.7))}%"></div><div class="mo">${x.mo}</div></div>`).join('');
   const trendCol = s.trend && s.trend.yoy != null ? (s.trend.yoy >= 0 ? 'var(--good)' : 'var(--bad)') : 'var(--muted)';
   const cuotaBadge = { ALTA: 'p2-hot', MEDIA: 'p2-mid', BAJA: 'p2-bad' }[(s.cuota || {}).clase] || 'p2-mid';
-  const aiLine = (tag, txt) => txt ? `<div class="p2ai"><span class="tag">🤖 ${tag}</span>${esc(txt)}</div>` : '';
+  const aiLine = (tag, txt) => txt ? `<div class="p2ai"><span class="tag">🤖 ${tag}</span>${mdBold(txt)}</div>` : '';
   const fbRow = sec => `<div class="p2fb"><button onclick="p2Fb(this,'${esc(item.id)}','${sec}',1)">👍</button><button onclick="p2Fb(this,'${esc(item.id)}','${sec}',0)">👎</button><button onclick="p2FbEdit('${esc(item.id)}','${sec}')">✏️ Corregir</button></div>`;
 
   const clusters = (ai.clusters || []).map(c => {
@@ -1520,8 +1532,15 @@ function renderP2(report, item, ts) {
     return `<div style="font-size:13px;margin-bottom:6px"><b style="color:var(--accent-d);font-size:20px">${r.avg || '?'}★</b> · ${r.total || 0} reseñas · ${esc(r.name)} ${r.price ? '($' + Math.round(r.price).toLocaleString('es-CL') + ')' : ''}</div>${bar(5, lv.five_star)}${bar(1, lv.one_star)}<div style="margin-top:6px">${samples}</div>`;
   })() : '<span class="muted small">Sin reseñas disponibles para el top.</span>';
 
-  const upgrades = (ai.upgrades || []).map(u => `<div class="p2up"><span class="c ${/(baj|low)/i.test(u.costo) ? 'p2-good' : 'p2-mid'}">costo ${esc(u.costo || '')}</span><div>${esc(u.texto || '')}</div></div>`).join('');
-  const bundles = (ai.bundles || []).map(b => `<li style="margin:5px 0">${esc(b)}</li>`).join('');
+  const upgrades = (ai.upgrades || []).map(u => {
+    const cc = /(baj|low)/i.test(u.costo) ? 'p2-good' : (/(alt|high)/i.test(u.costo) ? 'p2-bad' : 'p2-mid');
+    const ti = u.titulo ? `<b>${esc(u.titulo)}</b> — ` : '';
+    return `<div class="p2up"><span class="c ${cc}">costo ${esc(u.costo || '')}</span><div>${ti}${mdBold(u.texto || '')}</div></div>`;
+  }).join('');
+  const bundles = (ai.bundles || []).map(b => {
+    if (b && typeof b === 'object') return `<li style="margin:6px 0"><b>${esc(b.nombre || '')}</b>${b.para ? ` <span class="muted small">· ${esc(b.para)}</span>` : ''}${b.texto ? `<div style="font-size:12px;color:var(--muted);margin-top:1px">${mdBold(b.texto)}</div>` : ''}</li>`;
+    return `<li style="margin:5px 0">${mdBold(b)}</li>`;
+  }).join('');
   const fmt = v => (v != null && !isNaN(v)) ? '$' + Math.round(v).toLocaleString('es-CL') : '–';
 
   const updStr = ts ? new Date(ts).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
@@ -1532,11 +1551,11 @@ function renderP2(report, item, ts) {
     `<div class="p2tool"><button class="btn ghost" style="font-size:12px;padding:7px 12px" id="p2ChatToggle">💬 Pregúntale a la IA</button><button class="btn ${report.deep ? 'ghost' : ''}" style="font-size:12px;padding:7px 12px" id="p2DeepToggle">📊 ${report.deep ? 'Re-analizar en profundidad' : 'Analizar en profundidad'}</button></div>` +
     ('own' in report ? renderP2Own(report.own) : '') +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">📅</div><h3>Estacionalidad</h3></div><div class="p2bars">${bars}</div>${aiLine('Lectura', ai.estacionalidad)}${fbRow('estacionalidad')}</div>` +
-    `<div class="p2sec"><div class="p2sec-h"><div class="ic">💰</div><h3>Cuota por vendedor</h3><span class="verdict ${cuotaBadge}">${esc((s.cuota || {}).clase || '—')}</span></div><p style="margin:2px 0;font-size:13px">${fmt((s.cuota || {}).cuota)}/vendedor · percentil ${(s.cuota || {}).pct || '?'} · ${s.competidores ? Math.round(s.competidores) + ' competidores' : ''}</p>${aiLine('Lectura', ai.cuota)}${fbRow('cuota')}</div>` +
+    `<div class="p2sec"><div class="p2sec-h"><div class="ic">💰</div><h3>Atractivo · cuota por vendedor</h3><span class="verdict ${cuotaBadge}">${esc((s.cuota || {}).clase || '—')}</span></div><p style="margin:2px 0;font-size:13px">${fmt((s.cuota || {}).cuota)}/vendedor · percentil ${(s.cuota || {}).pct || '?'} · ${s.competidores ? Math.round(s.competidores) + ' vendedores' : ''}</p><p class="small muted" style="margin:2px 0 0">Ingreso promedio por vendedor de <b>toda la categoría</b> (no de ET Brands). Alto = mercado donde cada vendedor factura mucho.</p>${aiLine('Lectura', ai.cuota)}${fbRow('cuota')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">📈</div><h3>Tendencia</h3><span class="verdict ${s.trend && s.trend.yoy >= 0 ? 'p2-good' : 'p2-bad'}">${esc((s.trend || {}).dir || '—')}</span></div><p style="margin:2px 0"><b style="color:${trendCol};font-size:20px">${s.trend && s.trend.yoy != null ? (s.trend.yoy >= 0 ? '+' : '') + s.trend.yoy.toFixed(1) + '%' : '–'}</b> <span class="muted small">YoY (últimos 12m vs previos)</span></p>${aiLine('Lectura', ai.tendencia)}${fbRow('tendencia')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">🏆</div><h3>Top vendedores</h3></div><a class="btn" href="${esc(report.rankUrl || '#')}" target="_blank" rel="noopener">🏆 Ver ranking en Nubimetrics ↗</a></div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">🧩</div><h3>Top productos por subcategoría</h3><span class="verdict p2-good">${prods.length} reales</span></div>${etbHit}<div class="p2clgrid">${clusters || '<span class="muted small">La IA no devolvió clusters.</span>'}</div>${fbRow('clusters')}</div>` +
-    `<div class="p2sec"><div class="p2sec-h"><div class="ic">🎯</div><h3>Gap oferta / demanda</h3><span class="verdict p2-hot">Oportunidad</span></div>${ai.gap ? `<div class="p2gap">${esc(ai.gap)}</div>` : '<span class="muted small">—</span>'}${fbRow('gap')}</div>` +
+    `<div class="p2sec"><div class="p2sec-h"><div class="ic">🎯</div><h3>Gap oferta / demanda</h3><span class="verdict p2-hot">Oportunidad</span></div>${ai.gap ? `<div class="p2gap">${mdBold(ai.gap)}</div>` : '<span class="muted small">—</span>'}${fbRow('gap')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">⭐</div><h3>Diferenciación por reseñas</h3></div>${revBlock}${aiLine('Oportunidad', ai.reviewOps)}${fbRow('resenas')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">⚡</div><h3>Diferenciación por upgrades</h3></div>${upgrades || '<span class="muted small">—</span>'}${fbRow('upgrades')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">📦</div><h3>Diferenciación por bundle</h3></div><ul style="margin:4px 0 0;padding-left:18px;font-size:13px">${bundles || '<li class="muted">—</li>'}</ul>${fbRow('bundles')}</div>` +
@@ -1604,11 +1623,12 @@ async function p2DeepAI(item, rows, agg) {
     'Vendedores líderes: ' + agg.topSellers.slice(0, 6).map(s => s.name + ' (' + (s.ventas / 1e6).toFixed(0) + 'M, ' + s.n + ' pub)').join(', ') + '.\n' +
     'Catálogo ' + agg.catPct + '% · Full ' + agg.fullPct + '% del top.\n\n' +
     'PUBLICACIONES (pos · título · unidades · ventas · ticket · logística · vendedor):\n' + top + '\n\n' +
-    'Devuelve SOLO JSON: {"resumen":"2-3 frases accionables para decidir si entrar y con qué producto",' +
-    '"clusters":[{"nombre":"subcategoría por specs","unidades":<suma unidades del cluster>,"ejemplos":["título corto"]}],' +
-    '"gap":"dónde hay muchas unidades con pocas publicaciones (hueco de oferta), concreto y con números",' +
-    '"concentracion":"qué tan concentrado está el mercado entre vendedores y qué implica para entrar",' +
-    '"oportunidades":["acción concreta 1","acción concreta 2","acción concreta 3"]}';
+    'REGLAS DE ESTILO: MUY conciso y escaneable. NO uses markdown (nada de ** ni #). Frases cortas con números. Respeta los límites de caracteres. Nada de párrafos largos.\n' +
+    'Devuelve SOLO JSON: {"resumen":"2 frases accionables: entrar o no y con qué producto (máx 240 car)",' +
+    '"clusters":[{"nombre":"subcategoría por specs (2-4 palabras)","unidades":<suma unidades del cluster>,"ejemplos":["título corto"]}],' +
+    '"gap":"hueco concreto: muchas unidades con pocas publicaciones, con números (máx 200 car)",' +
+    '"concentracion":"qué tan concentrado y qué implica para entrar (máx 180 car)",' +
+    '"oportunidades":[{"titulo":"producto/acción (3-6 palabras)","detalle":"specs clave + precio/segmento objetivo, máx 130 car"}]}';
   const raw = await aiText(prompt, cfg, { maxTokens: 2600 });
   return parseJSONLoose(raw) || { _err: 'La IA no devolvió JSON' };
 }
@@ -1617,10 +1637,18 @@ function renderP2Own(own) {
   if (!own || !own.products || !own.products.length)
     return `<div class="p2sec"><div class="p2sec-h"><div class="ic">🏷️</div><h3>Tu catálogo actual</h3><span class="verdict p2-mid">sin productos</span></div><p class="small muted">No se encontraron productos propios de ET Brands en esta categoría (o el nombre no matcheó con ProfitGuard). La IA lo sabe y trata la categoría como entrada nueva.</p></div>`;
   const act = own.products.filter(p => p.active);
-  const rows = act.slice(0, 14).map(p => `<tr><td>${esc(p.name)}</td><td>${esc(p.brand || '')}</td><td style="text-align:right">$${(p.cost || 0).toLocaleString('es-CL')}</td><td style="text-align:right;font-weight:700;color:${p.vel > 0 ? 'var(--good)' : 'var(--muted)'}">${p.vel != null ? p.vel + ' u/sem' : '–'}</td><td style="text-align:right">${p.stock != null ? p.stock : '–'}</td></tr>`).join('');
+  const abcColor = { A: 'var(--good)', B: '#8fd18f', C: 'var(--mid)', D: 'var(--faint)', F: 'var(--bad)' };
+  const abcCell = p => p.abc ? `<span style="font-weight:800;color:${abcColor[p.abc] || 'var(--muted)'}">${esc(p.abc)}</span>` : '–';
+  const rows = act.slice(0, 14).map(p => `<tr><td>${esc(p.name)}</td><td>${esc(p.brand || '')}</td>` +
+    `<td style="text-align:center">${abcCell(p)}</td>` +
+    `<td style="text-align:right;font-weight:700;color:${p.vel > 0 ? 'var(--good)' : 'var(--muted)'}">${p.vel != null ? p.vel + ' u/sem' : '–'}</td>` +
+    `<td style="text-align:right">${p.stock != null ? p.stock : '–'}</td>` +
+    `<td style="text-align:right">$${(p.cost || 0).toLocaleString('es-CL')}</td>` +
+    `<td style="text-align:right">${p.fob != null ? 'US$' + p.fob : '–'}</td></tr>`).join('');
+  const hasA = act.some(p => p.abc === 'A');
   return `<div class="p2sec"><div class="p2sec-h"><div class="ic">🏷️</div><h3>Tu catálogo actual</h3><span class="verdict p2-good">${own.brand ? esc(own.brand) + ' · ' : ''}${act.length} activo${act.length === 1 ? '' : 's'}</span></div>` +
-    `<p class="small muted" style="margin:2px 0 6px">Productos de ET Brands ya en esta categoría (marca propia real, costo y velocidad de venta). La IA los usa para no duplicar y sugerir huecos/mejoras.</p>` +
-    `<div style="overflow:auto"><table class="p2own"><thead><tr><th style="text-align:left">Producto</th><th style="text-align:left">Marca</th><th style="text-align:right">Costo</th><th style="text-align:right">Velocidad</th><th style="text-align:right">Stock</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+    `<p class="small muted" style="margin:2px 0 6px">Lo que ET Brands ya vende en esta categoría. <b>Clase</b> = rotación real (A=top ventas … F=congelado), <b>vel.</b> = promedio semanal REAL, <b>COGS</b> = costo en bodega, <b>FOB</b> = costo de fábrica. La IA lo usa para no duplicar y sugerir huecos/mejoras.${hasA ? ' <span style="color:var(--good)">Tenés productos clase A (ganadores) acá.</span>' : ''}</p>` +
+    `<div style="overflow:auto"><table class="p2own"><thead><tr><th style="text-align:left">Producto</th><th style="text-align:left">Marca</th><th style="text-align:center" title="Rotación real: A=top ventas … F=congelado">Clase</th><th style="text-align:right" title="Promedio semanal real de las últimas semanas">Vel. real</th><th style="text-align:right">Stock</th><th style="text-align:right" title="Costo puesto en bodega (CLP)">COGS</th><th style="text-align:right" title="Costo FOB de fábrica (USD)">FOB</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
 }
 function renderP2Deep(deep) {
   const esc = escapeHtml, ai = deep.ai || {};
@@ -1641,11 +1669,14 @@ function renderP2Deep(deep) {
   return `<div class="p2sec" style="border-color:var(--accent)"><div class="p2sec-h"><div class="ic">🔬</div><h3>Análisis profundo · ranking real</h3><span class="verdict p2-hot">${esc(per)}</span></div>` +
     (ai._err ? `<div class="p2err">La IA falló (${esc(ai._err)}).</div>` : '') +
     `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 10px">${kpi('Venta top', deep.tot ? '$' + (deep.tot.ventas / 1e6).toFixed(0) + 'M' : '–')}${kpi('Unidades', deep.tot ? Math.round(deep.tot.unidades).toLocaleString('es-CL') : '–')}${kpi('Catálogo', (deep.agg ? deep.agg.catPct : '?') + '%')}${kpi('Full', (deep.agg ? deep.agg.fullPct : '?') + '%')}</div>` +
-    (ai.resumen ? `<div class="p2ai"><span class="tag">🤖 Resumen</span>${esc(ai.resumen)}</div>` : '') +
+    (ai.resumen ? `<div class="p2ai"><span class="tag">🤖 Resumen</span>${mdBold(ai.resumen)}</div>` : '') +
     (clBars ? `<div style="font-weight:800;font-size:12px;margin:12px 0 2px">📊 Demanda por subcategoría (unidades reales)</div>${clBars}` : '') +
-    (ai.gap ? `<div class="p2gap" style="margin-top:10px"><b>🎯 Gap oferta/demanda:</b> ${esc(ai.gap)}</div>` : '') +
-    (sBars ? `<div style="font-weight:800;font-size:12px;margin:12px 0 2px">🏪 Concentración por vendedor (ventas)</div>${sBars}${ai.concentracion ? `<div class="small muted" style="margin-top:4px">${esc(ai.concentracion)}</div>` : ''}` : '') +
-    ((ai.oportunidades && ai.oportunidades.length) ? `<div style="margin-top:10px"><b style="font-size:12px">💡 Oportunidades:</b><ul style="margin:4px 0 0;padding-left:18px;font-size:13px">${ai.oportunidades.map(o => `<li>${esc(o)}</li>`).join('')}</ul></div>` : '') +
+    (ai.gap ? `<div class="p2gap" style="margin-top:10px"><b>🎯 Gap oferta/demanda:</b> ${mdBold(ai.gap)}</div>` : '') +
+    (sBars ? `<div style="font-weight:800;font-size:12px;margin:12px 0 2px">🏪 Concentración por vendedor (ventas)</div>${sBars}${ai.concentracion ? `<div class="small muted" style="margin-top:4px">${mdBold(ai.concentracion)}</div>` : ''}` : '') +
+    ((ai.oportunidades && ai.oportunidades.length) ? `<div style="margin-top:12px"><b style="font-size:12px">💡 Oportunidades:</b><div style="margin-top:4px">${ai.oportunidades.map(o => {
+      if (o && typeof o === 'object') return `<div style="display:flex;gap:8px;margin:6px 0"><span style="color:var(--accent);font-weight:800">›</span><div><b style="font-size:13px">${esc(o.titulo || '')}</b>${o.detalle ? `<div style="font-size:12px;color:var(--muted);margin-top:1px">${mdBold(o.detalle)}</div>` : ''}</div></div>`;
+      return `<div style="display:flex;gap:8px;margin:6px 0"><span style="color:var(--accent);font-weight:800">›</span><div style="font-size:13px">${mdBold(o)}</div></div>`;
+    }).join('')}</div></div>` : '') +
     `<div class="p2fb"><button onclick="openP2DeepModal()">↻ Reimportar / cambiar mes</button></div></div>`;
 }
 // Abre el popup de importación profunda (los selectores se pueblan la 1ª vez).
@@ -1685,7 +1716,7 @@ function p2ChatContext(report) {
   const s = report.stats || {}, ai = report.ai || {};
   let c = 'Categoría: ' + report.cat.leaf + ' (' + report.cat.l1 + ').\n';
   c += 'Estacionalidad (idx 100=prom): ' + (s.seasonality || []).map(x => x.mo + x.idx).join(' ') + '.\n';
-  c += 'Cuota x vendedor: ' + ((s.cuota || {}).clase) + ' (pct ' + ((s.cuota || {}).pct) + '). Tendencia: ' + ((s.trend || {}).dir) + ' ' + ((s.trend || {}).yoy != null ? s.trend.yoy.toFixed(0) + '%' : '') + '. Ticket ~$' + Math.round(s.ticket || 0).toLocaleString('es-CL') + '.\n';
+  c += 'Cuota x vendedor: ' + ((s.cuota || {}).clase) + ' (pct ' + ((s.cuota || {}).pct) + ') — ingreso promedio por vendedor de TODA la categoría, NO la participación de ET Brands. Tendencia: ' + ((s.trend || {}).dir) + ' ' + ((s.trend || {}).yoy != null ? s.trend.yoy.toFixed(0) + '%' : '') + '. Ticket ~$' + Math.round(s.ticket || 0).toLocaleString('es-CL') + '.\n';
   c += 'Top productos ML: ' + (report.products || []).slice(0, 12).map(p => '#' + p.pos + ' ' + p.name).join('; ') + '.\n';
   const ownTxt = p2OwnTxt(report.own); if (ownTxt) c += 'CATÁLOGO PROPIO ET BRANDS' + (report.own && report.own.brand ? ' (marca ' + report.own.brand + ')' : '') + ':\n' + ownTxt + '\n';
   if (ai.clusters) c += 'Clusters: ' + ai.clusters.map(cl => cl.nombre).join(', ') + '.\n';
