@@ -1256,7 +1256,23 @@ function wireRdChartHover() {
    (c) Claude (/api/anthropic) para clusters y diferenciación. Cachea en KV.
    ============================================================ */
 let _p2Running = false;
+// Rate-limiter global de ML (vía ProfitGuard, límite 120/min por key). Token bucket:
+// permite ráfagas cortas (P2 on-demand sale rápido) pero limita el sostenido a ~100/min
+// (clave para el batch de 500). Todas las llamadas mlGet pasan por acá.
+let _mlTokens = 100, _mlLast = 0;
+const ML_MAX = 100, ML_RATE = 100 / 60000;   // tokens/ms ≈ 100/min
+async function mlGate() {
+  for (;;) {
+    const now = Date.now();
+    if (!_mlLast) _mlLast = now;
+    _mlTokens = Math.min(ML_MAX, _mlTokens + (now - _mlLast) * ML_RATE);
+    _mlLast = now;
+    if (_mlTokens >= 1) { _mlTokens -= 1; return; }
+    await new Promise(r => setTimeout(r, 250));
+  }
+}
 async function mlGet(path, query) {
+  await mlGate();
   const r = await fetch(api('/api/ml'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path, query: query || {} }) });
   const j = await r.json().catch(() => ({ error: 'respuesta no-JSON' }));
   if (!r.ok || j.error) throw new Error(j.error || ('ml ' + r.status));
@@ -1290,6 +1306,84 @@ function p2Prod(pos, id, body) {
   return { pos, id, name: (body.name || '').slice(0, 90), brand: p2Attr(body, 'BRAND'), attrs, pdp: 'https://www.mercadolibre.cl/p/' + id };
 }
 
+function p2RankUrl(item) {
+  const catPath = item.path || item.id || '';
+  const rDay = new Date().toISOString().slice(0, 10);
+  return 'https://app.nubimetrics.com/market/sellerranking#?category=' + catPath + '&range=' + rDay;
+}
+async function p2CacheGet(id) { try { return await (await fetch(api('/api/p2?id=' + encodeURIComponent(id)))).json(); } catch (e) { return null; } }
+async function p2CachePut(id, report) { return fetch(api('/api/p2'), { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, report }) }); }
+// Núcleo de P2 SIN UI: junta stats + ML + IA y devuelve el reporte (no cachea ni renderiza).
+// Lo usan tanto runP2 (on-demand, con render) como el batch (masivo, sin render).
+async function computeP2Report(item, onProgress) {
+  const log = onProgress || (() => {});
+  const serie = Array.isArray(item.serie) ? item.serie : [];
+  const stats = { seasonality: p2Seasonality(serie), trend: p2Trend(serie), cuota: p2CuotaClass(item), ticket: item.ticket, ventasGmv: item.ventasGmv, competidores: item.competidores };
+  log('Trayendo los productos más vendidos de Mercado Libre…');
+  const hl = await mlGet('/highlights/MLC/category/' + item.id).catch(() => null);
+  let products = [], reviews = null;
+  const content = (hl && hl.content) || [];
+  const catProds = content.filter(c => c.type === 'PRODUCT').slice(0, 16);
+  if (catProds.length) {
+    log('Leyendo fichas técnicas de ' + catProds.length + ' productos…');
+    const dets = await p2MapLimit(catProds, 5, async c => { const b = await mlGet('/products/' + c.id); return p2Prod(c.position, c.id, b); });
+    products = dets.filter(Boolean);
+    log('Trayendo reseñas de los más vendidos…');
+    const revs = await p2MapLimit(products.slice(0, 3), 3, async p => {
+      try {
+        const its = await mlGet('/products/' + p.id + '/items');
+        const win = ((its && its.results) || [])[0]; if (!win) return null;
+        const rv = await mlGet('/reviews/item/' + win.item_id);
+        const samples = ((rv && rv.reviews) || []).slice(0, 4).map(x => ({ rate: x.rate, title: x.title, content: (x.content || '').slice(0, 180) }));
+        return { name: p.name, pos: p.pos, price: win.price, avg: rv && rv.rating_average, total: rv && (rv.paging && rv.paging.total), levels: rv && rv.rating_levels, samples };
+      } catch (e) { return null; }
+    });
+    reviews = revs.filter(Boolean);
+  }
+  log('La IA está agrupando productos y buscando oportunidades…');
+  const ai = await p2AI(item, stats, products, reviews).catch(e => ({ _err: String(e.message || e) }));
+  return { v: 1, cat: { l1: item.l1, leaf: item.leaf, id: item.id, path: item.path }, stats, products, reviews, ai, rankUrl: p2RankUrl(item) };
+}
+
+// --- Batch: pre-analizar el top N por cuota x seller (reanudable, throttleado por mlGate). ---
+let _p2Batch = null;
+async function runP2Batch(n) {
+  if (country === 'co') { alert('El pre-análisis con datos de ML está disponible por ahora solo para Chile.'); return; }
+  if (_p2Batch && _p2Batch.running) return;
+  const cats = _researchAll.filter(x => (parseFloat(x.ventasGmv) || 0) > 0)
+    .slice().sort((a, b) => (researchCuota(b) || 0) - (researchCuota(a) || 0)).slice(0, n);
+  if (!cats.length) { alert('No hay categorías con ventas para analizar. Importa datos primero.'); return; }
+  _p2Batch = { running: true, total: cats.length, done: 0, ok: 0, fail: 0, skip: 0, stop: false, t0: Date.now() };
+  p2BatchUI();
+  for (const item of cats) {
+    if (_p2Batch.stop) break;
+    try {
+      const c = await p2CacheGet(item.id);
+      if (c && c.report) { _p2Batch.skip++; }        // reanudable: ya estaba
+      else { const report = await computeP2Report(item); await p2CachePut(item.id, report); _p2Batch.ok++; }
+    } catch (e) { _p2Batch.fail++; }
+    _p2Batch.done++;
+    p2BatchUI();
+  }
+  _p2Batch.running = false;
+  p2BatchUI();
+}
+function p2BatchUI() {
+  const b = _p2Batch; if (!b) return;
+  const bar = $('p2BatchBar'), fill = $('p2BatchFill'), txt = $('p2BatchTxt'), btn = $('p2BatchBtn'), stop = $('p2BatchStop');
+  if (bar) bar.classList.toggle('hidden', !b.running && b.done === 0);
+  if (fill) fill.style.width = (b.total ? Math.round(b.done / b.total * 100) : 0) + '%';
+  if (btn) btn.classList.toggle('hidden', b.running);
+  if (stop) stop.classList.toggle('hidden', !b.running);
+  if (txt) {
+    const elapsed = (Date.now() - b.t0) / 1000;
+    const rate = b.done > 0 ? elapsed / b.done : 0;
+    const etaMin = b.running && rate ? Math.ceil((b.total - b.done) * rate / 60) : 0;
+    txt.innerHTML = `Pre-análisis: <b>${b.done}/${b.total}</b> · nuevos ${b.ok} · ya estaban ${b.skip}` +
+      (b.fail ? ` · fallos ${b.fail}` : '') +
+      (b.running ? ` · ~${etaMin} min restantes` : ' · <b style="color:var(--good)">listo ✓</b>');
+  }
+}
 // Carga silenciosa del reporte cacheado al abrir la categoría (no analiza, solo muestra si existe).
 async function p2LoadCached(item) {
   if (!item) return;
@@ -1311,44 +1405,9 @@ async function runP2(item, force) {
     }
     if (country === 'co') { host.innerHTML = '<div class="p2err">El análisis P2 con datos de ML está disponible por ahora solo para Chile.</div>'; _p2Running = false; return; }
 
-    // 1) Stats locales (de la serie ya recolectada)
-    load('Analizando estacionalidad, cuota y tendencia…');
-    const serie = Array.isArray(item.serie) ? item.serie : [];
-    const stats = { seasonality: p2Seasonality(serie), trend: p2Trend(serie), cuota: p2CuotaClass(item), ticket: item.ticket, ventasGmv: item.ventasGmv, competidores: item.competidores };
-
-    // 2) Best-sellers de ML (top 20) + fichas
-    load('Trayendo los productos más vendidos de Mercado Libre…');
-    const hl = await mlGet('/highlights/MLC/category/' + item.id).catch(() => null);
-    let products = [], reviews = null;
-    const content = (hl && hl.content) || [];
-    const catProds = content.filter(c => c.type === 'PRODUCT').slice(0, 16);
-    if (catProds.length) {
-      load('Leyendo fichas técnicas de ' + catProds.length + ' productos…');
-      const dets = await p2MapLimit(catProds, 5, async c => { const b = await mlGet('/products/' + c.id); return p2Prod(c.position, c.id, b); });
-      products = dets.filter(Boolean);
-      // 3) Reseñas del top 3 (precio + valoración)
-      load('Trayendo reseñas de los más vendidos…');
-      const revs = await p2MapLimit(products.slice(0, 3), 3, async p => {
-        try {
-          const its = await mlGet('/products/' + p.id + '/items');
-          const win = ((its && its.results) || [])[0]; if (!win) return null;
-          const rv = await mlGet('/reviews/item/' + win.item_id);
-          const samples = ((rv && rv.reviews) || []).slice(0, 4).map(x => ({ rate: x.rate, title: x.title, content: (x.content || '').slice(0, 180) }));
-          return { name: p.name, pos: p.pos, price: win.price, avg: rv && rv.rating_average, total: rv && (rv.paging && rv.paging.total), levels: rv && rv.rating_levels, samples };
-        } catch (e) { return null; }
-      });
-      reviews = revs.filter(Boolean);
-    }
-
-    // 4) IA: clusters + diferenciación
-    load('La IA está agrupando productos y buscando oportunidades…');
-    const ai = await p2AI(item, stats, products, reviews).catch(e => ({ _err: String(e.message || e) }));
-
-    // 5) Ensamblar + cachear
-    const rankUrl = $('rdRanking').href;
-    const report = { v: 1, cat: { l1: item.l1, leaf: item.leaf, id: item.id, path: item.path }, stats, products, reviews, ai, rankUrl };
+    const report = await computeP2Report(item, load);
     renderP2(report, item, Date.now());
-    try { await fetch(api('/api/p2'), { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: item.id, report }) }); } catch (e) {}
+    try { await p2CachePut(item.id, report); } catch (e) {}
   } catch (e) {
     host.innerHTML = '<div class="p2err">No se pudo completar el análisis: ' + escapeHtml(String(e.message || e)) + '<br><button class="btn" style="margin-top:8px" onclick="runP2(_rdItem,true)">Reintentar</button></div>';
   } finally { _p2Running = false; }
@@ -1565,6 +1624,8 @@ function init() {
   $('btnResearchImport').onclick = () => $('researchFile').click();
   $('researchFile').addEventListener('change', e => { const f = e.target.files[0]; if (f) importResearchJSON(f); e.target.value = ''; });
   $('researchFilter').addEventListener('input', debounce(paintResearch, 200));
+  { const b = $('p2BatchBtn'); if (b) b.onclick = () => { if (confirm('Pre-analizar el top 500 de categorías (por cuota x seller). Toma ~1–2 h en segundo plano y respeta el límite de ProfitGuard. Podés seguir usando la app. ¿Continuar?')) runP2Batch(500); }; }
+  { const s = $('p2BatchStop'); if (s) s.onclick = () => { if (_p2Batch) _p2Batch.stop = true; }; }
   // Reporte de detalle de categoría (Investigación)
   document.querySelectorAll('.rd-mbtn').forEach(b => b.onclick = () => { _rdMetric = b.dataset.metric; document.querySelectorAll('.rd-mbtn').forEach(x => x.classList.toggle('active', x === b)); renderRdChart(); });
   $('rdFrom').addEventListener('change', renderRdChart);

@@ -404,8 +404,14 @@
       <button class="btn" id="btnResearchImport" type="button">⬆ Importar datos (Nubimetrics)</button>
       <input type="file" id="researchFile" accept=".json" style="display:none">
       <button class="btn ghost" id="btnResearchExport" type="button">Exportar CSV</button>
+      <button class="btn ghost cl-only" id="p2BatchBtn" type="button" title="Pre-computa el P2 de las 500 categorías más atractivas (cuota x seller) y las guarda. Reanudable.">🔬 Pre-analizar top 500</button>
+      <button class="btn ghost hidden" id="p2BatchStop" type="button" style="border-color:var(--bad);color:var(--bad)">■ Detener</button>
       <span class="muted" id="researchCount"></span>
       <span class="muted" id="researchStatus" style="flex-basis:100%;margin-top:4px"></span>
+      <div id="p2BatchBar" class="hidden" style="flex-basis:100%;margin-top:6px">
+        <div style="height:8px;background:var(--panel2);border:1px solid var(--line);border-radius:5px;overflow:hidden"><div id="p2BatchFill" style="height:100%;width:0;background:var(--accent);transition:width .2s"></div></div>
+        <span class="hint" id="p2BatchTxt" style="margin-top:3px;display:block"></span>
+      </div>
     </div>
     <div class="hint" style="margin-bottom:10px">Categorías hoja con datos de Nubimetrics (visión global de ML, promedio de los últimos 12 meses). <b>Cuota x seller = ventas (GMV) ÷ competidores profesionales</b>. Los datos se recolectan desde tu sesión de Nubimetrics y se importan aquí (snapshot). Clic en una fila: detalle (próximamente).</div>
     <div id="researchDbWrap" class="db-wrap"></div>
@@ -467,12 +473,12 @@
 </div>
 
 <!-- ?v= versiona los assets: al cambiar el número, el navegador ignora el caché de 4h de Cloudflare. Súbelo en cada deploy que toque JS. -->
-<script src="data/ml_categories.js?v=260721"></script>
-<script src="data/fbla_categories.js?v=260721"></script>
-<script src="data/shipping.js?v=260721"></script>
-<script src="src/app.js?v=260721"></script>
-<script src="src/ai.js?v=260721"></script>
-<script src="src/local-ai.js?v=260721"></script>
-<script src="src/ui.js?v=260721"></script>
+<script src="data/ml_categories.js?v=260722"></script>
+<script src="data/fbla_categories.js?v=260722"></script>
+<script src="data/shipping.js?v=260722"></script>
+<script src="src/app.js?v=260722"></script>
+<script src="src/ai.js?v=260722"></script>
+<script src="src/local-ai.js?v=260722"></script>
+<script src="src/ui.js?v=260722"></script>
 </body>
 </html>
