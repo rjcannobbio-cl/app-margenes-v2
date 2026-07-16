@@ -1348,20 +1348,25 @@ async function computeP2Report(item, onProgress) {
 
 // --- Batch: pre-analizar el top N por cuota x seller (reanudable, throttleado por mlGate). ---
 let _p2Batch = null;
-async function runP2Batch(n) {
+async function runP2Batch(n, force) {
   if (country === 'co') { alert('El pre-análisis con datos de ML está disponible por ahora solo para Chile.'); return; }
   if (_p2Batch && _p2Batch.running) return;
+  await loadBizCtx();   // asegura el contexto de negocio antes de arrancar
   const cats = _researchAll.filter(x => (parseFloat(x.ventasGmv) || 0) > 0)
     .slice().sort((a, b) => (researchCuota(b) || 0) - (researchCuota(a) || 0)).slice(0, n);
   if (!cats.length) { alert('No hay categorías con ventas para analizar. Importa datos primero.'); return; }
-  _p2Batch = { running: true, total: cats.length, done: 0, ok: 0, fail: 0, skip: 0, stop: false, t0: Date.now() };
+  _p2Batch = { running: true, total: cats.length, done: 0, ok: 0, fail: 0, skip: 0, stop: false, force: !!force, t0: Date.now() };
   p2BatchUI();
   for (const item of cats) {
     if (_p2Batch.stop) break;
     try {
-      const c = await p2CacheGet(item.id);
-      if (c && c.report) { _p2Batch.skip++; }        // reanudable: ya estaba
-      else { const report = await computeP2Report(item); await p2CachePut(item.id, report); _p2Batch.ok++; }
+      const prev = await p2CacheGet(item.id);
+      if (!force && prev && prev.report) { _p2Batch.skip++; }   // reanudable: ya estaba (salvo force)
+      else {
+        const report = await computeP2Report(item);
+        if (prev && prev.report) { if (prev.report.deep) report.deep = prev.report.deep; if (prev.report.chat) report.chat = prev.report.chat; }   // conserva profundo + chat
+        await p2CachePut(item.id, report); _p2Batch.ok++;
+      }
     } catch (e) { _p2Batch.fail++; }
     _p2Batch.done++;
     p2BatchUI();
@@ -1380,7 +1385,7 @@ function p2BatchUI() {
     const elapsed = (Date.now() - b.t0) / 1000;
     const rate = b.done > 0 ? elapsed / b.done : 0;
     const etaMin = b.running && rate ? Math.ceil((b.total - b.done) * rate / 60) : 0;
-    txt.innerHTML = `Pre-análisis: <b>${b.done}/${b.total}</b> · nuevos ${b.ok} · ya estaban ${b.skip}` +
+    txt.innerHTML = `Pre-análisis${b.force ? ' (sobrescribir)' : ''}: <b>${b.done}/${b.total}</b> · ${b.force ? 're-analizadas' : 'nuevas'} ${b.ok}` + (b.force ? '' : ` · ya estaban ${b.skip}`) +
       (b.fail ? ` · fallos ${b.fail}` : '') +
       (b.running ? ` · ~${etaMin} min restantes` : ' · <b style="color:var(--good)">listo ✓</b>');
   }
@@ -1800,7 +1805,7 @@ function init() {
   $('btnResearchImport').onclick = () => $('researchFile').click();
   $('researchFile').addEventListener('change', e => { const f = e.target.files[0]; if (f) importResearchJSON(f); e.target.value = ''; });
   $('researchFilter').addEventListener('input', debounce(paintResearch, 200));
-  { const b = $('p2BatchBtn'); if (b) b.onclick = () => { if (confirm('Pre-analizar el top 500 de categorías (por cuota x seller). Toma ~1–2 h en segundo plano y respeta el límite de ProfitGuard. Podés seguir usando la app. ¿Continuar?')) runP2Batch(500); }; }
+  { const b = $('p2BatchBtn'); if (b) b.onclick = () => { if (!confirm('Pre-analizar el top 500 de categorías (por cuota x seller). Toma ~1–2 h en segundo plano y respeta el límite de ProfitGuard. Podés seguir usando la app. ¿Continuar?')) return; const force = confirm('¿Sobrescribir las que YA tenías analizadas, para aplicarles el contexto de negocio actual?\n\n• Aceptar = re-analiza TODAS (aplica el nuevo contexto).\n• Cancelar = solo las que falten.'); runP2Batch(500, force); }; }
   { const s = $('p2BatchStop'); if (s) s.onclick = () => { if (_p2Batch) _p2Batch.stop = true; }; }
   // Modal "Analizar en profundidad"
   { const c = $('p2DeepClose'); if (c) c.onclick = () => $('p2DeepOverlay').classList.add('hidden'); }
