@@ -1477,8 +1477,9 @@ function renderP2(report, item, ts) {
   const fmt = v => (v != null && !isNaN(v)) ? '$' + Math.round(v).toLocaleString('es-CL') : '–';
 
   const updStr = ts ? new Date(ts).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+  const sameDay = ts && new Date(ts).toDateString() === new Date().toDateString();   // ya actualizado hoy → botón deshabilitado
   host.innerHTML =
-    `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px;flex-wrap:wrap"><div><h3 style="margin:0;font-size:15px;font-weight:800">🔬 Análisis P2 · ${esc(item.leaf)}</h3><div class="muted" style="font-size:11px;margin-top:2px">Última actualización: <b style="color:var(--ink)">${updStr}</b></div></div><button class="btn" style="font-size:12px;padding:7px 13px" onclick="runP2(_rdItem,true)">🔄 Actualizar análisis</button></div>` +
+    `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px;flex-wrap:wrap"><h3 style="margin:0;font-size:15px;font-weight:800">🔬 Análisis P2 · ${esc(item.leaf)}</h3><div style="text-align:right"><button class="btn" style="font-size:12px;padding:7px 13px${sameDay ? ';opacity:.5;cursor:not-allowed' : ''}" ${sameDay ? 'disabled title="Ya se actualizó hoy · disponible mañana"' : 'onclick="runP2(_rdItem,true)"'}>🔄 Actualizar análisis</button><div class="muted" style="font-size:11px;margin-top:4px">Última actualización: <b style="color:var(--ink)">${updStr}</b>${sameDay ? ' <span style="color:var(--good)">· hoy ✓</span>' : ''}</div></div></div>` +
     (ai._err ? `<div class="p2err" style="margin-bottom:12px">La IA falló (${esc(ai._err)}). Se muestran los datos igual.</div>` : '') +
     `<div class="p2tool"><button class="btn ghost" style="font-size:12px;padding:7px 12px" id="p2ChatToggle">💬 Pregúntale a la IA</button><button class="btn ${report.deep ? 'ghost' : ''}" style="font-size:12px;padding:7px 12px" id="p2DeepToggle">📊 ${report.deep ? 'Re-analizar en profundidad' : 'Analizar en profundidad'}</button></div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">📅</div><h3>Estacionalidad</h3></div><div class="p2bars">${bars}</div>${aiLine('Lectura', ai.estacionalidad)}${fbRow('estacionalidad')}</div>` +
@@ -1491,9 +1492,9 @@ function renderP2(report, item, ts) {
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">⚡</div><h3>Diferenciación por upgrades</h3></div>${upgrades || '<span class="muted small">—</span>'}${fbRow('upgrades')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">📦</div><h3>Diferenciación por bundle</h3></div><ul style="margin:4px 0 0;padding-left:18px;font-size:13px">${bundles || '<li class="muted">—</li>'}</ul>${fbRow('bundles')}</div>` +
     (report.deep ? renderP2Deep(report.deep) : '') +
-    (_p2DeepOpen ? renderP2DeepImport() : '') +
     ((_p2ChatOpen || (report.chat && report.chat.length)) ? renderP2Chat(report) : '') +
-    `<div class="hint" style="margin-top:6px">Datos reales: estacionalidad/cuota/tendencia (serie recolectada) + top productos y reseñas (ML vía ProfitGuard). Clusters y diferenciación: IA. El análisis profundo usa el ranking real de Nubimetrics que importes.</div>`;
+    `<div class="hint" style="margin-top:6px">Datos reales: estacionalidad/cuota/tendencia (serie recolectada) + top productos y reseñas (ML vía ProfitGuard). Clusters y diferenciación: IA. El análisis profundo usa el ranking real de Nubimetrics que importes.</div>` +
+    `<button id="p2ChatFab" class="btn p2fab" type="button" title="Pregúntale a la IA">💬 Preguntar a la IA</button>`;
   { const b = $('p2Btn'); if (b) b.style.display = 'none'; }   // ya hay reporte visible → el update se hace desde el propio panel
   wireP2Interactive(item);
 }
@@ -1572,16 +1573,30 @@ function renderP2Deep(deep) {
     (ai.concentracion ? `<div class="p2ai"><span class="tag">🏪 Concentración</span>${esc(ai.concentracion)}</div>` : '') +
     (sellers ? `<div class="small muted" style="margin-top:6px">Líderes: ${sellers}</div>` : '') +
     ((ai.oportunidades && ai.oportunidades.length) ? `<div style="margin-top:8px"><b style="font-size:12px">Oportunidades:</b><ul style="margin:4px 0 0;padding-left:18px;font-size:13px">${ai.oportunidades.map(o => `<li>${esc(o)}</li>`).join('')}</ul></div>` : '') +
-    `<div class="p2fb"><button onclick="_p2DeepOpen=true;renderP2(_p2Report,_p2Item,_p2Ts)">↻ Reimportar / cambiar mes</button></div></div>`;
+    `<div class="p2fb"><button onclick="openP2DeepModal()">↻ Reimportar / cambiar mes</button></div></div>`;
 }
-function renderP2DeepImport() {
-  const now = new Date().getFullYear(); let yOpts = '';
-  for (let y = now; y >= 2023; y--) yOpts += `<option value="${y}">${y}</option>`;
-  const mOpts = RD_MESES.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');
-  return `<div class="p2deep"><div style="font-weight:800;font-size:13px">📊 Analizar en profundidad — importar ranking de Nubimetrics</div>` +
-    `<p class="small muted" style="margin:4px 0 2px">Exportá el ranking (pestaña <b>Publicaciones</b>) de esta categoría desde Nubimetrics y súbelo. Trae ventas y unidades <b>exactas</b> del top 100 para un diagnóstico más específico.</p>` +
-    `<div class="row"><input type="file" id="p2DeepFile" accept=".xlsx"> <span>Año</span><select id="p2DeepYear">${yOpts}</select> <span>Mes</span><select id="p2DeepMonth">${mOpts}</select> <button class="btn" id="p2DeepImport" style="font-size:12px;padding:7px 12px">Importar y analizar</button></div>` +
-    `<span class="hint" id="p2DeepStatus" style="display:block;margin-top:4px"></span></div>`;
+// Abre el popup de importación profunda (los selectores se pueblan la 1ª vez).
+function openP2DeepModal() {
+  const y = $('p2DeepYear'), mo = $('p2DeepMonth');
+  if (y && !y.options.length) { const now = new Date().getFullYear(); let o = ''; for (let yr = now; yr >= 2023; yr--) o += `<option value="${yr}">${yr}</option>`; y.innerHTML = o; }
+  if (mo && !mo.options.length) mo.innerHTML = RD_MESES.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');
+  $('p2DeepStatus').textContent = ''; $('p2DeepFile').value = '';
+  if (_p2Item) $('p2DeepTitle').textContent = _p2Item.leaf;
+  $('p2DeepOverlay').classList.remove('hidden');
+}
+async function runP2DeepImport() {
+  const item = _p2Item; if (!item) return;
+  const f = $('p2DeepFile').files[0], st = $('p2DeepStatus');
+  if (!f) { st.textContent = 'Elegí el archivo .xlsx del ranking.'; return; }
+  if (_p2Busy) return; _p2Busy = true; st.textContent = 'Leyendo Excel y analizando con IA…';
+  try {
+    const rows = await parseRankingXlsx(f); if (!rows.length) throw new Error('El Excel no tiene filas de ranking.');
+    const agg = p2RankAgg(rows), ai = await p2DeepAI(item, rows, agg).catch(e => ({ _err: String(e.message || e) }));
+    const yr = +$('p2DeepYear').value, mo = +$('p2DeepMonth').value;
+    _p2Report.deep = { period: { year: yr, month: mo }, n: rows.length, tot: { ventas: agg.ventas, unidades: agg.unidades }, agg: { catPct: agg.catPct, fullPct: agg.fullPct, topSellers: agg.topSellers.slice(0, 8) }, ai, rows: rows.slice(0, 100).map(r => ({ pos: r.pos, titulo: r.titulo, unidades: r.unidades, ventas: r.ventas, ticket: r.ticket, vendedor: r.vendedor, full: r.full, catalogo: r.catalogo })) };
+    try { await p2CachePut(item.id, _p2Report); } catch (e) {}
+    _p2Busy = false; $('p2DeepOverlay').classList.add('hidden'); renderP2(_p2Report, item, _p2Ts);
+  } catch (e) { st.textContent = 'Error: ' + (e.message || e); _p2Busy = false; }
 }
 function renderP2Chat(report) {
   const esc = escapeHtml;
@@ -1611,8 +1626,10 @@ async function p2Ask(item, question) {
 }
 function wireP2Interactive(item) {
   const host = $('p2Panel'); if (!host) return;
+  const openChat = () => { _p2ChatOpen = true; renderP2(_p2Report, item, _p2Ts); const ta = $('p2Panel').querySelector('#p2ChatInput'); if (ta) { ta.scrollIntoView({ behavior: 'smooth', block: 'center' }); ta.focus(); } };
   const ct = host.querySelector('#p2ChatToggle'); if (ct) ct.onclick = () => { _p2ChatOpen = !_p2ChatOpen; renderP2(_p2Report, item, _p2Ts); };
-  const dt = host.querySelector('#p2DeepToggle'); if (dt) dt.onclick = () => { _p2DeepOpen = !_p2DeepOpen; renderP2(_p2Report, item, _p2Ts); };
+  const fab = host.querySelector('#p2ChatFab'); if (fab) fab.onclick = openChat;   // botón sticky: chat desde cualquier parte
+  const dt = host.querySelector('#p2DeepToggle'); if (dt) dt.onclick = openP2DeepModal;   // abre el popup
   const send = host.querySelector('#p2ChatSend');
   if (send) send.onclick = async () => {
     const ta = host.querySelector('#p2ChatInput'); const q = (ta && ta.value || '').trim(); if (!q || _p2Busy) return;
@@ -1621,22 +1638,6 @@ function wireP2Interactive(item) {
     _p2Report.chat = _p2Report.chat || []; _p2Report.chat.push({ q, a });
     try { await p2CachePut(item.id, _p2Report); } catch (e) {}
     _p2Busy = false; renderP2(_p2Report, item, _p2Ts);
-  };
-  const fileInput = host.querySelector('#p2DeepFile');
-  if (fileInput) fileInput.onchange = () => { const n = (fileInput.files[0] && fileInput.files[0].name) || ''; const m = n.match(/(20\d\d)-(\d\d)/); if (m) { const y = host.querySelector('#p2DeepYear'), mo = host.querySelector('#p2DeepMonth'); if (y) y.value = m[1]; if (mo) mo.value = String(+m[2]); } };
-  const imp = host.querySelector('#p2DeepImport');
-  if (imp) imp.onclick = async () => {
-    const f = host.querySelector('#p2DeepFile').files[0], st = host.querySelector('#p2DeepStatus');
-    if (!f) { if (st) st.textContent = 'Elegí el archivo .xlsx del ranking.'; return; }
-    if (_p2Busy) return; _p2Busy = true; if (st) st.textContent = 'Leyendo Excel y analizando con IA…';
-    try {
-      const rows = await parseRankingXlsx(f); if (!rows.length) throw new Error('El Excel no tiene filas de ranking.');
-      const agg = p2RankAgg(rows), ai = await p2DeepAI(item, rows, agg).catch(e => ({ _err: String(e.message || e) }));
-      const yr = +host.querySelector('#p2DeepYear').value, mo = +host.querySelector('#p2DeepMonth').value;
-      _p2Report.deep = { period: { year: yr, month: mo }, n: rows.length, tot: { ventas: agg.ventas, unidades: agg.unidades }, agg: { catPct: agg.catPct, fullPct: agg.fullPct, topSellers: agg.topSellers.slice(0, 8) }, ai, rows: rows.slice(0, 100).map(r => ({ pos: r.pos, titulo: r.titulo, unidades: r.unidades, ventas: r.ventas, ticket: r.ticket, vendedor: r.vendedor, full: r.full, catalogo: r.catalogo })) };
-      try { await p2CachePut(item.id, _p2Report); } catch (e) {}
-      _p2DeepOpen = false; _p2Busy = false; renderP2(_p2Report, item, _p2Ts);
-    } catch (e) { if (st) st.textContent = 'Error: ' + (e.message || e); _p2Busy = false; }
   };
 }
 
@@ -1768,6 +1769,11 @@ function init() {
   $('researchFilter').addEventListener('input', debounce(paintResearch, 200));
   { const b = $('p2BatchBtn'); if (b) b.onclick = () => { if (confirm('Pre-analizar el top 500 de categorías (por cuota x seller). Toma ~1–2 h en segundo plano y respeta el límite de ProfitGuard. Podés seguir usando la app. ¿Continuar?')) runP2Batch(500); }; }
   { const s = $('p2BatchStop'); if (s) s.onclick = () => { if (_p2Batch) _p2Batch.stop = true; }; }
+  // Modal "Analizar en profundidad"
+  { const c = $('p2DeepClose'); if (c) c.onclick = () => $('p2DeepOverlay').classList.add('hidden'); }
+  { const o = $('p2DeepOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
+  { const fi = $('p2DeepFile'); if (fi) fi.onchange = () => { const n = (fi.files[0] && fi.files[0].name) || ''; const m = n.match(/(20\d\d)-(\d\d)/); if (m) { $('p2DeepYear').value = m[1]; $('p2DeepMonth').value = String(+m[2]); } }; }
+  { const im = $('p2DeepImport'); if (im) im.onclick = runP2DeepImport; }
   // Reporte de detalle de categoría (Investigación)
   document.querySelectorAll('.rd-mbtn').forEach(b => b.onclick = () => { _rdMetric = b.dataset.metric; document.querySelectorAll('.rd-mbtn').forEach(x => x.classList.toggle('active', x === b)); renderRdChart(); });
   $('rdFrom').addEventListener('change', renderRdChart);
