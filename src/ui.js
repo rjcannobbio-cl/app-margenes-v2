@@ -1140,7 +1140,17 @@ async function researchReplace(items) {
 function setResearchStatus(msg, isErr) { const el = $('researchStatus'); if (!el) return; el.textContent = msg || ''; el.style.color = isErr ? 'var(--bad)' : 'var(--muted)'; }
 // Cuota de venta por seller = ventas (GMV) / competidores profesionales.
 function researchCuota(x) { const v = parseFloat(x.ventasGmv) || 0, c = parseFloat(x.competidores) || 0; return c > 0 ? v / c : null; }
-// Crecimiento interanual del GMV ACUMULADO del año (YTD): ene–mes actual vs mismo período del año anterior.
+// Crecimiento interanual CANÓNICO (usado en TODA la app para que coincida): suma de los
+// últimos 12 meses vs los 12 meses previos. Robusto ante estacionalidad (necesita ≥24 meses).
+function yoy12m(serie, field) {
+  const s = Array.isArray(serie) ? serie : [];
+  if (s.length < 24) return null;
+  const g = s.map(p => parseFloat(p[field || 'gmv']) || 0);
+  const last = g.slice(-12).reduce((a, b) => a + b, 0), prev = g.slice(-24, -12).reduce((a, b) => a + b, 0);
+  return prev > 0 ? (last - prev) / prev * 100 : null;
+}
+function yoy12(serie) { return yoy12m(serie, 'gmv'); }
+// (Legacy) YoY del GMV acumulado del año (YTD). Se mantiene por compatibilidad; la app usa yoy12.
 function researchYtdYoY(x) {
   const s = Array.isArray(x.serie) ? x.serie : [];
   if (s.length < 13) return null;
@@ -1164,7 +1174,7 @@ function researchPassesFilter(x) {
   if (f.minTicket != null && (parseFloat(x.ticket) || 0) < f.minTicket) return false;
   if (f.minCuota != null && (researchCuota(x) || 0) < f.minCuota) return false;
   if (f.l1 && normalize(x.l1 || '') !== normalize(f.l1)) return false;
-  if (f.crece) { const y = researchYtdYoY(x); if (f.crece === 'si' && !(y != null && y > 0)) return false; if (f.crece === 'no' && !(y != null && y <= 0)) return false; }
+  if (f.crece) { const y = yoy12(x.serie); if (f.crece === 'si' && !(y != null && y > 0)) return false; if (f.crece === 'no' && !(y != null && y <= 0)) return false; }
   if (f.canib) { const c = !!(x.canibalizacion || _myCats.has(x.id)); if (f.canib === 'si' && !c) return false; if (f.canib === 'no' && c) return false; }
   return true;
 }
@@ -1213,7 +1223,7 @@ function paintResearch() {
   if (!filtered.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Sin resultados.</p>'; return; }
   const intfmt = v => (v != null && v !== '' && !isNaN(v)) ? Math.round(v).toLocaleString('es-CL') : '–';
   // ordenar por cuota x seller descendente (categoría más atractiva primero)
-  const yoyCell = x => { const y = researchYtdYoY(x); if (y == null) return '<td class="mcell muted">–</td>'; const col = y >= 0 ? 'var(--good)' : 'var(--bad)'; return `<td class="mcell" style="color:${col};font-weight:600">${y >= 0 ? '+' : ''}${y.toFixed(1)}%</td>`; };
+  const yoyCell = x => { const y = yoy12(x.serie); if (y == null) return '<td class="mcell muted">–</td>'; const col = y >= 0 ? 'var(--good)' : 'var(--bad)'; return `<td class="mcell" style="color:${col};font-weight:600">${y >= 0 ? '+' : ''}${y.toFixed(1)}%</td>`; };
   const canibCell = x => (x.canibalizacion || _myCats.has(x.id)) ? '<td style="text-align:center"><span style="color:var(--accent);font-weight:700" title="Ya tenemos productos publicados en esta categoría">● Sí</span></td>' : '<td style="text-align:center" class="muted">–</td>';
   const rows = filtered.slice().sort((a, b) => (parseFloat(b.ventasGmv) || 0) - (parseFloat(a.ventasGmv) || 0)).map(x => {
     const cuota = researchCuota(x);
@@ -1228,7 +1238,7 @@ function paintResearch() {
       <td class="mcell">${cuota != null ? fmtCLP(cuota) : '–'}</td>
     </tr>`; }).join('');
   wrap.innerHTML = `<table class="histtab dbtab" style="min-width:1120px"><thead><tr>
-    <th>Categoría L1</th><th>Categoría hoja</th><th title="Categorías donde ET Brands ya tiene productos publicados">Canibalización</th><th>Ventas prom (GMV, 12m)</th><th title="Crecimiento del GMV acumulado del año (ene–mes actual) vs mismo período del año anterior">Crec. YoY (YTD)</th><th>Ticket medio (12m)</th><th>Competidores prof. (12m)</th><th>Cuota x seller</th>
+    <th>Categoría L1</th><th>Categoría hoja</th><th title="Categorías donde ET Brands ya tiene productos publicados">Canibalización</th><th>Ventas prom (GMV, 12m)</th><th title="Crecimiento del GMV: últimos 12 meses vs los 12 meses previos (misma métrica en toda la app)">Crec. YoY (12m)</th><th>Ticket medio (12m)</th><th>Competidores prof. (12m)</th><th>Cuota x seller</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
   wrap.querySelectorAll('tbody tr[data-id]').forEach(tr => { tr.title = 'Clic para ver el reporte de la categoría'; tr.onclick = () => openResearchDetail(_researchAll.find(x => x.id === tr.dataset.id)); });
 }
@@ -1279,15 +1289,11 @@ function renderRdChart() {
     $('rdYoy').textContent = '';
     return;
   }
-  // YoY: último mes vs 12 meses antes (necesita ≥13 puntos consecutivos)
-  let yoy = null;
-  if (serie.length >= 13) {
-    const cur = parseFloat(serie[serie.length - 1][metric]) || 0, prev = parseFloat(serie[serie.length - 13][metric]) || 0;
-    if (prev > 0) yoy = (cur - prev) / prev * 100;
-  }
+  // YoY canónico: últimos 12 meses vs los 12 previos (misma métrica que la tabla y el P2).
+  const yoy = yoy12m(serie, metric);
   $('rdYoy').innerHTML = yoy != null
-    ? 'Crecimiento interanual: <b style="color:' + (yoy >= 0 ? 'var(--good)' : 'var(--bad)') + '">' + (yoy >= 0 ? '+' : '') + yoy.toFixed(1) + '%</b>'
-    : '<span class="muted">YoY: faltan 13 meses de datos</span>';
+    ? 'Crecimiento interanual (12m): <b style="color:' + (yoy >= 0 ? 'var(--good)' : 'var(--bad)') + '">' + (yoy >= 0 ? '+' : '') + yoy.toFixed(1) + '%</b>'
+    : '<span class="muted">YoY: faltan 24 meses de datos</span>';
   $('rdChart').innerHTML = rdChartSVG(points, metric);
   wireRdChartHover();
 }
@@ -1378,10 +1384,7 @@ function p2Seasonality(serie) {
   return idx;
 }
 function p2Trend(serie) {
-  if (serie.length < 24) return { yoy: null, dir: 'sin datos' };
-  const g = serie.map(p => parseFloat(p.gmv) || 0);
-  const last = g.slice(-12).reduce((a, b) => a + b, 0), prev = g.slice(-24, -12).reduce((a, b) => a + b, 0);
-  const yoy = prev > 0 ? (last - prev) / prev * 100 : null;
+  const yoy = yoy12(serie);   // misma métrica canónica que la tabla y el gráfico
   return { yoy, dir: yoy == null ? 'sin datos' : (yoy > 8 ? 'EN ALZA' : yoy < -8 ? 'A LA BAJA' : 'ESTABLE') };
 }
 function p2CuotaClass(item) {
@@ -1525,12 +1528,26 @@ function targetFob(price, comPct, pkg) {
   const fob = cogsTarget / (cfg.dolar * (1 + (cfg.iva || 0) / 100)) - cbmUnit * cfg.factorCBM;
   return fob > 0 ? fob : null;   // USD
 }
+// Margen de contribución resultante a un precio y un FOB dados (round-trip del ejercicio inverso).
+function marginAt(price, fobUsd, comPct, pkg) {
+  if (!pkg) return null;
+  const l = +pkg.l || 0, a = +pkg.a || 0, al = +pkg.al || 0, p = +pkg.p || 0;
+  if (!l || !a || !al || !(price > 0)) return null;
+  const cbmUnit = (al * a * l) / 1e6;
+  const cogs = computeLanded(fobUsd, cbmUnit, cfg.factorCBM, cfg.dolar, cfg, 0);
+  const weight = billableWeight(p, al, a, l, VOL_DIVISOR);
+  return Math.round(computeChannel('ml', price, cogs, comPct || 0, weight, false, cfg).marginPct);
+}
 function targetFobTag(precio, comPct, pkg) {
   const p = parseFloat(precio) || 0;
   let s = '';
   if (p > 0) s += ` <span style="color:var(--ink);font-weight:700">· Ticket $${Math.round(p).toLocaleString('es-CL')}</span>`;
   const f = targetFob(p, comPct, pkg);
-  if (f) s += ` <span style="color:var(--accent-d);font-weight:700" title="Costo FOB de fábrica que necesitas para ~33% de margen de contribución a ese precio (packaging estimado por IA)">· FOB objetivo ~US$${f.toFixed(1)}</span>`;
+  if (f) {
+    s += ` <span style="color:var(--accent-d);font-weight:700" title="Costo FOB de fábrica que necesitas para ~33% de margen de contribución a ese precio (packaging estimado por IA)">· FOB objetivo ~US$${f.toFixed(1)}</span>`;
+    const mg = marginAt(p, f, comPct, pkg);
+    if (mg != null) s += ` <span style="color:var(--good);font-weight:700" title="Margen de contribución real de la app a ese FOB y ticket (comisión de la categoría + envío)">· Margen ~${mg}%</span>`;
+  }
   return s;
 }
 
@@ -1542,7 +1559,7 @@ async function runP2Batch(n, force) {
   await loadBizCtx();   // asegura el contexto de negocio antes de arrancar
   if (!_catAll || !_catAll.length) { try { _catAll = await catLoad(); } catch (e) {} }   // catálogo local para el match del P2
   const cats = _researchAll.filter(x => (parseFloat(x.ventasGmv) || 0) > 0)
-    .slice().sort((a, b) => (researchCuota(b) || 0) - (researchCuota(a) || 0)).slice(0, n);
+    .slice().sort((a, b) => (parseFloat(b.ventasGmv) || 0) - (parseFloat(a.ventasGmv) || 0)).slice(0, n);
   if (!cats.length) { alert('No hay categorías con ventas para analizar. Importa datos primero.'); return; }
   _p2Batch = { running: true, total: cats.length, done: 0, ok: 0, fail: 0, skip: 0, stop: false, force: !!force, t0: Date.now() };
   p2BatchUI();
@@ -1878,17 +1895,18 @@ function renderP2Own(own) {
   const mCol = m => m >= 30 ? 'var(--good)' : (m >= 15 ? 'var(--mid)' : 'var(--bad)');
   const short = s => { s = String(s || ''); return s.length > 20 ? s.slice(0, 19) + '…' : s; };
   const clp = v => '$' + Math.round(v).toLocaleString('es-CL');
-  const rows = act.slice(0, 16).map(p => `<tr><td title="${esc(p.name)}">${esc(short(p.name))}</td><td>${esc(p.brand || '')}</td>` +
+  const rows = act.slice(0, 16).map(p => `<tr><td title="${esc(p.name)}">${esc(short(p.name))}</td>` +
+    `<td title="${esc(p.sku || '')}" style="font-variant-numeric:tabular-nums">${esc(p.sku || '–')}</td>` +
+    `<td>${esc(p.brand || '')}</td>` +
     `<td style="text-align:center">${abcCell(p)}</td>` +
     `<td style="text-align:right"${p.velWeeks ? ` title="Promedio de ${p.velWeeks} semana${p.velWeeks === 1 ? '' : 's'} con ventas (con stock)"` : ''}>${p.vel != null ? `<b style="color:${p.vel > 0 ? 'var(--good)' : 'var(--muted)'};font-variant-numeric:tabular-nums">${p.vel}</b>` : '–'}</td>` +
-    `<td style="text-align:right">${p.stock != null ? p.stock : '–'}</td>` +
     `<td style="text-align:right">${p.cost ? clp(p.cost) : '–'}</td>` +
     `<td style="text-align:right">${p.fob != null ? 'US$' + p.fob : '–'}</td>` +
     `<td style="text-align:right">${p.price ? clp(p.price) : '–'}</td>` +
     `<td style="text-align:right;font-weight:700;color:${p.margin != null ? mCol(p.margin) : 'var(--muted)'}">${p.margin != null ? p.margin + '%' : '–'}</td></tr>`).join('');
   return `<div class="p2sec"><div class="p2sec-h"><div class="ic">🏷️</div><h3>Tu catálogo actual</h3><span class="verdict p2-good">${own.brand ? esc(own.brand) + ' · ' : ''}${act.length} activo${act.length === 1 ? '' : 's'}</span></div>` +
     `<p class="small muted" style="margin:2px 0 6px">La velocidad se calcula en base a las últimas semanas en que el SKU tuvo stock.</p>` +
-    `<table class="p2own" style="width:100%;table-layout:fixed;font-size:11px"><thead><tr><th style="text-align:left;width:22%">Producto</th><th style="text-align:left;width:12%">Marca</th><th style="text-align:center;width:7%" title="Rotación real: A=top ventas … F=congelado">Clase</th><th style="text-align:right;width:9%">Vel</th><th style="text-align:right;width:9%">Stock</th><th style="text-align:right;width:12%" title="Costo landed / COGS (CLP)">COGS</th><th style="text-align:right;width:10%" title="Costo FOB (USD)">FOB</th><th style="text-align:right;width:11%" title="Precio AON (CLP)">AON</th><th style="text-align:right;width:10%" title="Margen de contribución a precio AON (precio − COGS − comisión − envío)">Margen</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    `<table class="p2own" style="width:100%;table-layout:fixed;font-size:11px"><thead><tr><th style="text-align:left;width:20%">Producto</th><th style="text-align:left;width:13%">SKU</th><th style="text-align:left;width:11%">Marca</th><th style="text-align:center;width:7%" title="Rotación real: A=top ventas … F=congelado">Clase</th><th style="text-align:right;width:8%">Vel</th><th style="text-align:right;width:12%" title="Costo landed / COGS (CLP)">COGS</th><th style="text-align:right;width:10%" title="Costo FOB (USD)">FOB</th><th style="text-align:right;width:10%" title="Precio AON (CLP)">AON</th><th style="text-align:right;width:9%" title="Margen de contribución a precio AON (precio − COGS − comisión − envío)">Margen</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 function renderP2Deep(deep) {
   const esc = escapeHtml, ai = deep.ai || {};
@@ -2013,12 +2031,12 @@ async function importResearchJSON(file) {
 }
 function exportResearchCSV() {
   if (!_researchAll.length) { alert('No hay datos que exportar.'); return; }
-  const head = ['Categoría L1', 'Categoría hoja', 'Canibalización', 'Ventas prom GMV 12m', 'Crec YoY YTD %', 'Ticket medio 12m', 'Competidores prof 12m', 'Cuota x seller'];
+  const head = ['Categoría L1', 'Categoría hoja', 'Canibalización', 'Ventas prom GMV 12m', 'Crec YoY 12m %', 'Ticket medio 12m', 'Competidores prof 12m', 'Cuota x seller'];
   const q = s => '"' + (s == null ? '' : s).toString().replace(/"/g, '""') + '"';
   const n = v => (v == null || v === '' || isNaN(v)) ? '' : Math.round(v);
   const p1 = v => (v == null || isNaN(v)) ? '' : v.toFixed(1);
   const lines = [head.join(';')];
-  for (const x of _researchAll) lines.push([q(x.l1), q(x.leaf), (x.canibalizacion || _myCats.has(x.id)) ? 'Sí' : 'No', n(x.ventasGmv), p1(researchYtdYoY(x)), n(x.ticket), n(x.competidores), n(researchCuota(x))].join(';'));
+  for (const x of _researchAll) lines.push([q(x.l1), q(x.leaf), (x.canibalizacion || _myCats.has(x.id)) ? 'Sí' : 'No', n(x.ventasGmv), p1(yoy12(x.serie)), n(x.ticket), n(x.competidores), n(researchCuota(x))].join(';'));
   const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'investigacion_categorias.csv'; a.click();
 }
