@@ -49,14 +49,21 @@ export async function onRequest({ request, env }) {
       const total = (b && b.paging && b.paging.total) || 0;
       if (off + 100 >= total || !res.length) break;
     }
-    const bySku = {};
+    // OJO: el SKU de PG NO siempre está en seller_custom_field (a veces null); casi
+    // siempre está en el atributo SELLER_SKU. Y el GTIN = EAN. Indexamos por ambos SKUs
+    // y por EAN para no perder productos (ej. MONPOR156 quedaba sin match antes).
+    const bySku = {}, byEan = {};
+    const put = (map, key, rec) => { if (!key || key === '-1') return; const cur = map[key]; if (!cur || (rec.qty || 0) > (cur.qty || 0)) map[key] = rec; };
     for (let i = 0; i < ids.length; i += 20) {
-      const arr = await mlGet(headers, '/items', { ids: ids.slice(i, i + 20).join(','), attributes: 'id,category_id,price,seller_custom_field,available_quantity,status' });
+      const arr = await mlGet(headers, '/items', { ids: ids.slice(i, i + 20).join(','), attributes: 'id,category_id,price,seller_custom_field,available_quantity,status,attributes' });
       for (const w of (Array.isArray(arr) ? arr : [])) {
         const b = w && w.body; if (!b || b.status !== 'active') continue;
-        const sku = (b.seller_custom_field || '').trim(); if (!sku) continue;
-        const cur = bySku[sku];
-        if (!cur || (b.available_quantity || 0) > (cur.qty || 0)) bySku[sku] = { cat: b.category_id || '', mlc: b.id, price: b.price || null, qty: b.available_quantity || 0 };
+        const rec = { cat: b.category_id || '', mlc: b.id, price: b.price || null, qty: b.available_quantity || 0 };
+        const scf = (b.seller_custom_field || '').trim();
+        const ssku = (attrVal(b.attributes, 'SELLER_SKU') || '').trim();
+        const ean = normEan(attrVal(b.attributes, 'GTIN'));
+        put(bySku, scf, rec); put(bySku, ssku, rec);
+        if (ean) put(byEan, ean, rec);
       }
     }
 
@@ -80,9 +87,19 @@ export async function onRequest({ request, env }) {
       if (page >= tp) break;
     }
 
+    // 2b) EAN por SKU (para el fallback de match por EAN cuando el SKU no calza).
+    const eanBySku = {};
+    for (let page = 1; page <= 30; page++) {
+      const j = await pgGet(headers, '/products', { page: String(page), page_size: '100' });
+      const arr = (j && (j.items || j.data)) || [];
+      for (const p of arr) if (p && p.sku && p.ean) eanBySku[p.sku] = normEan(p.ean);
+      const tp = (j && j.meta && j.meta.total_pages) || 1;
+      if (page >= tp || !arr.length) break;
+    }
+
     // 3) Nombre/breadcrumb de cada categoría distinta (público, cacheado en KV).
     const meta = JSON.parse((await kv.get('ml_cat_meta')) || '{}');
-    const distinct = [...new Set(Object.values(bySku).map(v => v.cat).filter(Boolean))];
+    const distinct = [...new Set([...Object.values(bySku), ...Object.values(byEan)].map(v => v.cat).filter(Boolean))];
     let metaNew = 0;
     for (const cid of distinct) {
       if (meta[cid]) continue;
@@ -93,10 +110,13 @@ export async function onRequest({ request, env }) {
     }
     if (metaNew) await kv.put('ml_cat_meta', JSON.stringify(meta));
 
-    // 4) Volcar todo al catálogo (por SKU; una fila por sourcing puede repetir SKU).
-    let enriched = 0, withVel = 0;
+    // 4) Volcar todo al catálogo (match por SKU y, si falla, por EAN).
+    let enriched = 0, withVel = 0, byEanCount = 0;
     for (const it of catalog) {
-      const m = bySku[it.sku];
+      const ean = eanBySku[it.sku] || normEan(it.ean);
+      if (ean) it.ean = ean;
+      let m = bySku[it.sku];
+      if (!m && ean) { m = byEan[ean]; if (m) byEanCount++; }
       if (m) {
         it.mlCatId = m.cat; it.mlItemId = m.mlc; it.mlPrice = m.price;
         if (meta[m.cat]) { it.mlCatNameReal = meta[m.cat].name; it.mlCatPathReal = meta[m.cat].path; }
@@ -106,11 +126,20 @@ export async function onRequest({ request, env }) {
       if (s) { it.vel = s.vel; it.velWeeks = s.velWeeks; it.velTeo = s.velTeo; it.abc = s.abc; it.stock = s.stock; withVel++; }
     }
     await kv.put(KEY, JSON.stringify(catalog));
-    return json({ ok: true, total: catalog.length, enriched, withVel, cats: distinct.length, items: ids.length, metaNew });
+    return json({ ok: true, total: catalog.length, enriched, withVel, byEan: byEanCount, cats: distinct.length, items: ids.length, metaNew });
   } catch (e) {
     return json({ error: String((e && e.message) || e) }, 500);
   }
 }
+
+// Valor de un atributo de ML por id (ej. SELLER_SKU, GTIN).
+function attrVal(attrs, id) {
+  const a = (attrs || []).find(x => x && x.id === id);
+  if (!a) return '';
+  return a.value_name || (a.values && a.values[0] && a.values[0].name) || '';
+}
+// Normaliza EAN/GTIN: solo dígitos, sin ceros a la izquierda (ML a veces agrega uno).
+function normEan(v) { const s = String(v == null ? '' : v).replace(/\D/g, '').replace(/^0+/, ''); return s || ''; }
 
 async function mlGet(headers, path, query) {
   const r = await fetch(`${PG}/integrations/${ML_INTEGRATION_CL}/passthrough`, {

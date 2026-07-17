@@ -1025,6 +1025,7 @@ function paintCatalogo() {
       <td>${x.fob ? ('US$' + x.fob) : ''}</td>
       <td>${escapeHtml(x.proveedor || '')}</td>
       <td>${escapeHtml(x.puerto || '')}</td>
+      <td title="${escapeHtml((x.mlCatPathReal && x.mlCatPathReal.join(' › ')) || '')}" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;${x.mlCatNameReal ? '' : 'color:var(--faint)'}">${escapeHtml(x.mlCatNameReal || x.mlCatName || '—')}${x.mlCatNameReal ? '' : ' <span title="Categoría deducida del título, no confirmada en ML. Sincroniza para corregir." style="color:var(--mid)">?</span>'}</td>
       <td class="co-only"><input type="text" class="cat-hs" data-id="${x.id}" value="${escapeHtml(x.hs || '')}" placeholder="–" style="width:88px"></td>
       <td class="co-only"><input type="number" class="cat-ar" data-id="${x.id}" value="${(x.arancelPct || x.arancelPct === 0) ? x.arancelPct : ''}" placeholder="0" min="0" step="0.1" style="width:60px"></td>
       <td class="mcell" data-cell="cogs">${fmtCLP(r.cogs)}</td>
@@ -1033,7 +1034,7 @@ function paintCatalogo() {
       ${priceInput(x, 'precioDOD')}${mc('dod-ml', r.dod.ml)}${mc('dod-fa', r.dod.fa)}
     </tr>`; }).join('');
   wrap.innerHTML = `<table class="histtab dbtab" style="min-width:1700px"><thead><tr>
-    <th>SKU</th><th>Título</th><th>Largo</th><th>Alto</th><th>Ancho</th><th>Peso</th><th>Precio FOB</th><th>Proveedor</th><th>Puerto</th><th class="co-only">HS</th><th class="co-only">Arancel %</th><th>Landed COGS</th>
+    <th>SKU</th><th>Título</th><th>Largo</th><th>Alto</th><th>Ancho</th><th>Peso</th><th>Precio FOB</th><th>Proveedor</th><th>Puerto</th><th title="Categoría REAL de Mercado Libre (de la publicación). '?' = deducida del título, sincroniza para corregir.">Categoría ML</th><th class="co-only">HS</th><th class="co-only">Arancel %</th><th>Landed COGS</th>
     <th>Precio Full</th><th>Margen PF Meli</th><th class="fbla-col">Margen PF Fala</th>
     <th>Precio AON</th><th>Margen AON Meli</th><th class="fbla-col">Margen AON Fala</th>
     <th>Precio DOD</th><th>Margen DOD Meli</th><th class="fbla-col">Margen DOD Fala</th>
@@ -1090,6 +1091,7 @@ function exportCatalogoCSV() {
 /* ---------------- Investigación de categorías (snapshot de Nubimetrics) ---------------- */
 const RESEARCH_KEY = 'mpresearch';
 let _researchBackend = null, _researchAll = [], _researchSig = '';
+let _researchFilters = {};   // {minVentas,minTicket,minCuota,l1,crece:'si'|'no',canib:'si'|'no'}
 // Canibalización: categorías hoja donde ET Brands YA tiene publicaciones. ML ya no
 // permite consultas anónimas, así que vamos autenticados por el proxy /api/pg-passthrough
 // (token de PG en el servidor): listamos los ítems propios y resolvemos su category_id.
@@ -1152,13 +1154,59 @@ function researchYtdYoY(x) {
   const cur = sumYtd(curYear), prev = sumYtd(curYear - 1);
   return (cur != null && prev != null && prev > 0) ? (cur - prev) / prev * 100 : null;
 }
-async function renderResearch() { _researchAll = await researchLoad(); _researchSig = JSON.stringify(_researchAll); paintResearch(); loadMyCats().then(() => paintResearch()).catch(() => {}); }
+async function renderResearch() { _researchAll = await researchLoad(); _researchSig = JSON.stringify(_researchAll); paintResearch(); p2BatchUI(); loadMyCats().then(() => paintResearch()).catch(() => {}); }
+
+// --- Filtro avanzado de la tabla de investigación ---
+function researchFiltersActive() { const f = _researchFilters || {}; return !!(f.minVentas != null || f.minTicket != null || f.minCuota != null || f.l1 || f.crece || f.canib); }
+function researchPassesFilter(x) {
+  const f = _researchFilters || {};
+  if (f.minVentas != null && (parseFloat(x.ventasGmv) || 0) < f.minVentas) return false;
+  if (f.minTicket != null && (parseFloat(x.ticket) || 0) < f.minTicket) return false;
+  if (f.minCuota != null && (researchCuota(x) || 0) < f.minCuota) return false;
+  if (f.l1 && normalize(x.l1 || '') !== normalize(f.l1)) return false;
+  if (f.crece) { const y = researchYtdYoY(x); if (f.crece === 'si' && !(y != null && y > 0)) return false; if (f.crece === 'no' && !(y != null && y <= 0)) return false; }
+  if (f.canib) { const c = !!(x.canibalizacion || _myCats.has(x.id)); if (f.canib === 'si' && !c) return false; if (f.canib === 'no' && c) return false; }
+  return true;
+}
+function openResearchFilter() {
+  // Poblar el desplegable de L1 con las L1 presentes (con ventas).
+  const l1s = [...new Set(_researchAll.filter(x => (parseFloat(x.ventasGmv) || 0) > 0).map(x => x.l1).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+  const sel = $('rfL1'); if (sel) sel.innerHTML = '<option value="">Todas</option>' + l1s.map(l => `<option value="${escapeHtml(l)}">${escapeHtml(l)}</option>`).join('');
+  const f = _researchFilters || {};
+  $('rfMinVentas').value = f.minVentas != null ? f.minVentas : '';
+  $('rfMinTicket').value = f.minTicket != null ? f.minTicket : '';
+  $('rfMinCuota').value = f.minCuota != null ? f.minCuota : '';
+  if (sel) sel.value = f.l1 || '';
+  $('rfCrece').value = f.crece || '';
+  $('rfCanib').value = f.canib || '';
+  $('researchFilterOverlay').classList.remove('hidden');
+}
+function applyResearchFilter() {
+  const num = id => { const v = parseFloat($(id).value); return isNaN(v) ? null : v; };
+  _researchFilters = {
+    minVentas: num('rfMinVentas'), minTicket: num('rfMinTicket'), minCuota: num('rfMinCuota'),
+    l1: $('rfL1').value || '', crece: $('rfCrece').value || '', canib: $('rfCanib').value || ''
+  };
+  $('researchFilterOverlay').classList.add('hidden');
+  paintResearch();
+}
+function clearResearchFilter() {
+  _researchFilters = {};
+  ['rfMinVentas', 'rfMinTicket', 'rfMinCuota'].forEach(id => { const el = $(id); if (el) el.value = ''; });
+  ['rfL1', 'rfCrece', 'rfCanib'].forEach(id => { const el = $(id); if (el) el.value = ''; });
+  $('researchFilterOverlay').classList.add('hidden');
+  paintResearch();
+}
 function paintResearch() {
   const q = normalize(($('researchFilter') && $('researchFilter').value) || '');
   const conVentas = _researchAll.filter(x => (parseFloat(x.ventasGmv) || 0) > 0);   // omite categorías con 0 ventas
-  const filtered = q ? conVentas.filter(x => normalize([x.l1, x.leaf].join(' ')).includes(q)) : conVentas;
-  $('researchCount').textContent = (q ? filtered.length + '/' + conVentas.length : conVentas.length) +
-    ' categoría' + ((q ? filtered.length : conVentas.length) === 1 ? '' : 's') + ' con ventas' + (_researchBackend ? ' · compartido' : ' · solo local');
+  const afFilter = researchFiltersActive() ? conVentas.filter(researchPassesFilter) : conVentas;
+  const filtered = q ? afFilter.filter(x => normalize([x.l1, x.leaf].join(' ')).includes(q)) : afFilter;
+  const narrowed = q || researchFiltersActive();
+  { const c = $('btnResearchClear'); if (c) c.classList.toggle('hidden', !researchFiltersActive()); }
+  $('researchCount').textContent = (narrowed ? filtered.length + '/' + conVentas.length : conVentas.length) +
+    ' categoría' + ((narrowed ? filtered.length : conVentas.length) === 1 ? '' : 's') + ' con ventas' +
+    (researchFiltersActive() ? ' · filtrado' : '') + (_researchBackend ? ' · compartido' : ' · solo local');
   const wrap = $('researchDbWrap');
   if (!_researchAll.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Aún no hay datos. Recolecta desde Nubimetrics (script recolector) y usa “Importar datos”.</p>'; return; }
   if (!conVentas.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Ninguna categoría con ventas > 0.</p>'; return; }
@@ -1463,12 +1511,14 @@ async function runP2Batch(n, force) {
   p2BatchUI();
 }
 function p2BatchUI() {
-  const b = _p2Batch; if (!b) return;
+  const b = _p2Batch;
   const bar = $('p2BatchBar'), fill = $('p2BatchFill'), txt = $('p2BatchTxt'), btn = $('p2BatchBtn'), stop = $('p2BatchStop');
+  const running = !!(b && b.running && !b.stop);   // "Detener" solo mientras corre de verdad (y no se pidió parar)
+  if (stop) stop.classList.toggle('hidden', !running);
+  if (btn) btn.classList.toggle('hidden', running);
+  if (!b) { if (bar) bar.classList.add('hidden'); return; }
   if (bar) bar.classList.toggle('hidden', !b.running && b.done === 0);
   if (fill) fill.style.width = (b.total ? Math.round(b.done / b.total * 100) : 0) + '%';
-  if (btn) btn.classList.toggle('hidden', b.running);
-  if (stop) stop.classList.toggle('hidden', !b.running);
   if (txt) {
     const elapsed = (Date.now() - b.t0) / 1000;
     const rate = b.done > 0 ? elapsed / b.done : 0;
@@ -1943,8 +1993,14 @@ function init() {
   $('btnResearchImport').onclick = () => $('researchFile').click();
   $('researchFile').addEventListener('change', e => { const f = e.target.files[0]; if (f) importResearchJSON(f); e.target.value = ''; });
   $('researchFilter').addEventListener('input', debounce(paintResearch, 200));
+  { const b = $('btnResearchFilter'); if (b) b.onclick = openResearchFilter; }
+  { const b = $('btnResearchClear'); if (b) b.onclick = clearResearchFilter; }
+  { const b = $('researchFilterClose'); if (b) b.onclick = () => $('researchFilterOverlay').classList.add('hidden'); }
+  { const o = $('researchFilterOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
+  { const b = $('rfApply'); if (b) b.onclick = applyResearchFilter; }
+  { const b = $('rfClear'); if (b) b.onclick = clearResearchFilter; }
   { const b = $('p2BatchBtn'); if (b) b.onclick = () => { if (!confirm('Pre-analizar el top 500 de categorías (por cuota x seller). Toma ~1–2 h en segundo plano y respeta el límite de ProfitGuard. Podés seguir usando la app. ¿Continuar?')) return; const force = confirm('¿Sobrescribir las que YA tenías analizadas, para aplicarles el contexto de negocio actual?\n\n• Aceptar = re-analiza TODAS (aplica el nuevo contexto).\n• Cancelar = solo las que falten.'); runP2Batch(500, force); }; }
-  { const s = $('p2BatchStop'); if (s) s.onclick = () => { if (_p2Batch) _p2Batch.stop = true; }; }
+  { const s = $('p2BatchStop'); if (s) s.onclick = () => { if (_p2Batch) _p2Batch.stop = true; s.classList.add('hidden'); const t = $('p2BatchTxt'); if (t && _p2Batch && _p2Batch.running) t.innerHTML += ' · <b>deteniendo…</b>'; }; }
   // Modal "Analizar en profundidad"
   { const c = $('p2DeepClose'); if (c) c.onclick = () => $('p2DeepOverlay').classList.add('hidden'); }
   { const o = $('p2DeepOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
