@@ -1682,7 +1682,8 @@ async function p2AI(item, stats, products, reviews, own) {
     '"gap":"dónde hay demanda con poca oferta, con números (máx 200 car)","reviewOps":"queja recurrente = oportunidad, concreto (máx 160 car)",' +
     '"upgrades":[{"costo":"BAJO|MEDIO|ALTO","titulo":"3-6 palabras","texto":"por qué (barato de fabricar, alto valor), máx 110 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>}}],' +
     '"bundles":[{"nombre":"nombre del set (3-5 palabras)","para":"segmento objetivo","texto":"qué incluye y por qué, máx 90 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>}}]}\n' +
-    'Para CADA upgrade y bundle incluye "precio" (precio de venta objetivo en CLP, entero sin puntos) y "pkg" = dimensiones del PACKAGING/caja de envío en cm (l=largo, a=ancho, al=alto) y peso en kg (p), estimados de forma realista para ese producto. Con eso la app calcula el FOB objetivo.';
+    'Para CADA upgrade y bundle incluye "precio" (precio de venta objetivo en CLP, entero sin puntos) y "pkg" = dimensiones del PACKAGING/caja de envío en cm (l=largo, a=ancho, al=alto) y peso en kg (p), estimados de forma realista para ese producto. Con eso la app calcula el FOB objetivo.\n' +
+    'REGLAS CRÍTICAS: (1) NO sugieras algo que YA EXISTE en el catálogo propio de arriba (revisa specs; ej. si ya hay un curvo 27" 165Hz, no lo propongas). Si el mejor movimiento es sobre un producto que ya tienes, dilo como "mejorar listing/precio de [SKU]", no como producto nuevo. (2) Ancla cada sugerencia al top real (specs/precios/reseñas) y usa precios DENTRO del rango real del mercado.';
   const raw = await aiText(prompt, cfg, { maxTokens: 3500 });
   return parseJSONLoose(raw) || { _err: 'La IA no devolvió JSON válido' };
 }
@@ -1728,7 +1729,10 @@ async function p2VisionAI(item, stats, products, reviews, own) {
     '"gap":"dónde hay demanda con poca oferta, con números (máx 200 car)","reviewOps":"queja recurrente = oportunidad (máx 160 car)",' +
     '"upgrades":[{"costo":"BAJO|MEDIO|ALTO","titulo":"3-6 palabras","texto":"por qué, máx 110 car","precio":<CLP entero>,"pkg":{"l":<cm>,"a":<cm>,"al":<cm>,"p":<kg>}}],' +
     '"bundles":[{"nombre":"3-5 palabras","para":"segmento","texto":"qué incluye, máx 90 car","precio":<CLP entero>,"pkg":{"l":<cm>,"a":<cm>,"al":<cm>,"p":<kg>}}]}\n' +
-    'IMPORTANTE: "pos" debe cubrir TODOS los top mostrados (cada uno en un cluster). En "ownAnalysis" incluye TODOS tus productos mostrados. "precio"=precio de venta objetivo CLP y "pkg"=dimensiones/peso del packaging estimado, para que la app calcule el FOB objetivo.'
+    'REGLAS CRÍTICAS:\n' +
+    '1) NO propongas como upgrade/bundle/oportunidad algo que YA EXISTE en TUS PRODUCTOS (revisa sus specs y FOTOS de arriba). Ej: si ya tienes un curvo 27" 165Hz, NO lo sugieras como nuevo. Si el mejor movimiento es sobre un producto que ya tienes, enmárcalo como "mejorar listing/precio/fotos de [SKU]" (no como producto nuevo) o apunta a un segmento/specs que NO cubres.\n' +
+    '2) Cada sugerencia debe estar ANCLADA en lo que realmente se vende en el top mostrado (specs, precios y reseñas que ves). El precio objetivo debe caer DENTRO del rango real del mercado de esta categoría. Nada genérico ni fuera de rango.\n' +
+    '3) "pos" cubre TODOS los top mostrados; "ownAnalysis" incluye TODOS tus productos; "precio"=CLP y "pkg"=packaging estimado (para el FOB objetivo).'
   ));
   const raw = await aiText('', cfg, { content, maxTokens: 4500 });
   const j = parseJSONLoose(raw);
@@ -1775,6 +1779,7 @@ function renderP2(report, item, ts) {
   })() : '<span class="muted small">Sin reseñas disponibles para el top.</span>';
 
   const comPct = p2CatCommission(report, item);
+  const deepTag = ai._deepRefined ? '<span class="verdict p2-good" style="font-size:9px" title="Actualizado con el ranking real del análisis profundo">✓ datos reales</span>' : '';
   const upgrades = (ai.upgrades || []).map(u => {
     const cc = /(baj|low)/i.test(u.costo) ? 'p2-good' : (/(alt|high)/i.test(u.costo) ? 'p2-bad' : 'p2-mid');
     const ti = u.titulo ? `<b>${esc(u.titulo)}</b> — ` : '';
@@ -1798,10 +1803,10 @@ function renderP2(report, item, ts) {
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">📈</div><h3>Tendencia</h3><span class="verdict ${s.trend && s.trend.yoy >= 0 ? 'p2-good' : 'p2-bad'}">${esc((s.trend || {}).dir || '—')}</span></div><p style="margin:2px 0"><b style="color:${trendCol};font-size:20px">${s.trend && s.trend.yoy != null ? (s.trend.yoy >= 0 ? '+' : '') + s.trend.yoy.toFixed(1) + '%' : '–'}</b> <span class="muted small">YoY (últimos 12m vs previos)</span></p>${aiLine('Lectura', ai.tendencia)}${fbRow('tendencia')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">🏆</div><h3>Top vendedores</h3></div><a class="btn" href="${esc(report.rankUrl || '#')}" target="_blank" rel="noopener">🏆 Ver ranking en Nubimetrics ↗</a></div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">🧩</div><h3>Top productos por subcategoría</h3><span class="verdict p2-good">${prods.length} reales</span></div>${etbHit}<div class="p2clgrid">${clusters || '<span class="muted small">La IA no devolvió clusters.</span>'}</div>${fbRow('clusters')}</div>` +
-    `<div class="p2sec"><div class="p2sec-h"><div class="ic">🎯</div><h3>Gap oferta / demanda</h3><span class="verdict p2-hot">Oportunidad</span></div>${ai.gap ? `<div class="p2gap">${mdBold(ai.gap)}</div>` : '<span class="muted small">—</span>'}${fbRow('gap')}</div>` +
+    `<div class="p2sec"><div class="p2sec-h"><div class="ic">🎯</div><h3>Gap oferta / demanda</h3>${deepTag}<span class="verdict p2-hot">Oportunidad</span></div>${ai.gap ? `<div class="p2gap">${mdBold(ai.gap)}</div>` : '<span class="muted small">—</span>'}${fbRow('gap')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">⭐</div><h3>Diferenciación por reseñas</h3></div>${revBlock}${aiLine('Oportunidad', ai.reviewOps)}${fbRow('resenas')}</div>` +
-    `<div class="p2sec"><div class="p2sec-h"><div class="ic">⚡</div><h3>Diferenciación por upgrades</h3></div>${upgrades || '<span class="muted small">—</span>'}${fbRow('upgrades')}</div>` +
-    `<div class="p2sec"><div class="p2sec-h"><div class="ic">📦</div><h3>Diferenciación por bundle</h3></div><ul style="margin:4px 0 0;padding-left:18px;font-size:13px">${bundles || '<li class="muted">—</li>'}</ul>${fbRow('bundles')}</div>` +
+    `<div class="p2sec"><div class="p2sec-h"><div class="ic">⚡</div><h3>Diferenciación por upgrades</h3>${deepTag}</div>${upgrades || '<span class="muted small">—</span>'}${fbRow('upgrades')}</div>` +
+    `<div class="p2sec"><div class="p2sec-h"><div class="ic">📦</div><h3>Diferenciación por bundle</h3>${deepTag}</div><ul style="margin:4px 0 0;padding-left:18px;font-size:13px">${bundles || '<li class="muted">—</li>'}</ul>${fbRow('bundles')}</div>` +
     (report.deep ? renderP2Deep(report.deep) : '') +
     ((_p2ChatOpen || (report.chat && report.chat.length)) ? renderP2Chat(report) : '') +
     `<div class="hint" style="margin-top:6px">Datos reales: estacionalidad/cuota/tendencia (serie recolectada) + top productos y reseñas (ML vía ProfitGuard). Clusters y diferenciación: IA. El análisis profundo usa el ranking real de Nubimetrics que importes.</div>` +
@@ -1871,8 +1876,10 @@ async function p2DeepAI(item, rows, agg) {
     '"clusters":[{"nombre":"subcategoría por specs (2-4 palabras)","unidades":<suma unidades del cluster>,"ejemplos":["título corto"]}],' +
     '"gap":"hueco concreto: muchas unidades con pocas publicaciones, con números (máx 200 car)",' +
     '"concentracion":"qué tan concentrado y qué implica para entrar (máx 180 car)",' +
-    '"oportunidades":[{"titulo":"producto/acción (3-6 palabras)","detalle":"specs clave + segmento objetivo, máx 130 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>}}]}\n' +
-    'Para CADA oportunidad incluye "precio" (precio de venta objetivo en CLP, entero) y "pkg" = dimensiones del PACKAGING/caja en cm (l/a/al) y peso en kg (p), realistas para ese producto. La app calcula con eso el FOB objetivo para 33% de margen de contribución.';
+    '"oportunidades":[{"titulo":"producto/acción (3-6 palabras)","detalle":"specs clave + segmento objetivo, máx 130 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>}}],' +
+    '"upgrades":[{"costo":"BAJO|MEDIO|ALTO","titulo":"3-6 palabras","texto":"por qué, máx 110 car","precio":<CLP entero>,"pkg":{"l":<cm>,"a":<cm>,"al":<cm>,"p":<kg>}}],' +
+    '"bundles":[{"nombre":"3-5 palabras","para":"segmento","texto":"qué incluye, máx 90 car","precio":<CLP entero>,"pkg":{"l":<cm>,"a":<cm>,"al":<cm>,"p":<kg>}}]}\n' +
+    'Las "upgrades" y "bundles" ACTUALIZAN las diferenciaciones del análisis base con los datos REALES del ranking (precios y segmentos dentro del rango observado). REGLAS: NO dupliques lo que ET Brands ya tiene; ancla todo al ranking real; incluye "precio" (CLP) y "pkg" (packaging cm/kg) en oportunidades, upgrades y bundles para el FOB objetivo (33% margen contribución).';
   const raw = await aiText(prompt, cfg, { maxTokens: 3500 });
   return parseJSONLoose(raw) || { _err: 'La IA no devolvió JSON' };
 }
@@ -1958,6 +1965,14 @@ async function runP2DeepImport() {
     const agg = p2RankAgg(rows), ai = await p2DeepAI(item, rows, agg).catch(e => ({ _err: String(e.message || e) }));
     const yr = +$('p2DeepYear').value, mo = +$('p2DeepMonth').value;
     _p2Report.deep = { period: { year: yr, month: mo }, n: rows.length, tot: { ventas: agg.ventas, unidades: agg.unidades }, agg: { catPct: agg.catPct, fullPct: agg.fullPct, topSellers: agg.topSellers.slice(0, 8) }, ai, rows: rows.slice(0, 100).map(r => ({ pos: r.pos, titulo: r.titulo, unidades: r.unidades, ventas: r.ventas, ticket: r.ticket, vendedor: r.vendedor, full: r.full, catalogo: r.catalogo })) };
+    // El análisis profundo (datos reales) ACTUALIZA las diferenciaciones y el gap de arriba.
+    if (ai && !ai._err) {
+      _p2Report.ai = _p2Report.ai || {};
+      if (Array.isArray(ai.upgrades) && ai.upgrades.length) _p2Report.ai.upgrades = ai.upgrades;
+      if (Array.isArray(ai.bundles) && ai.bundles.length) _p2Report.ai.bundles = ai.bundles;
+      if (ai.gap) _p2Report.ai.gap = ai.gap;
+      _p2Report.ai._deepRefined = true;
+    }
     try { await p2CachePut(item.id, _p2Report); } catch (e) {}
     _p2Busy = false; $('p2DeepOverlay').classList.add('hidden'); renderP2(_p2Report, item, _p2Ts);
   } catch (e) { st.textContent = 'Error: ' + (e.message || e); _p2Busy = false; }
