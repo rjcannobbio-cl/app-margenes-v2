@@ -1413,7 +1413,7 @@ async function computeP2Report(item, onProgress) {
   const hl = await mlGet('/highlights/MLC/category/' + item.id).catch(() => null);
   let products = [], reviews = null;
   const content = (hl && hl.content) || [];
-  const catProds = content.filter(c => c.type === 'PRODUCT').slice(0, 16);
+  const catProds = content.filter(c => c.type === 'PRODUCT').slice(0, 20);
   if (catProds.length) {
     log('Leyendo fichas técnicas de ' + catProds.length + ' productos…');
     const dets = await p2MapLimit(catProds, 5, async c => { const b = await mlGet('/products/' + c.id); return p2Prod(c.position, c.id, b); });
@@ -1450,12 +1450,18 @@ async function p2OwnGet(item) {
     for (const x of rows) { const k = x.sku || x.id; if (!bySku.has(k)) bySku.set(k, x); }
     const products = [...bySku.values()].map(x => {
       const m = catMargins(x);
+      // Precio efectivo: el AON del catálogo si está, si no el precio real de ML.
+      const effPrice = x.precioAON ? +x.precioAON : (x.mlPrice ? +x.mlPrice : 0);
+      let margin = null;
+      if (effPrice > 0) {   // margen de CONTRIBUCIÓN al precio efectivo (no null solo porque falte el AON)
+        const weight = billableWeight(x.peso || 0, x.alto || 0, x.ancho || 0, x.largo || 0, VOL_DIVISOR);
+        margin = Math.round(computeChannel('ml', effPrice, m.cogs, x.mlComPct || 0, weight, !!x.isSuper, cfg).marginPct);
+      }
       return {
         name: x.titulo || x.sku, sku: x.sku || '', brand: ownBrandOf(x.titulo), active: x.active !== false,
         cost: Math.round(m.cogs || 0), fob: x.fob || null, abc: x.abc || null, comPct: x.mlComPct || 0,
         vel: x.vel != null ? x.vel : null, velWeeks: x.velWeeks || 0, stock: x.stock != null ? x.stock : null,
-        price: x.precioAON ? Math.round(x.precioAON) : (x.mlPrice ? Math.round(x.mlPrice) : null),
-        margin: (m.aon && m.aon.ml != null) ? Math.round(m.aon.ml) : null   // margen de CONTRIBUCIÓN a precio AON (ML)
+        price: effPrice ? Math.round(effPrice) : null, margin
       };
     }).sort((a, b) => (b.active - a.active) || ((b.vel || 0) - (a.vel || 0)));
     const bc = {}; for (const p of products) if (p.active && p.brand) bc[p.brand] = (bc[p.brand] || 0) + 1;
@@ -1504,8 +1510,12 @@ function targetFob(price, comPct, pkg) {
   return fob > 0 ? fob : null;   // USD
 }
 function targetFobTag(precio, comPct, pkg) {
-  const f = targetFob(precio, comPct, pkg);
-  return f ? ` <span style="color:var(--accent-d);font-weight:700" title="Costo FOB de fábrica que necesitas para ~33% de margen de contribución a ese precio (packaging estimado por IA)">· FOB objetivo ~US$${f.toFixed(1)}</span>` : '';
+  const p = parseFloat(precio) || 0;
+  let s = '';
+  if (p > 0) s += ` <span style="color:var(--ink);font-weight:700">· Ticket $${Math.round(p).toLocaleString('es-CL')}</span>`;
+  const f = targetFob(p, comPct, pkg);
+  if (f) s += ` <span style="color:var(--accent-d);font-weight:700" title="Costo FOB de fábrica que necesitas para ~33% de margen de contribución a ese precio (packaging estimado por IA)">· FOB objetivo ~US$${f.toFixed(1)}</span>`;
+  return s;
 }
 
 // --- Batch: pre-analizar el top N por cuota x seller (reanudable, throttleado por mlGate). ---
@@ -1659,11 +1669,16 @@ function renderP2(report, item, ts) {
   const aiLine = (tag, txt) => txt ? `<div class="p2ai"><span class="tag">🤖 ${tag}</span>${mdBold(txt)}</div>` : '';
   const fbRow = sec => `<div class="p2fb"><button onclick="p2Fb(this,'${esc(item.id)}','${sec}',1)">👍</button><button onclick="p2Fb(this,'${esc(item.id)}','${sec}',0)">👎</button><button onclick="p2FbEdit('${esc(item.id)}','${sec}')">✏️ Corregir</button></div>`;
 
-  const clusters = (ai.clusters || []).map(c => {
-    const items = (c.pos || []).map(p => byPos[p]).filter(Boolean).map(p => `<li><a href="${esc(p.pdp)}" target="_blank" rel="noopener">#${p.pos} ${esc(p.name)}</a></li>`).join('');
+  const cliItem = p => `<li style="margin:2px 0"><a href="${esc(p.pdp)}" target="_blank" rel="noopener"><b style="color:var(--accent-d)">#${p.pos}</b> ${esc(p.name)}</a></li>`;
+  let clusters = (ai.clusters || []).map(c => {
+    const items = (c.pos || []).map(p => byPos[p]).filter(Boolean).sort((a, b) => a.pos - b.pos).map(cliItem).join('');
     const chips = (c.chips || []).map(ch => `<span class="chip">${esc(ch)}</span>`).join('');
-    return `<div class="p2clcard"><div class="p2clhead"><span>${esc(c.nombre || '')}</span><span class="sh">${esc(c.peso || '')}</span></div><div class="chips">${chips}</div><ol class="p2plist">${items}</ol></div>`;
+    return `<div class="p2clcard"><div class="p2clhead"><span>${esc(c.nombre || '')}</span><span class="sh">${esc(c.peso || '')}</span></div><div class="chips">${chips}</div><ul class="p2plist" style="list-style:none;padding-left:0;margin:4px 0 0">${items}</ul></div>`;
   }).join('');
+  // Los que la IA no clasificó → bloque "Otros", para que aparezcan TODOS los del top.
+  const covered = new Set(); (ai.clusters || []).forEach(c => (c.pos || []).forEach(p => covered.add(p)));
+  const otros = prods.filter(p => !covered.has(p.pos)).sort((a, b) => a.pos - b.pos);
+  if (otros.length) clusters += `<div class="p2clcard"><div class="p2clhead"><span>Otros</span><span class="sh">${otros.length}/${prods.length}</span></div><ul class="p2plist" style="list-style:none;padding-left:0;margin:4px 0 0">${otros.map(cliItem).join('')}</ul></div>`;
 
   const etbBrands = ['hosser', 'zeker', 'howell', 'overfit', 'duke', 'ibrah', 'colton', 'galanta', 'homely', 'luxgear', 'planex'];
   const own = prods.filter(p => etbBrands.includes((p.brand || '').toLowerCase()) || etbBrands.some(b => (p.name || '').toLowerCase().includes(b)));
