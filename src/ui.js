@@ -1215,7 +1215,7 @@ function paintResearch() {
   // ordenar por cuota x seller descendente (categoría más atractiva primero)
   const yoyCell = x => { const y = researchYtdYoY(x); if (y == null) return '<td class="mcell muted">–</td>'; const col = y >= 0 ? 'var(--good)' : 'var(--bad)'; return `<td class="mcell" style="color:${col};font-weight:600">${y >= 0 ? '+' : ''}${y.toFixed(1)}%</td>`; };
   const canibCell = x => (x.canibalizacion || _myCats.has(x.id)) ? '<td style="text-align:center"><span style="color:var(--accent);font-weight:700" title="Ya tenemos productos publicados en esta categoría">● Sí</span></td>' : '<td style="text-align:center" class="muted">–</td>';
-  const rows = filtered.slice().sort((a, b) => (researchCuota(b) || 0) - (researchCuota(a) || 0)).map(x => {
+  const rows = filtered.slice().sort((a, b) => (parseFloat(b.ventasGmv) || 0) - (parseFloat(a.ventasGmv) || 0)).map(x => {
     const cuota = researchCuota(x);
     return `<tr data-id="${escapeHtml(x.id || '')}">
       <td>${escapeHtml(x.l1 || '')}</td>
