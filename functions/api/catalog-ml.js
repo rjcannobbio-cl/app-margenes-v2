@@ -41,13 +41,16 @@ export async function onRequest({ request, env }) {
     let seller = '613899966';
     try { const me = await mlGet(headers, '/users/me', {}); if (me && me.id) seller = String(me.id); } catch (e) {}
 
-    // 1) Todos los ítems ACTIVOS del vendedor → sku → { cat, mlc, price, qty }.
+    // 1) Ítems del vendedor (activos y PAUSADOS) → sku → { cat, mlc, price, qty }.
+    //    Los pausados/sin stock también tienen categoría real (ej. CAMHOW001).
     const ids = [];
-    for (let off = 0; off < 2000; off += 100) {
-      const b = await mlGet(headers, `/users/${seller}/items/search`, { status: 'active', offset: String(off), limit: '100' });
-      const res = (b && b.results) || []; ids.push(...res);
-      const total = (b && b.paging && b.paging.total) || 0;
-      if (off + 100 >= total || !res.length) break;
+    for (const st of ['active', 'paused']) {
+      for (let off = 0; off < 2000; off += 100) {
+        const b = await mlGet(headers, `/users/${seller}/items/search`, { status: st, offset: String(off), limit: '100' });
+        const res = (b && b.results) || []; ids.push(...res);
+        const total = (b && b.paging && b.paging.total) || 0;
+        if (off + 100 >= total || !res.length) break;
+      }
     }
     // OJO: el SKU de PG NO siempre está en seller_custom_field (a veces null); casi
     // siempre está en el atributo SELLER_SKU. Y el GTIN = EAN. Indexamos por ambos SKUs
@@ -57,8 +60,9 @@ export async function onRequest({ request, env }) {
     for (let i = 0; i < ids.length; i += 20) {
       const arr = await mlGet(headers, '/items', { ids: ids.slice(i, i + 20).join(','), attributes: 'id,category_id,price,seller_custom_field,available_quantity,status,attributes' });
       for (const w of (Array.isArray(arr) ? arr : [])) {
-        const b = w && w.body; if (!b || b.status !== 'active') continue;
-        const rec = { cat: b.category_id || '', mlc: b.id, price: b.price || null, qty: b.available_quantity || 0 };
+        const b = w && w.body; if (!b || (b.status !== 'active' && b.status !== 'paused')) continue;
+        // Preferimos la publicación activa (más stock); las pausadas dan qty 0 pero igual aportan categoría.
+        const rec = { cat: b.category_id || '', mlc: b.id, price: b.price || null, qty: (b.status === 'active' ? (b.available_quantity || 0) + 1 : 0) };
         const scf = (b.seller_custom_field || '').trim();
         const ssku = (attrVal(b.attributes, 'SELLER_SKU') || '').trim();
         const ean = normEan(attrVal(b.attributes, 'GTIN'));

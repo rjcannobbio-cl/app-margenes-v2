@@ -1452,7 +1452,7 @@ async function p2OwnGet(item) {
       const m = catMargins(x);
       return {
         name: x.titulo || x.sku, sku: x.sku || '', brand: ownBrandOf(x.titulo), active: x.active !== false,
-        cost: Math.round(m.cogs || 0), fob: x.fob || null, abc: x.abc || null,
+        cost: Math.round(m.cogs || 0), fob: x.fob || null, abc: x.abc || null, comPct: x.mlComPct || 0,
         vel: x.vel != null ? x.vel : null, velWeeks: x.velWeeks || 0, stock: x.stock != null ? x.stock : null,
         price: x.precioAON ? Math.round(x.precioAON) : (x.mlPrice ? Math.round(x.mlPrice) : null),
         margin: (m.aon && m.aon.ml != null) ? Math.round(m.aon.ml) : null   // margen de CONTRIBUCIÓN a precio AON (ML)
@@ -1480,6 +1480,33 @@ function mdBold(t) {
   s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\*+/g, '');
   return s;
 }
+// Comisión ML de la categoría del P2: de los propios (misma cat) o de la tabla local por hoja.
+function p2CatCommission(report, item) {
+  const ps = (report && report.own && report.own.products) || [];
+  const c = ps.map(p => p.comPct).find(v => v > 0); if (c) return c;
+  const idxs = mlCatIndex().get(normalize((item && item.leaf) || ''));
+  if (idxs && idxs.length) return ML_CATEGORIES[idxs[0]].cost || 0;
+  return 13;   // fallback promedio ML
+}
+// FOB objetivo (USD) para lograr TARGET_MARGIN de margen de CONTRIBUCIÓN a un precio de venta dado.
+// Ejercicio inverso al de la app: parte del packaging deducido por la IA (dims cm + peso kg).
+const P2_TARGET_MARGIN = 0.33;
+function targetFob(price, comPct, pkg) {
+  price = parseFloat(price) || 0; if (!price || !pkg) return null;
+  const l = +pkg.l || 0, a = +pkg.a || 0, al = +pkg.al || 0, p = +pkg.p || 0;
+  if (!l || !a || !al) return null;
+  const weight = billableWeight(p, al, a, l, VOL_DIVISOR);
+  const ship = mlShipping(price, weight, false, cfg).cost;
+  const cogsTarget = price * (1 - P2_TARGET_MARGIN - (comPct || 0) / 100) - ship;   // COGS máximo que da 33%
+  if (cogsTarget <= 0) return null;
+  const cbmUnit = (al * a * l) / 1e6;   // m³ (dims en cm)
+  const fob = cogsTarget / (cfg.dolar * (1 + (cfg.iva || 0) / 100)) - cbmUnit * cfg.factorCBM;
+  return fob > 0 ? fob : null;   // USD
+}
+function targetFobTag(precio, comPct, pkg) {
+  const f = targetFob(precio, comPct, pkg);
+  return f ? ` <span style="color:var(--accent-d);font-weight:700" title="Costo FOB de fábrica que necesitas para ~33% de margen de contribución a ese precio (packaging estimado por IA)">· FOB objetivo ~US$${f.toFixed(1)}</span>` : '';
+}
 
 // --- Batch: pre-analizar el top N por cuota x seller (reanudable, throttleado por mlGate). ---
 let _p2Batch = null;
@@ -1493,22 +1520,24 @@ async function runP2Batch(n, force) {
   if (!cats.length) { alert('No hay categorías con ventas para analizar. Importa datos primero.'); return; }
   _p2Batch = { running: true, total: cats.length, done: 0, ok: 0, fail: 0, skip: 0, stop: false, force: !!force, t0: Date.now() };
   p2BatchUI();
+  // Timeout por ítem: si un análisis se cuelga (fetch/IA sin responder), no congela el batch.
+  const withTimeout = (p, ms) => Promise.race([Promise.resolve(p), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+  try {
   for (const item of cats) {
     if (_p2Batch.stop) break;
     try {
-      const prev = await p2CacheGet(item.id);
+      const prev = await withTimeout(p2CacheGet(item.id), 30000).catch(() => null);
       if (!force && prev && prev.report) { _p2Batch.skip++; }   // reanudable: ya estaba (salvo force)
       else {
-        const report = await computeP2Report(item);
+        const report = await withTimeout(computeP2Report(item), 120000);
         if (prev && prev.report) { if (prev.report.deep) report.deep = prev.report.deep; if (prev.report.chat) report.chat = prev.report.chat; }   // conserva profundo + chat
-        await p2CachePut(item.id, report); _p2Batch.ok++;
+        await withTimeout(p2CachePut(item.id, report), 30000); _p2Batch.ok++;
       }
     } catch (e) { _p2Batch.fail++; }
     _p2Batch.done++;
     p2BatchUI();
   }
-  _p2Batch.running = false;
-  p2BatchUI();
+  } finally { _p2Batch.running = false; _p2Batch.stop = false; p2BatchUI(); }
 }
 function p2BatchUI() {
   const b = _p2Batch;
@@ -1608,8 +1637,9 @@ async function p2AI(item, stats, products, reviews, own) {
     '{"estacionalidad":"1 frase: meses peak/valle y qué hacer (máx 140 car)","cuota":"1 frase sobre el atractivo de la categoría; NO digas que ET Brands domina salvo evidencia (máx 130 car)","tendencia":"1 frase (máx 110 car)",' +
     '"clusters":[{"nombre":"subcategoría por specs","chips":["FHD","24-27\\""],"pos":[2,3,5],"peso":"8/16"}],' +
     '"gap":"dónde hay demanda con poca oferta, con números (máx 200 car)","reviewOps":"queja recurrente = oportunidad, concreto (máx 160 car)",' +
-    '"upgrades":[{"costo":"BAJO|MEDIO|ALTO","titulo":"3-6 palabras","texto":"por qué (barato de fabricar, alto valor), máx 110 car"}],' +
-    '"bundles":[{"nombre":"nombre del set (3-5 palabras)","para":"segmento objetivo","texto":"qué incluye y por qué, máx 90 car"}]}';
+    '"upgrades":[{"costo":"BAJO|MEDIO|ALTO","titulo":"3-6 palabras","texto":"por qué (barato de fabricar, alto valor), máx 110 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>}}],' +
+    '"bundles":[{"nombre":"nombre del set (3-5 palabras)","para":"segmento objetivo","texto":"qué incluye y por qué, máx 90 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>}}]}\n' +
+    'Para CADA upgrade y bundle incluye "precio" (precio de venta objetivo en CLP, entero sin puntos) y "pkg" = dimensiones del PACKAGING/caja de envío en cm (l=largo, a=ancho, al=alto) y peso en kg (p), estimados de forma realista para ese producto. Con eso la app calcula el FOB objetivo.';
   const raw = await aiText(prompt, cfg, { maxTokens: 2200 });
   return parseJSONLoose(raw) || { _err: 'La IA no devolvió JSON válido' };
 }
@@ -1647,13 +1677,14 @@ function renderP2(report, item, ts) {
     return `<div style="font-size:13px;margin-bottom:6px"><b style="color:var(--accent-d);font-size:20px">${r.avg || '?'}★</b> · ${r.total || 0} reseñas · ${esc(r.name)} ${r.price ? '($' + Math.round(r.price).toLocaleString('es-CL') + ')' : ''}</div>${bar(5, lv.five_star)}${bar(1, lv.one_star)}<div style="margin-top:6px">${samples}</div>`;
   })() : '<span class="muted small">Sin reseñas disponibles para el top.</span>';
 
+  const comPct = p2CatCommission(report, item);
   const upgrades = (ai.upgrades || []).map(u => {
     const cc = /(baj|low)/i.test(u.costo) ? 'p2-good' : (/(alt|high)/i.test(u.costo) ? 'p2-bad' : 'p2-mid');
     const ti = u.titulo ? `<b>${esc(u.titulo)}</b> — ` : '';
-    return `<div class="p2up"><span class="c ${cc}">costo ${esc(u.costo || '')}</span><div>${ti}${mdBold(u.texto || '')}</div></div>`;
+    return `<div class="p2up"><span class="c ${cc}">costo ${esc(u.costo || '')}</span><div>${ti}${mdBold(u.texto || '')}${targetFobTag(u.precio, comPct, u.pkg)}</div></div>`;
   }).join('');
   const bundles = (ai.bundles || []).map(b => {
-    if (b && typeof b === 'object') return `<li style="margin:6px 0"><b>${esc(b.nombre || '')}</b>${b.para ? ` <span class="muted small">· ${esc(b.para)}</span>` : ''}${b.texto ? `<div style="font-size:12px;color:var(--muted);margin-top:1px">${mdBold(b.texto)}</div>` : ''}</li>`;
+    if (b && typeof b === 'object') return `<li style="margin:6px 0"><b>${esc(b.nombre || '')}</b>${b.para ? ` <span class="muted small">· ${esc(b.para)}</span>` : ''}${b.texto ? `<div style="font-size:12px;color:var(--muted);margin-top:1px">${mdBold(b.texto)}${targetFobTag(b.precio, comPct, b.pkg)}</div>` : ''}</li>`;
     return `<li style="margin:5px 0">${mdBold(b)}</li>`;
   }).join('');
   const fmt = v => (v != null && !isNaN(v)) ? '$' + Math.round(v).toLocaleString('es-CL') : '–';
@@ -1666,7 +1697,7 @@ function renderP2(report, item, ts) {
     `<div class="p2tool"><button class="btn ghost" style="font-size:12px;padding:7px 12px" id="p2ChatToggle">💬 Pregúntale a la IA</button><button class="btn ${report.deep ? 'ghost' : ''}" style="font-size:12px;padding:7px 12px" id="p2DeepToggle">📊 ${report.deep ? 'Re-analizar en profundidad' : 'Analizar en profundidad'}</button></div>` +
     ('own' in report ? renderP2Own(report.own) : '') +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">📅</div><h3>Estacionalidad</h3></div><div class="p2bars">${bars}</div>${aiLine('Lectura', ai.estacionalidad)}${fbRow('estacionalidad')}</div>` +
-    `<div class="p2sec"><div class="p2sec-h"><div class="ic">💰</div><h3>Atractivo · cuota por vendedor</h3><span class="verdict ${cuotaBadge}">${esc((s.cuota || {}).clase || '—')}</span></div><p style="margin:2px 0;font-size:13px">${fmt((s.cuota || {}).cuota)}/vendedor · percentil ${(s.cuota || {}).pct || '?'} · ${s.competidores ? Math.round(s.competidores) + ' vendedores' : ''}</p><p class="small muted" style="margin:2px 0 0">Ingreso promedio por vendedor de <b>toda la categoría</b> (no de ET Brands). Alto = mercado donde cada vendedor factura mucho.</p>${aiLine('Lectura', ai.cuota)}${fbRow('cuota')}</div>` +
+    `<div class="p2sec"><div class="p2sec-h"><div class="ic">💰</div><h3>Atractivo · cuota por vendedor</h3><span class="verdict ${cuotaBadge}">${esc((s.cuota || {}).clase || '—')}</span></div><p style="margin:2px 0;font-size:13px">${fmt((s.cuota || {}).cuota)}/vendedor · percentil ${(s.cuota || {}).pct || '?'} · ${s.competidores ? Math.round(s.competidores) + ' vendedores' : ''}</p>${aiLine('Lectura', ai.cuota)}${fbRow('cuota')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">📈</div><h3>Tendencia</h3><span class="verdict ${s.trend && s.trend.yoy >= 0 ? 'p2-good' : 'p2-bad'}">${esc((s.trend || {}).dir || '—')}</span></div><p style="margin:2px 0"><b style="color:${trendCol};font-size:20px">${s.trend && s.trend.yoy != null ? (s.trend.yoy >= 0 ? '+' : '') + s.trend.yoy.toFixed(1) + '%' : '–'}</b> <span class="muted small">YoY (últimos 12m vs previos)</span></p>${aiLine('Lectura', ai.tendencia)}${fbRow('tendencia')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">🏆</div><h3>Top vendedores</h3></div><a class="btn" href="${esc(report.rankUrl || '#')}" target="_blank" rel="noopener">🏆 Ver ranking en Nubimetrics ↗</a></div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">🧩</div><h3>Top productos por subcategoría</h3><span class="verdict p2-good">${prods.length} reales</span></div>${etbHit}<div class="p2clgrid">${clusters || '<span class="muted small">La IA no devolvió clusters.</span>'}</div>${fbRow('clusters')}</div>` +
@@ -1743,7 +1774,8 @@ async function p2DeepAI(item, rows, agg) {
     '"clusters":[{"nombre":"subcategoría por specs (2-4 palabras)","unidades":<suma unidades del cluster>,"ejemplos":["título corto"]}],' +
     '"gap":"hueco concreto: muchas unidades con pocas publicaciones, con números (máx 200 car)",' +
     '"concentracion":"qué tan concentrado y qué implica para entrar (máx 180 car)",' +
-    '"oportunidades":[{"titulo":"producto/acción (3-6 palabras)","detalle":"specs clave + precio/segmento objetivo, máx 130 car"}]}';
+    '"oportunidades":[{"titulo":"producto/acción (3-6 palabras)","detalle":"specs clave + segmento objetivo, máx 130 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>}}]}\n' +
+    'Para CADA oportunidad incluye "precio" (precio de venta objetivo en CLP, entero) y "pkg" = dimensiones del PACKAGING/caja en cm (l/a/al) y peso en kg (p), realistas para ese producto. La app calcula con eso el FOB objetivo para 33% de margen de contribución.';
   const raw = await aiText(prompt, cfg, { maxTokens: 2600 });
   return parseJSONLoose(raw) || { _err: 'La IA no devolvió JSON' };
 }
@@ -1755,21 +1787,23 @@ function renderP2Own(own) {
   const abcColor = { A: 'var(--good)', B: '#8fd18f', C: 'var(--mid)', D: 'var(--faint)', F: 'var(--bad)' };
   const abcCell = p => p.abc ? `<span style="font-weight:800;color:${abcColor[p.abc] || 'var(--muted)'}">${esc(p.abc)}</span>` : '–';
   const mCol = m => m >= 30 ? 'var(--good)' : (m >= 15 ? 'var(--mid)' : 'var(--bad)');
-  const rows = act.slice(0, 16).map(p => `<tr><td>${esc(p.name)}</td><td>${esc(p.brand || '')}</td>` +
+  const short = s => { s = String(s || ''); return s.length > 20 ? s.slice(0, 19) + '…' : s; };
+  const clp = v => '$' + Math.round(v).toLocaleString('es-CL');
+  const rows = act.slice(0, 16).map(p => `<tr><td title="${esc(p.name)}">${esc(short(p.name))}</td><td>${esc(p.brand || '')}</td>` +
     `<td style="text-align:center">${abcCell(p)}</td>` +
-    `<td style="text-align:right"${p.velWeeks ? ` title="Promedio de ${p.velWeeks} semana${p.velWeeks === 1 ? '' : 's'} con ventas (con stock)"` : ''}>${p.vel != null ? `<b style="color:${p.vel > 0 ? 'var(--good)' : 'var(--muted)'};font-variant-numeric:tabular-nums">${p.vel}</b><span class="muted" style="font-size:11px"> /sem</span>` : '–'}</td>` +
+    `<td style="text-align:right"${p.velWeeks ? ` title="Promedio de ${p.velWeeks} semana${p.velWeeks === 1 ? '' : 's'} con ventas (con stock)"` : ''}>${p.vel != null ? `<b style="color:${p.vel > 0 ? 'var(--good)' : 'var(--muted)'};font-variant-numeric:tabular-nums">${p.vel}</b>` : '–'}</td>` +
     `<td style="text-align:right">${p.stock != null ? p.stock : '–'}</td>` +
-    `<td style="text-align:right">${p.cost ? '$' + p.cost.toLocaleString('es-CL') : '–'}</td>` +
+    `<td style="text-align:right">${p.cost ? clp(p.cost) : '–'}</td>` +
     `<td style="text-align:right">${p.fob != null ? 'US$' + p.fob : '–'}</td>` +
-    `<td style="text-align:right">${p.price ? '$' + p.price.toLocaleString('es-CL') : '–'}</td>` +
+    `<td style="text-align:right">${p.price ? clp(p.price) : '–'}</td>` +
     `<td style="text-align:right;font-weight:700;color:${p.margin != null ? mCol(p.margin) : 'var(--muted)'}">${p.margin != null ? p.margin + '%' : '–'}</td></tr>`).join('');
-  const hasA = act.some(p => p.abc === 'A');
   return `<div class="p2sec"><div class="p2sec-h"><div class="ic">🏷️</div><h3>Tu catálogo actual</h3><span class="verdict p2-good">${own.brand ? esc(own.brand) + ' · ' : ''}${act.length} activo${act.length === 1 ? '' : 's'}</span></div>` +
-    `<p class="small muted" style="margin:2px 0 6px">Lo que ET Brands ya vende en esta categoría exacta de ML (match por id de categoría real, no por nombre). <b>Clase</b> = rotación real (A=top ventas … F=congelado), <b>vel.</b> = promedio semanal real, <b>COGS</b> = costo landed (de la calculadora), <b>margen</b> = de <b>contribución</b> a precio AON (COGS + comisión + envío). La IA lo usa para no duplicar y sugerir huecos/mejoras.${hasA ? ' <span style="color:var(--good)">Tenés productos clase A (ganadores) acá.</span>' : ''}</p>` +
-    `<div style="overflow:auto"><table class="p2own"><thead><tr><th style="text-align:left">Producto</th><th style="text-align:left">Marca</th><th style="text-align:center" title="Rotación real: A=top ventas … F=congelado">Clase</th><th style="text-align:right" title="Promedio semanal real de las semanas con stock">Vel. real</th><th style="text-align:right">Stock</th><th style="text-align:right" title="Costo landed / COGS (CLP)">COGS</th><th style="text-align:right" title="Costo FOB de fábrica (USD)">FOB</th><th style="text-align:right" title="Precio AON (CLP)">Precio AON</th><th style="text-align:right" title="Margen de contribución a precio AON en ML (precio − COGS − comisión − envío)">Margen contrib.</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+    `<p class="small muted" style="margin:2px 0 6px">La velocidad se calcula en base a las últimas semanas en que el SKU tuvo stock.</p>` +
+    `<table class="p2own" style="width:100%;table-layout:fixed;font-size:11px"><thead><tr><th style="text-align:left;width:22%">Producto</th><th style="text-align:left;width:12%">Marca</th><th style="text-align:center;width:7%" title="Rotación real: A=top ventas … F=congelado">Clase</th><th style="text-align:right;width:9%">Vel</th><th style="text-align:right;width:9%">Stock</th><th style="text-align:right;width:12%" title="Costo landed / COGS (CLP)">COGS</th><th style="text-align:right;width:10%" title="Costo FOB (USD)">FOB</th><th style="text-align:right;width:11%" title="Precio AON (CLP)">AON</th><th style="text-align:right;width:10%" title="Margen de contribución a precio AON (precio − COGS − comisión − envío)">Margen</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 function renderP2Deep(deep) {
   const esc = escapeHtml, ai = deep.ai || {};
+  const comPct = p2CatCommission(_p2Report, _p2Item);
   const per = deep.period ? ((RD_MESES[deep.period.month - 1] || '') + ' ' + deep.period.year) : '';
   const kpi = (l, v) => `<div style="flex:1;min-width:88px;background:#121215;border:1px solid var(--line);border-radius:8px;padding:8px 10px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px">${l}</div><div style="font-size:17px;font-weight:800">${v}</div></div>`;
   const clusters = (ai.clusters || []).slice().sort((a, b) => (b.unidades || 0) - (a.unidades || 0));
@@ -1792,7 +1826,7 @@ function renderP2Deep(deep) {
     (ai.gap ? `<div class="p2gap" style="margin-top:10px"><b>🎯 Gap oferta/demanda:</b> ${mdBold(ai.gap)}</div>` : '') +
     (sBars ? `<div style="font-weight:800;font-size:12px;margin:12px 0 2px">🏪 Concentración por vendedor (ventas)</div>${sBars}${ai.concentracion ? `<div class="small muted" style="margin-top:4px">${mdBold(ai.concentracion)}</div>` : ''}` : '') +
     ((ai.oportunidades && ai.oportunidades.length) ? `<div style="margin-top:12px"><b style="font-size:12px">💡 Oportunidades:</b><div style="margin-top:4px">${ai.oportunidades.map(o => {
-      if (o && typeof o === 'object') return `<div style="display:flex;gap:8px;margin:6px 0"><span style="color:var(--accent);font-weight:800">›</span><div><b style="font-size:13px">${esc(o.titulo || '')}</b>${o.detalle ? `<div style="font-size:12px;color:var(--muted);margin-top:1px">${mdBold(o.detalle)}</div>` : ''}</div></div>`;
+      if (o && typeof o === 'object') return `<div style="display:flex;gap:8px;margin:6px 0"><span style="color:var(--accent);font-weight:800">›</span><div><b style="font-size:13px">${esc(o.titulo || '')}</b>${o.detalle ? `<div style="font-size:12px;color:var(--muted);margin-top:1px">${mdBold(o.detalle)}${targetFobTag(o.precio, comPct, o.pkg)}</div>` : `<div>${targetFobTag(o.precio, comPct, o.pkg)}</div>`}</div></div>`;
       return `<div style="display:flex;gap:8px;margin:6px 0"><span style="color:var(--accent);font-weight:800">›</span><div style="font-size:13px">${mdBold(o)}</div></div>`;
     }).join('')}</div></div>` : '') +
     `<div class="p2fb"><button onclick="openP2DeepModal()">↻ Reimportar / cambiar mes</button></div></div>`;
