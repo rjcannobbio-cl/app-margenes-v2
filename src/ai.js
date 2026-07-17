@@ -139,9 +139,33 @@ function parseJSONLoose(s) {
   let t = s.trim();
   const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fence) t = fence[1].trim();
-  const b = t.indexOf('{'), e = t.lastIndexOf('}');
-  if (b >= 0 && e > b) t = t.slice(b, e + 1);
-  try { return JSON.parse(t); } catch (_) { return null; }
+  const b = t.indexOf('{'); if (b < 0) return null;
+  t = t.slice(b);
+  // 1) intento directo, recortando al último '}'
+  const e = t.lastIndexOf('}');
+  if (e > 0) { try { return JSON.parse(t.slice(0, e + 1)); } catch (_) {} }
+  // 2) reparar JSON truncado (respuesta cortada por max_tokens): balancear y cerrar
+  try { return JSON.parse(repairTruncatedJSON(t)); } catch (_) { return null; }
+}
+// Cierra strings/estructuras abiertas de un JSON cortado a la mitad para poder parsear lo que sí llegó.
+function repairTruncatedJSON(t) {
+  let inStr = false, esc = false; const stack = [];
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (esc) { esc = false; continue; }
+    if (c === '\\') { if (inStr) esc = true; continue; }
+    if (c === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+    if (c === '{' || c === '[') stack.push(c === '{' ? '}' : ']');
+    else if (c === '}' || c === ']') stack.pop();
+  }
+  let out = t;
+  if (inStr) out += '"';                              // cierra un string cortado
+  out = out.replace(/,\s*$/, '');                     // coma colgante
+  out = out.replace(/,\s*"[^"]*"\s*:\s*$/, '');       // clave sin valor al final
+  out = out.replace(/:\s*$/, ': null');               // valor faltante
+  for (let i = stack.length - 1; i >= 0; i--) out += stack[i];   // cierra { [ pendientes
+  return out;
 }
 
 // Nombres de hoja (únicos) dentro de un L1

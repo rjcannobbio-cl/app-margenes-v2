@@ -1683,7 +1683,7 @@ async function p2AI(item, stats, products, reviews, own) {
     '"upgrades":[{"costo":"BAJO|MEDIO|ALTO","titulo":"3-6 palabras","texto":"por qué (barato de fabricar, alto valor), máx 110 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>}}],' +
     '"bundles":[{"nombre":"nombre del set (3-5 palabras)","para":"segmento objetivo","texto":"qué incluye y por qué, máx 90 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>}}]}\n' +
     'Para CADA upgrade y bundle incluye "precio" (precio de venta objetivo en CLP, entero sin puntos) y "pkg" = dimensiones del PACKAGING/caja de envío en cm (l=largo, a=ancho, al=alto) y peso en kg (p), estimados de forma realista para ese producto. Con eso la app calcula el FOB objetivo.';
-  const raw = await aiText(prompt, cfg, { maxTokens: 2200 });
+  const raw = await aiText(prompt, cfg, { maxTokens: 3500 });
   return parseJSONLoose(raw) || { _err: 'La IA no devolvió JSON válido' };
 }
 
@@ -1730,7 +1730,7 @@ async function p2VisionAI(item, stats, products, reviews, own) {
     '"bundles":[{"nombre":"3-5 palabras","para":"segmento","texto":"qué incluye, máx 90 car","precio":<CLP entero>,"pkg":{"l":<cm>,"a":<cm>,"al":<cm>,"p":<kg>}}]}\n' +
     'IMPORTANTE: "pos" debe cubrir TODOS los top mostrados (cada uno en un cluster). En "ownAnalysis" incluye TODOS tus productos mostrados. "precio"=precio de venta objetivo CLP y "pkg"=dimensiones/peso del packaging estimado, para que la app calcule el FOB objetivo.'
   ));
-  const raw = await aiText('', cfg, { content, maxTokens: 3200 });
+  const raw = await aiText('', cfg, { content, maxTokens: 4500 });
   const j = parseJSONLoose(raw);
   return j || { _err: 'La IA (visión) no devolvió JSON válido' };
 }
@@ -1874,7 +1874,7 @@ async function p2DeepAI(item, rows, agg) {
     '"concentracion":"qué tan concentrado y qué implica para entrar (máx 180 car)",' +
     '"oportunidades":[{"titulo":"producto/acción (3-6 palabras)","detalle":"specs clave + segmento objetivo, máx 130 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>}}]}\n' +
     'Para CADA oportunidad incluye "precio" (precio de venta objetivo en CLP, entero) y "pkg" = dimensiones del PACKAGING/caja en cm (l/a/al) y peso en kg (p), realistas para ese producto. La app calcula con eso el FOB objetivo para 33% de margen de contribución.';
-  const raw = await aiText(prompt, cfg, { maxTokens: 2600 });
+  const raw = await aiText(prompt, cfg, { maxTokens: 3500 });
   return parseJSONLoose(raw) || { _err: 'La IA no devolvió JSON' };
 }
 // Diagnóstico por producto propio (del análisis con visión): qué es, en qué cluster cae, qué le falta.
