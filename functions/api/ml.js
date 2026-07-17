@@ -16,7 +16,7 @@
 const PG = 'https://app.profitguard.cl/api/v1';
 const ML_INTEGRATION_CL = 1;
 // Solo lectura y solo lo que P2 necesita.
-const ALLOW = ['/highlights/', '/products/', '/reviews/', '/categories/', '/sites/'];
+const ALLOW = ['/highlights/', '/products/', '/reviews/', '/categories/', '/sites/', '/items/'];
 
 export async function onRequest({ request, env }) {
   if (request.method !== 'POST') return json({ error: 'usa POST' }, 405);

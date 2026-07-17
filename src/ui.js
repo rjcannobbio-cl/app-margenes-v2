@@ -1391,9 +1391,12 @@ function p2CuotaClass(item) {
   return { cuota, pct: Math.round(p), clase: p >= 90 ? 'ALTA' : p >= 50 ? 'MEDIA' : 'BAJA' };
 }
 function p2Attr(body, id) { const a = (body.attributes || []).find(x => x.id === id); return a ? (a.value_name || '') : ''; }
+function p2Pics(body, n) {
+  return (body.pictures || []).map(p => p.secure_url || p.url).filter(Boolean).slice(0, n || 2);
+}
 function p2Prod(pos, id, body) {
   const attrs = (body.attributes || []).filter(a => a.value_name && !/^\d+ (cm|kg|px)/.test(a.value_name)).slice(0, 12).map(a => a.name + ': ' + a.value_name).join(' · ').slice(0, 220);
-  return { pos, id, name: (body.name || '').slice(0, 90), brand: p2Attr(body, 'BRAND'), attrs, pdp: 'https://www.mercadolibre.cl/p/' + id };
+  return { pos, id, name: (body.name || '').slice(0, 90), brand: p2Attr(body, 'BRAND'), attrs, pics: p2Pics(body, 2), pdp: 'https://www.mercadolibre.cl/p/' + id };
 }
 
 function p2RankUrl(item) {
@@ -1432,8 +1435,21 @@ async function computeP2Report(item, onProgress) {
   }
   log('Buscando tu catálogo propio en ProfitGuard…');
   const own = await p2OwnGet(item);
-  log('La IA está agrupando productos y buscando oportunidades…');
-  const ai = await p2AI(item, stats, products, reviews, own).catch(e => ({ _err: String(e.message || e) }));
+  // Enriquecer TUS productos con 2 fotos + ficha real de su publicación ML (para el análisis con visión).
+  if (own && own.products && own.products.length) {
+    log('Trayendo fotos y fichas de tus productos…');
+    await p2MapLimit(own.products.filter(p => p.mlItemId).slice(0, 8), 4, async p => {
+      try {
+        const b = await mlGet('/items/' + p.mlItemId, { include_attributes: 'all' });
+        p.pics = p2Pics(b, 2);
+        p.attrs = (b.attributes || []).filter(a => a.value_name && a.id !== 'SELLER_SKU' && a.id !== 'GTIN').slice(0, 14).map(a => a.name + ': ' + a.value_name).join(' · ').slice(0, 240);
+      } catch (e) {}
+    });
+  }
+  log('La IA está analizando fotos, fichas y reseñas de cada producto…');
+  // Análisis con VISIÓN (fotos de top + propios). Si falla, cae al análisis de solo texto.
+  let ai = await p2VisionAI(item, stats, products, reviews, own).catch(e => ({ _err: String(e.message || e) }));
+  if (ai && ai._err) ai = await p2AI(item, stats, products, reviews, own).catch(e => ({ _err: String(e.message || e) }));
   return { v: 1, cat: { l1: item.l1, leaf: item.leaf, id: item.id, path: item.path }, stats, products, reviews, own, ai, rankUrl: p2RankUrl(item) };
 }
 // Deriva un término de búsqueda del nombre de la hoja (singular) y trae el catálogo propio de PG.
@@ -1461,7 +1477,7 @@ async function p2OwnGet(item) {
         name: x.titulo || x.sku, sku: x.sku || '', brand: ownBrandOf(x.titulo), active: x.active !== false,
         cost: Math.round(m.cogs || 0), fob: x.fob || null, abc: x.abc || null, comPct: x.mlComPct || 0,
         vel: x.vel != null ? x.vel : null, velWeeks: x.velWeeks || 0, stock: x.stock != null ? x.stock : null,
-        price: effPrice ? Math.round(effPrice) : null, margin
+        price: effPrice ? Math.round(effPrice) : null, margin, mlItemId: x.mlItemId || null
       };
     }).sort((a, b) => (b.active - a.active) || ((b.vel || 0) - (a.vel || 0)));
     const bc = {}; for (const p of products) if (p.active && p.brand) bc[p.brand] = (bc[p.brand] || 0) + 1;
@@ -1654,6 +1670,54 @@ async function p2AI(item, stats, products, reviews, own) {
   return parseJSONLoose(raw) || { _err: 'La IA no devolvió JSON válido' };
 }
 
+// Análisis P2 con VISIÓN: manda las fotos (2 por producto) de los top del mercado y de
+// TUS productos, para clusterizar bien, ubicar tus productos en su cluster y saber qué falta.
+async function p2VisionAI(item, stats, products, reviews, own) {
+  await loadBizCtx();
+  const cfg = loadCfg(country);
+  const withPics = (products || []).filter(p => p.pics && p.pics.length);
+  const ownWithPics = (own && own.products || []).filter(p => p.pics && p.pics.length);
+  if (!withPics.length && !ownWithPics.length) return { _err: 'sin fotos para visión' };
+  const img = u => ({ type: 'image', source: { type: 'url', url: u } });
+  const txt = t => ({ type: 'text', text: t });
+  const seas = stats.seasonality.map(s => s.mo + ' ' + s.idx).join(', ');
+  const revByPos = {}; (reviews || []).forEach(r => { revByPos[r.pos] = (r.samples || []).map(s => s.rate + '★"' + (s.content || '').slice(0, 90) + '"').join(' | '); });
+  const ownTxt = p2OwnTxt(own);
+  const fb = p2Feedback(item.id);
+
+  const content = [];
+  content.push(txt(
+    bizContext() + '\n\n' +
+    'Eres analista de sourcing de ET Brands. Vas a analizar la categoría "' + item.leaf + '" (' + item.l1 + ') MIRANDO LAS FOTOS, fichas y reseñas de cada producto (del mercado y los propios) para: (1) clusterizar los top por specs/materialidad/formato REALES que ves en las fotos, (2) ubicar CADA producto propio en su cluster y decir qué le falta, (3) proponer con qué producto propio entrar o mejorar.\n\n' +
+    (ownTxt ? ('TUS PRODUCTOS ACTUALES (marca real ' + (own.brand ? '"' + own.brand + '"' : '') + '; abajo van sus fotos):\n' + ownTxt + '\nNO sugieras "desarrollar" algo que ya tienes (míralo en las fotos: formato, materialidad, si ya viene enrollado/comprimido, etc.). Sugiere lo que FALTA de verdad.\n\n') : 'NOTA: no hay catálogo propio detectado en esta categoría.\n\n') +
+    'ESTACIONALIDAD (100=prom): ' + seas + '\nTENDENCIA YoY: ' + (stats.trend.yoy != null ? stats.trend.yoy.toFixed(1) + '%' : 's/d') + ' (' + stats.trend.dir + ')\n' +
+    'CUOTA x vendedor: ' + stats.cuota.clase + ' (pct ' + (stats.cuota.pct || '?') + ') — promedio de TODA la categoría, NO de ET Brands.\n' +
+    (fb ? '\nFEEDBACK PREVIO DEL EQUIPO (respétalo): ' + fb + '\n' : '') +
+    '\nA CONTINUACIÓN, cada producto con su ficha y 1-2 fotos. Primero los TOP del mercado, luego TUS productos.'
+  ));
+  for (const p of withPics) {
+    content.push(txt('\nTOP #' + p.pos + ' — ' + p.name + (p.brand ? ' [' + p.brand + ']' : '') + '\nSpecs: ' + (p.attrs || 's/d') + (revByPos[p.pos] ? '\nReseñas: ' + revByPos[p.pos] : '')));
+    p.pics.slice(0, 2).forEach(u => content.push(img(u)));
+  }
+  for (const p of ownWithPics) {
+    content.push(txt('\nTU PRODUCTO [' + p.sku + '] — ' + p.name + '\nSpecs: ' + (p.attrs || 's/d') + ' · vende ' + (p.vel != null ? p.vel + ' u/sem' : 's/d') + ' · margen ' + (p.margin != null ? p.margin + '%' : 's/d')));
+    p.pics.slice(0, 2).forEach(u => content.push(img(u)));
+  }
+  content.push(txt(
+    '\nAhora devuelve SOLO un JSON (sin markdown, frases cortas, respeta límites):\n' +
+    '{"estacionalidad":"1 frase (máx 140 car)","cuota":"1 frase; no digas que ET Brands domina salvo evidencia (máx 130 car)","tendencia":"1 frase (máx 110 car)",' +
+    '"clusters":[{"nombre":"subcategoría por specs/materialidad","chips":["rasgos clave"],"pos":[nº de TODOS los top de este cluster],"ownSkus":["SKUs propios que caen aquí"]}],' +
+    '"ownAnalysis":[{"sku":"SKU propio","tipo":"qué es REALMENTE según sus fotos (formato/materialidad)","cluster":"a qué cluster pertenece","falta":"qué le falta vs el cluster/competencia, concreto (máx 120 car)"}],' +
+    '"gap":"dónde hay demanda con poca oferta, con números (máx 200 car)","reviewOps":"queja recurrente = oportunidad (máx 160 car)",' +
+    '"upgrades":[{"costo":"BAJO|MEDIO|ALTO","titulo":"3-6 palabras","texto":"por qué, máx 110 car","precio":<CLP entero>,"pkg":{"l":<cm>,"a":<cm>,"al":<cm>,"p":<kg>}}],' +
+    '"bundles":[{"nombre":"3-5 palabras","para":"segmento","texto":"qué incluye, máx 90 car","precio":<CLP entero>,"pkg":{"l":<cm>,"a":<cm>,"al":<cm>,"p":<kg>}}]}\n' +
+    'IMPORTANTE: "pos" debe cubrir TODOS los top mostrados (cada uno en un cluster). En "ownAnalysis" incluye TODOS tus productos mostrados. "precio"=precio de venta objetivo CLP y "pkg"=dimensiones/peso del packaging estimado, para que la app calcule el FOB objetivo.'
+  ));
+  const raw = await aiText('', cfg, { content, maxTokens: 3200 });
+  const j = parseJSONLoose(raw);
+  return j || { _err: 'La IA (visión) no devolvió JSON válido' };
+}
+
 // Feedback por categoría (local): se inyecta al re-analizar para "entrenar" la IA.
 function p2Feedback(catId) { try { return localStorage.getItem('p2fb_' + catId) || ''; } catch (e) { return ''; } }
 function p2SaveFeedback(catId, note) { try { const cur = p2Feedback(catId); localStorage.setItem('p2fb_' + catId, (cur ? cur + ' | ' : '') + note); } catch (e) {} }
@@ -1673,7 +1737,8 @@ function renderP2(report, item, ts) {
   let clusters = (ai.clusters || []).map(c => {
     const items = (c.pos || []).map(p => byPos[p]).filter(Boolean).sort((a, b) => a.pos - b.pos).map(cliItem).join('');
     const chips = (c.chips || []).map(ch => `<span class="chip">${esc(ch)}</span>`).join('');
-    return `<div class="p2clcard"><div class="p2clhead"><span>${esc(c.nombre || '')}</span><span class="sh">${esc(c.peso || '')}</span></div><div class="chips">${chips}</div><ul class="p2plist" style="list-style:none;padding-left:0;margin:4px 0 0">${items}</ul></div>`;
+    const ownTag = (c.ownSkus && c.ownSkus.length) ? `<div style="font-size:11px;color:var(--good);font-weight:700;margin-top:4px">🏷️ Tuyo acá: ${c.ownSkus.map(esc).join(', ')}</div>` : '';
+    return `<div class="p2clcard"><div class="p2clhead"><span>${esc(c.nombre || '')}</span><span class="sh">${esc(c.peso || '')}</span></div><div class="chips">${chips}</div><ul class="p2plist" style="list-style:none;padding-left:0;margin:4px 0 0">${items}</ul>${ownTag}</div>`;
   }).join('');
   // Los que la IA no clasificó → bloque "Otros", para que aparezcan TODOS los del top.
   const covered = new Set(); (ai.clusters || []).forEach(c => (c.pos || []).forEach(p => covered.add(p)));
@@ -1711,6 +1776,7 @@ function renderP2(report, item, ts) {
     (ai._err ? `<div class="p2err" style="margin-bottom:12px">La IA falló (${esc(ai._err)}). Se muestran los datos igual.</div>` : '') +
     `<div class="p2tool"><button class="btn ghost" style="font-size:12px;padding:7px 12px" id="p2ChatToggle">💬 Pregúntale a la IA</button><button class="btn ${report.deep ? 'ghost' : ''}" style="font-size:12px;padding:7px 12px" id="p2DeepToggle">📊 ${report.deep ? 'Re-analizar en profundidad' : 'Analizar en profundidad'}</button></div>` +
     ('own' in report ? renderP2Own(report.own) : '') +
+    renderP2OwnAnalysis(ai) +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">📅</div><h3>Estacionalidad</h3></div><div class="p2bars">${bars}</div>${aiLine('Lectura', ai.estacionalidad)}${fbRow('estacionalidad')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">💰</div><h3>Atractivo · cuota por vendedor</h3><span class="verdict ${cuotaBadge}">${esc((s.cuota || {}).clase || '—')}</span></div><p style="margin:2px 0;font-size:13px">${fmt((s.cuota || {}).cuota)}/vendedor · percentil ${(s.cuota || {}).pct || '?'} · ${s.competidores ? Math.round(s.competidores) + ' vendedores' : ''}</p>${aiLine('Lectura', ai.cuota)}${fbRow('cuota')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">📈</div><h3>Tendencia</h3><span class="verdict ${s.trend && s.trend.yoy >= 0 ? 'p2-good' : 'p2-bad'}">${esc((s.trend || {}).dir || '—')}</span></div><p style="margin:2px 0"><b style="color:${trendCol};font-size:20px">${s.trend && s.trend.yoy != null ? (s.trend.yoy >= 0 ? '+' : '') + s.trend.yoy.toFixed(1) + '%' : '–'}</b> <span class="muted small">YoY (últimos 12m vs previos)</span></p>${aiLine('Lectura', ai.tendencia)}${fbRow('tendencia')}</div>` +
@@ -1793,6 +1859,14 @@ async function p2DeepAI(item, rows, agg) {
     'Para CADA oportunidad incluye "precio" (precio de venta objetivo en CLP, entero) y "pkg" = dimensiones del PACKAGING/caja en cm (l/a/al) y peso en kg (p), realistas para ese producto. La app calcula con eso el FOB objetivo para 33% de margen de contribución.';
   const raw = await aiText(prompt, cfg, { maxTokens: 2600 });
   return parseJSONLoose(raw) || { _err: 'La IA no devolvió JSON' };
+}
+// Diagnóstico por producto propio (del análisis con visión): qué es, en qué cluster cae, qué le falta.
+function renderP2OwnAnalysis(ai) {
+  const a = ai && ai.ownAnalysis; if (!a || !a.length) return '';
+  const esc = escapeHtml;
+  const rows = a.map(o => `<div style="margin:7px 0;font-size:12px;border-left:2px solid var(--line);padding-left:8px"><b>${esc(o.sku || '')}</b>${o.tipo ? ` <span class="muted">· ${esc(o.tipo)}</span>` : ''}${o.cluster ? ` <span style="color:var(--accent-d)">· ${esc(o.cluster)}</span>` : ''}${o.falta ? `<div style="color:var(--mid);margin-top:1px">Falta: ${mdBold(o.falta)}</div>` : ''}</div>`).join('');
+  return `<div class="p2sec"><div class="p2sec-h"><div class="ic">🔎</div><h3>Diagnóstico de tus productos</h3><span class="verdict p2-good">visión IA</span></div>` +
+    `<p class="small muted" style="margin:2px 0 6px">La IA miró las fotos y fichas de tus productos: qué son en realidad, en qué cluster caen y qué les falta vs. la competencia.</p>${rows}</div>`;
 }
 function renderP2Own(own) {
   const esc = escapeHtml;

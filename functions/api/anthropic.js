@@ -11,8 +11,10 @@ const MODEL = 'claude-haiku-4-5-20251001';
 export async function onRequestPost({ request, env }) {
   try {
     if (!env.ANTHROPIC_API_KEY) return json({ error: 'Falta ANTHROPIC_API_KEY en el entorno' }, 500);
-    const { prompt, maxTokens } = await request.json();
-    if (!prompt) return json({ error: 'Falta prompt' }, 400);
+    const { prompt, content, maxTokens } = await request.json();
+    // content = bloques (texto + imágenes por URL) para análisis con visión; prompt = texto simple.
+    const msgContent = (Array.isArray(content) && content.length) ? content : prompt;
+    if (!msgContent) return json({ error: 'Falta prompt o content' }, 400);
 
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -25,7 +27,7 @@ export async function onRequestPost({ request, env }) {
         model: MODEL,
         max_tokens: maxTokens || 256,
         temperature: 0,
-        messages: [{ role: 'user', content: prompt }]
+        messages: [{ role: 'user', content: msgContent }]
       })
     });
     // Reenvía tal cual la respuesta de Anthropic (mismo cuerpo y código).

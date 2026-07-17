@@ -50,6 +50,7 @@ async function geminiText(prompt, cfg, opts) {
 // (producción en Cloudflare: la key vive en el servidor, no en el navegador).
 async function anthropicText(prompt, cfg, opts) {
   opts = opts || {};
+  const content = (Array.isArray(opts.content) && opts.content.length) ? opts.content : prompt;   // visión: bloques texto+imagen
   let res;
   if (cfg.apiKey) {
     res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -64,14 +65,14 @@ async function anthropicText(prompt, cfg, opts) {
         model: aiModel(cfg),
         max_tokens: opts.maxTokens || 256,
         temperature: 0,
-        messages: [{ role: 'user', content: prompt }]
+        messages: [{ role: 'user', content }]
       })
     });
   } else {
     res = await fetch('/api/anthropic', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ prompt: prompt, maxTokens: opts.maxTokens || 256 })
+      body: JSON.stringify(Array.isArray(opts.content) && opts.content.length ? { content: opts.content, maxTokens: opts.maxTokens || 256 } : { prompt: prompt, maxTokens: opts.maxTokens || 256 })
     });
   }
   if (!res.ok) {
