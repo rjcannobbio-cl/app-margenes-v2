@@ -1276,7 +1276,7 @@ function paintResearch() {
       <td class="mcell">${intfmt(x.competidores)}</td>
       <td class="mcell">${cuota != null ? fmtCLP(cuota) : '–'}</td>
     </tr>`; }).join('');
-  const arrow = k => _researchSort.key === k ? (_researchSort.dir === -1 ? ' ▼' : ' ▲') : '';
+  const arrow = k => _researchSort.key === k ? `<span style="color:var(--accent)">${_researchSort.dir === -1 ? ' ▼' : ' ▲'}</span>` : ' <span style="opacity:.35;font-size:10px">⇅</span>';
   wrap.innerHTML = `<table class="histtab dbtab restab-compact" style="min-width:1020px"><thead><tr>
     <th>Categoría L1</th><th>Categoría hoja</th><th data-sort="opp" style="cursor:pointer" title="Opportunity Score 0-100 (solo con P2): diferenciabilidad IA 35% + tamaño + competencia (menos vendedores) + crecimiento + ticket + estacionalidad. Clic para ordenar.">Opportunity${arrow('opp')}</th><th title="Categorías con análisis P2 guardado">P2</th><th title="Categorías donde ET Brands ya tiene productos publicados">Canibalización</th><th data-sort="gmv" style="cursor:pointer">Ventas prom (GMV, 12m)${arrow('gmv')}</th><th data-sort="yoy" style="cursor:pointer" title="Crecimiento del GMV: últimos 12 meses vs los 12 previos. Clic para ordenar.">Crec. YoY (12m)${arrow('yoy')}</th><th data-sort="ticket" style="cursor:pointer">Ticket medio (12m)${arrow('ticket')}</th><th data-sort="comp" style="cursor:pointer" title="Cantidad de vendedores profesionales (12m). Clic para ordenar.">Vendedores${arrow('comp')}</th><th data-sort="cuota" style="cursor:pointer">Cuota x seller${arrow('cuota')}</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
@@ -1620,9 +1620,12 @@ async function runP2Batch(n, force) {
     } catch (e) { _p2Batch.fail++; }
     _p2Batch.done++;
     p2BatchUI();
+    if (_p2Batch.done % 25 === 0) refreshP2Scores();   // refresca P2/Opportunity en vivo cada 25 categorías
   }
-  } finally { _p2Batch.running = false; _p2Batch.stop = false; p2BatchUI(); }
+  } finally { _p2Batch.running = false; _p2Batch.stop = false; p2BatchUI(); refreshP2Scores(); }
 }
+// Recarga el índice P2 (dif/conc) y repinta la tabla si está visible → el Opportunity Score se actualiza solo.
+function refreshP2Scores() { loadP2Index().then(() => { const t = $('tabResearch'); if (t && !t.classList.contains('hidden')) paintResearch(); }).catch(() => {}); }
 function p2BatchUI() {
   const b = _p2Batch;
   const bar = $('p2BatchBar'), fill = $('p2BatchFill'), txt = $('p2BatchTxt'), btn = $('p2BatchBtn'), stop = $('p2BatchStop');
@@ -1666,6 +1669,7 @@ async function runP2(item, force) {
     try { const prev = await p2CacheGet(item.id); if (prev && prev.report) { if (prev.report.deep) report.deep = prev.report.deep; if (prev.report.chat) report.chat = prev.report.chat; } } catch (e) {}   // conserva profundo + chat al recalcular
     renderP2(report, item, Date.now());
     try { await p2CachePut(item.id, report); } catch (e) {}
+    refreshP2Scores();   // el nuevo P2 actualiza P2/Opportunity en la tabla
   } catch (e) {
     host.innerHTML = '<div class="p2err">No se pudo completar el análisis: ' + escapeHtml(String(e.message || e)) + '<br><button class="btn" style="margin-top:8px" onclick="runP2(_rdItem,true)">Reintentar</button></div>';
   } finally { _p2Running = false; }
