@@ -34,7 +34,7 @@ export async function onRequest({ request, env }) {
           let conc = null;   // concentración = participación del vendedor #1 del ranking profundo (si existe)
           const ts2 = rep.deep && rep.deep.agg && rep.deep.agg.topSellers;
           if (Array.isArray(ts2) && ts2.length) { const tot = ts2.reduce((a, s) => a + (s.ventas || 0), 0); if (tot > 0) conc = (ts2[0].ventas || 0) / tot; }
-          out[k] = { ts: r.ts || 0, dif: (typeof ai.difScore === 'number' ? ai.difScore : null), conc };
+          out[k] = { ts: r.ts || 0, dif: (typeof ai.difScore === 'number' ? ai.difScore : null), fit: (typeof ai.fitScore === 'number' ? ai.fitScore : null), conc };
         }
         return json(out);
       }

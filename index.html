@@ -526,11 +526,25 @@
 </div>
 
 <!-- Reporte de detalle de categoría (Investigación) -->
+<!-- Modal: desglose del Opportunity Score -->
+<div id="oppOverlay" class="modal-overlay hidden" style="z-index:200">
+  <div class="rdetail" style="max-width:540px">
+    <div class="rd-head">
+      <div><div class="rd-l1">Opportunity Score</div><h2 id="oppTitle" style="font-size:18px"></h2></div>
+      <button class="mini" id="oppClose" type="button" title="Cerrar">✕</button>
+    </div>
+    <div id="oppBody"></div>
+  </div>
+</div>
+
 <div id="rDetailOverlay" class="modal-overlay hidden">
   <div class="rdetail">
     <div class="rd-head">
       <div><div class="rd-l1" id="rdL1"></div><h2 id="rdLeaf"></h2></div>
-      <button class="mini" id="rdClose" type="button" title="Cerrar">✕</button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn ghost hidden" id="rdOppBtn" type="button" title="Ver desglose del Opportunity Score" style="font-size:13px;padding:7px 12px"></button>
+        <button class="mini" id="rdClose" type="button" title="Cerrar">✕</button>
+      </div>
     </div>
     <div class="rd-controls">
       <div class="rd-metrics">
@@ -553,12 +567,12 @@
 </div>
 
 <!-- ?v= versiona los assets: al cambiar el número, el navegador ignora el caché de 4h de Cloudflare. Súbelo en cada deploy que toque JS. -->
-<script src="data/ml_categories.js?v=260744"></script>
-<script src="data/fbla_categories.js?v=260744"></script>
-<script src="data/shipping.js?v=260744"></script>
-<script src="src/app.js?v=260744"></script>
-<script src="src/ai.js?v=260744"></script>
-<script src="src/local-ai.js?v=260744"></script>
-<script src="src/ui.js?v=260744"></script>
+<script src="data/ml_categories.js?v=260745"></script>
+<script src="data/fbla_categories.js?v=260745"></script>
+<script src="data/shipping.js?v=260745"></script>
+<script src="src/app.js?v=260745"></script>
+<script src="src/ai.js?v=260745"></script>
+<script src="src/local-ai.js?v=260745"></script>
+<script src="src/ui.js?v=260745"></script>
 </body>
 </html>

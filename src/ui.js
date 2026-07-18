@@ -1211,7 +1211,7 @@ function clearResearchFilter() {
   paintResearch();
 }
 // --- Opportunity Score (0-100, relativo entre categorías con P2) ---
-const OPP_W = { dif: 0.35, size: 0.22, comp: 0.18, growth: 0.15, ticket: 0.06, seas: 0.04 };
+const OPP_W = { dif: 0.30, fit: 0.25, size: 0.17, comp: 0.13, growth: 0.10, ticket: 0.03, seas: 0.02 };
 function pctRank(sortedAsc, v) { const n = sortedAsc.length; if (!n) return 50; let c = 0; for (let i = 0; i < n; i++) { if (sortedAsc[i] <= v) c++; else break; } return c / n * 100; }
 function seasonEvenness(serie) {   // menos variabilidad estacional = más parejo = mejor
   const s = p2Seasonality(Array.isArray(serie) ? serie : []); const v = s.map(p => p.idx).filter(x => !isNaN(x)); if (!v.length) return 0;
@@ -1228,17 +1228,32 @@ function oppRef() {
     seas: ref.map(x => seasonEvenness(x.serie)).sort((a, b) => a - b)
   };
 }
-function oppScore(x, ref) {
+function oppBreakdown(x, ref) {
   const idx = _p2Index[x.id]; if (!idx) return null;
-  const dif = (idx.dif != null) ? idx.dif : 50;   // sin re-analizar aún → neutro
-  const size = pctRank(ref.gmv, parseFloat(x.ventasGmv) || 0);
-  const comp = pctRank(ref.comp, -(parseFloat(x.competidores) || 0));   // menos vendedores = mejor
-  const y = yoy12(x.serie); const growth = (y == null) ? 50 : pctRank(ref.yoy, y);
-  const ticket = pctRank(ref.ticket, parseFloat(x.ticket) || 0);
-  const seas = pctRank(ref.seas, seasonEvenness(x.serie));
-  let s = OPP_W.dif * dif + OPP_W.size * size + OPP_W.comp * comp + OPP_W.growth * growth + OPP_W.ticket * ticket + OPP_W.seas * seas;
-  if (idx.conc != null) s += idx.conc < 0.25 ? 5 : (idx.conc > 0.5 ? -5 : 0);   // bonus concentración (ranking profundo)
-  return Math.max(0, Math.min(100, Math.round(s)));
+  const y = yoy12(x.serie);
+  const parts = [
+    { name: 'Diferenciabilidad (IA)', w: OPP_W.dif, score: idx.dif != null ? idx.dif : 50, real: idx.dif != null },
+    { name: 'Fit de producto (IA)', w: OPP_W.fit, score: idx.fit != null ? idx.fit : 50, real: idx.fit != null },
+    { name: 'Tamaño (GMV)', w: OPP_W.size, score: pctRank(ref.gmv, parseFloat(x.ventasGmv) || 0), real: true },
+    { name: 'Competencia (nº vendedores)', w: OPP_W.comp, score: pctRank(ref.comp, -(parseFloat(x.competidores) || 0)), real: true },
+    { name: 'Crecimiento (YoY 12m)', w: OPP_W.growth, score: y == null ? 50 : pctRank(ref.yoy, y), real: y != null },
+    { name: 'Ticket medio', w: OPP_W.ticket, score: pctRank(ref.ticket, parseFloat(x.ticket) || 0), real: true },
+    { name: 'Estacionalidad (regularidad)', w: OPP_W.seas, score: pctRank(ref.seas, seasonEvenness(x.serie)), real: true }
+  ];
+  const bonus = (idx.conc != null) ? (idx.conc < 0.25 ? 5 : (idx.conc > 0.5 ? -5 : 0)) : 0;   // concentración (ranking profundo)
+  const raw = parts.reduce((a, p) => a + p.w * p.score, 0) + bonus;
+  return { total: Math.max(0, Math.min(100, Math.round(raw))), parts, bonus };
+}
+function oppScore(x, ref) { const b = oppBreakdown(x, ref); return b ? b.total : null; }
+// Popup con el desglose del score (nombre, peso, puntaje y aporte de cada componente).
+function openOppBreakdown(item) {
+  const b = oppBreakdown(item, oppRef()); if (!b) return;
+  $('oppTitle').textContent = (item.leaf || '') + ' — ' + b.total + '/100';
+  const rows = b.parts.map(p => `<tr><td>${escapeHtml(p.name)}${p.real ? '' : ' <span class="muted" title="La IA aún no calculó este puntaje (P2 antiguo); se usa 50 neutro. Re-analiza para el valor real.">· neutro</span>'}</td><td style="text-align:right">${Math.round(p.w * 100)}%</td><td style="text-align:right">${Math.round(p.score)}</td><td style="text-align:right;font-weight:700">${(p.w * p.score).toFixed(1)}</td></tr>`).join('');
+  const bonusRow = b.bonus ? `<tr><td>Bonus concentración</td><td></td><td></td><td style="text-align:right;font-weight:700;color:${b.bonus > 0 ? 'var(--good)' : 'var(--bad)'}">${b.bonus > 0 ? '+' : ''}${b.bonus}</td></tr>` : '';
+  $('oppBody').innerHTML = `<p class="hint" style="margin:0 0 8px">Puntaje relativo entre las categorías con P2. Cada componente se normaliza 0-100 (percentil dentro del set con P2) y se pondera por su peso.</p>` +
+    `<div style="overflow:auto"><table class="p2own" style="width:100%"><thead><tr><th style="text-align:left">Componente</th><th style="text-align:right">Peso</th><th style="text-align:right">Puntaje</th><th style="text-align:right">Aporte</th></tr></thead><tbody>${rows}${bonusRow}<tr style="border-top:2px solid var(--line)"><td style="font-weight:800">Opportunity Score</td><td></td><td></td><td style="text-align:right;font-weight:800;color:var(--accent)">${b.total}</td></tr></tbody></table></div>`;
+  $('oppOverlay').classList.remove('hidden');
 }
 function paintResearch() {
   const q = normalize(($('researchFilter') && $('researchFilter').value) || '');
@@ -1303,6 +1318,8 @@ function openResearchDetail(item) {
   populateRdRange(item);
   renderRdChart();
   { const pp = $('p2Panel'); if (pp) { pp.classList.add('hidden'); pp.innerHTML = ''; } const b = $('p2Btn'); if (b) b.style.display = ''; }
+  // Botón del Opportunity Score (si la categoría tiene P2) → abre el desglose.
+  { const ob = $('rdOppBtn'); if (ob) { const s = oppScore(item, oppRef()); if (s != null) { ob.textContent = '🎯 Opportunity ' + s; ob.classList.remove('hidden'); ob.onclick = () => openOppBreakdown(item); } else ob.classList.add('hidden'); } }
   _p2ChatOpen = false; _p2DeepOpen = false; _p2Busy = false;   // reset UI interactiva P2 al cambiar de categoría
   $('rDetailOverlay').classList.remove('hidden');
   p2LoadCached(item);   // si ya hay análisis guardado, se muestra solo (sin re-analizar)
@@ -1727,8 +1744,9 @@ async function p2AI(item, stats, products, reviews, own) {
     '"gap":"dónde hay demanda con poca oferta, con números (máx 200 car)","reviewOps":"queja recurrente = oportunidad, concreto (máx 160 car)",' +
     '"upgrades":[{"costo":"BAJO|MEDIO|ALTO","titulo":"3-6 palabras","texto":"por qué (barato de fabricar, alto valor), máx 110 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>}}],' +
     '"bundles":[{"nombre":"nombre del set (3-5 palabras)","para":"segmento objetivo","texto":"qué incluye y por qué, máx 90 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>}}],' +
-    '"difScore":<0-100>,"difRazon":"1 frase máx 90 car"}\n' +
-    'El "difScore" (0-100) = qué tan NATURAL/factible es diferenciarse con marca propia: 100 = upgrades/bundles obvios, baratos de fabricar y de alto valor; 0 = tuviste que forzar ideas poco realistas. Sé honesto.\n' +
+    '"difScore":<0-100>,"difRazon":"1 frase máx 90 car","fitScore":<0-100>,"fitRazon":"1 frase máx 90 car"}\n' +
+    'El "difScore" (0-100) = qué tan NATURAL/factible es diferenciarse con marca propia: 100 = upgrades/bundles obvios, baratos de fabricar y de alto valor; 0 = tuviste que forzar ideas poco realistas.\n' +
+    'El "fitScore" (0-100) = qué tan bien calza el producto típico con lo que ET Brands hace bien: suma si es pequeño y liviano (<15 kg físico/volumétrico); resta fuerte si requiere certificaciones difíciles (SEC, cosméticos, ingeribles) o si hay que competir con marcas ultra reconocidas en productos muy difíciles (notebooks, celulares, TVs). Sé honesto.\n' +
     'Para CADA upgrade y bundle incluye "precio" (precio de venta objetivo en CLP, entero sin puntos) y "pkg" = dimensiones del PACKAGING/caja de envío en cm (l=largo, a=ancho, al=alto) y peso en kg (p), estimados de forma realista para ese producto. Con eso la app calcula el FOB objetivo.\n' +
     'REGLAS CRÍTICAS: (1) NO sugieras algo que YA EXISTE en el catálogo propio de arriba (revisa specs; ej. si ya hay un curvo 27" 165Hz, no lo propongas). Si el mejor movimiento es sobre un producto que ya tienes, dilo como "mejorar listing/precio de [SKU]", no como producto nuevo. (2) Ancla cada sugerencia al top real (specs/precios/reseñas) y usa precios DENTRO del rango real del mercado.';
   const raw = await aiText(prompt, cfg, { maxTokens: 3500 });
@@ -1776,8 +1794,10 @@ async function p2VisionAI(item, stats, products, reviews, own) {
     '"gap":"dónde hay demanda con poca oferta, con números (máx 200 car)","reviewOps":"queja recurrente = oportunidad (máx 160 car)",' +
     '"upgrades":[{"costo":"BAJO|MEDIO|ALTO","titulo":"3-6 palabras","texto":"por qué, máx 110 car","precio":<CLP entero>,"pkg":{"l":<cm>,"a":<cm>,"al":<cm>,"p":<kg>}}],' +
     '"bundles":[{"nombre":"3-5 palabras","para":"segmento","texto":"qué incluye, máx 90 car","precio":<CLP entero>,"pkg":{"l":<cm>,"a":<cm>,"al":<cm>,"p":<kg>}}],' +
-    '"difScore":<0-100>,"difRazon":"por qué ese score, 1 frase máx 90 car"}\n' +
+    '"difScore":<0-100>,"difRazon":"por qué ese score, 1 frase máx 90 car",' +
+    '"fitScore":<0-100>,"fitRazon":"por qué, 1 frase máx 90 car"}\n' +
     'El "difScore" (0-100) es tu autoevaluación de qué tan NATURAL y FACTIBLE es diferenciarse en esta categoría con marca propia: 100 = hay upgrades/bundles obvios, baratos de fabricar en China y de alto valor percibido, con espacio real vs. la competencia; 0 = tuviste que forzar ideas ultra creativas/poco realistas porque el mercado ya está muy resuelto o no hay cómo diferenciar barato. Sé honesto y calibrado.\n' +
+    'El "fitScore" (0-100) evalúa qué tan bien calza el producto TÍPICO de esta categoría con lo que ET Brands sabe hacer bien: SUMA si es relativamente PEQUEÑO y LIVIANO (ideal < 15 kg de peso físico y volumétrico); RESTA fuerte si requiere certificaciones difíciles (SEC eléctrico, cosméticos, ingeribles/alimentos, etc.) salvo que valga mucho la pena; RESTA fuerte si hay que competir con marcas ULTRA reconocidas en productos MUY difíciles de desarrollar (ej. notebooks, computadores, celulares, TVs). 100 = pequeño, liviano, sin certificaciones complejas, sin marcas dominantes en algo difícil; 0 = pesado/voluminoso, o con certificación difícil, o dominado por marcas top en un producto muy difícil.\n' +
     'REGLAS CRÍTICAS:\n' +
     '1) NO propongas como upgrade/bundle/oportunidad algo que YA EXISTE en TUS PRODUCTOS (revisa sus specs y FOTOS de arriba). Ej: si ya tienes un curvo 27" 165Hz, NO lo sugieras como nuevo. Si el mejor movimiento es sobre un producto que ya tienes, enmárcalo como "mejorar listing/precio/fotos de [SKU]" (no como producto nuevo) o apunta a un segmento/specs que NO cubres.\n' +
     '2) Cada sugerencia debe estar ANCLADA en lo que realmente se vende en el top mostrado (specs, precios y reseñas que ves). El precio objetivo debe caer DENTRO del rango real del mercado de esta categoría. Nada genérico ni fuera de rango.\n' +
@@ -2203,6 +2223,8 @@ function init() {
   { const o = $('researchFilterOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
   { const b = $('rfApply'); if (b) b.onclick = applyResearchFilter; }
   { const b = $('rfClear'); if (b) b.onclick = clearResearchFilter; }
+  { const b = $('oppClose'); if (b) b.onclick = () => $('oppOverlay').classList.add('hidden'); }
+  { const o = $('oppOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
   { const b = $('p2BatchBtn'); if (b) b.onclick = () => { if (!confirm('Pre-analizar el top 500 de categorías (por cuota x seller). Toma ~1–2 h en segundo plano y respeta el límite de ProfitGuard. Podés seguir usando la app. ¿Continuar?')) return; const force = confirm('¿Sobrescribir las que YA tenías analizadas, para aplicarles el contexto de negocio actual?\n\n• Aceptar = re-analiza TODAS (aplica el nuevo contexto).\n• Cancelar = solo las que falten.'); runP2Batch(500, force); }; }
   { const s = $('p2BatchStop'); if (s) s.onclick = () => { if (_p2Batch) _p2Batch.stop = true; s.classList.add('hidden'); const t = $('p2BatchTxt'); if (t && _p2Batch && _p2Batch.running) t.innerHTML += ' · <b>deteniendo…</b>'; }; }
   // Modal "Analizar en profundidad"
