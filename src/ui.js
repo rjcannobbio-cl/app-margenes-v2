@@ -1707,6 +1707,47 @@ function targetFobTag(precio, comPct, pkg) {
   return s;
 }
 
+// --- Referencias de producto en Amazon (Rainforest) con verificación IA ---
+// Botón por sugerencia; al lado un contenedor .amzRefs donde se pintan las tarjetas.
+function amzBtn(query, desc) {
+  const q = (query || '').toString().slice(0, 120), d = (desc || '').toString().slice(0, 240);
+  if (!q) return '';
+  return `<button class="btn ghost" style="font-size:11px;padding:3px 9px;margin-top:4px" data-q="${escapeHtml(q)}" data-d="${escapeHtml(d)}" onclick="amazonRefsFromBtn(this)">🔎 Ver en Amazon</button><div class="amzRefs"></div>`;
+}
+async function amazonRefsFromBtn(btn) {
+  const box = btn.parentElement.querySelector('.amzRefs'); if (!box) return;
+  if (btn._busy) return; btn._busy = true; const old = btn.textContent; btn.textContent = '🔎 buscando…';
+  box.innerHTML = '<span class="muted small">Buscando en Amazon y verificando…</span>';
+  try {
+    const j = await (await fetch(api('/api/amazon'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ q: btn.dataset.q, num: 3 }) })).json();
+    if (!j || j.error) { box.innerHTML = '<span class="muted small">' + escapeHtml(j && j.error ? j.error : 'Sin respuesta de Amazon.') + '</span>'; return; }
+    if (!j.candidates || !j.candidates.length) { box.innerHTML = '<span class="muted small">Sin resultados en Amazon para esa búsqueda.</span>'; return; }
+    const verdicts = await amazonVerify(btn.dataset.d, j.candidates);
+    const good = j.candidates.map((c, i) => ({ ...c, v: verdicts[i] })).filter(c => c.v && c.v.match);
+    box.innerHTML = good.length ? good.map(amzCard).join('')
+      : '<span class="muted small">Ningún resultado de Amazon calzó con la sugerencia (verificado por IA).</span>';
+  } catch (e) { box.innerHTML = '<span class="muted small">Error consultando Amazon.</span>'; }
+  finally { btn.textContent = old; btn._busy = false; }
+}
+// La IA entra a las specs de cada candidato y confirma si REALMENTE es el producto sugerido.
+async function amazonVerify(desc, candidates) {
+  const cfg = loadCfg(country);
+  const list = candidates.map((c, i) => `${i + 1}) ${c.title} | ${(c.specs || '').slice(0, 300)}`).join('\n');
+  const prompt = 'Producto que ET Brands quiere lanzar (sugerencia): ' + desc + '\n\nCandidatos de Amazon (título | specs de la ficha):\n' + list +
+    '\n\nPara cada candidato, di si es EFECTIVAMENTE ese producto (mismo tipo y specs clave compatibles). Sé estricto: ante la duda, false.\nDevuelve SOLO JSON: {"matches":[{"i":<número 1-based>,"match":true|false,"razon":"máx 55 car"}]}';
+  const raw = await aiText(prompt, cfg, { maxTokens: 500 });
+  const j = parseJSONLoose(raw); const out = {};
+  if (j && Array.isArray(j.matches)) for (const m of j.matches) if (m && m.i) out[m.i - 1] = m;
+  return out;
+}
+function amzCard(c) {
+  const esc = escapeHtml;
+  return `<a href="${esc(c.link)}" target="_blank" rel="noopener" style="display:flex;gap:8px;align-items:center;background:#121215;border:1px solid var(--line);border-radius:8px;padding:6px;margin:4px 0;text-decoration:none;color:var(--ink)">` +
+    (c.image ? `<img src="${esc(c.image)}" alt="" style="width:46px;height:46px;object-fit:contain;background:#fff;border-radius:4px;flex:none">` : '') +
+    `<div style="flex:1;min-width:0"><div style="font-size:11px;line-height:1.3;max-height:2.6em;overflow:hidden">${esc(c.title)}</div>` +
+    `<div style="font-size:11px;color:var(--muted);margin-top:2px">${c.price ? '<b style="color:var(--ink)">' + esc(String(c.price)) + '</b>' : ''}${c.rating ? ' · ⭐' + Number(c.rating) + (c.reviews ? ' (' + Number(c.reviews).toLocaleString('es-CL') + ')' : '') : ''} · <span style="color:var(--good)" title="Verificado por IA">✓ ${esc((c.v && c.v.razon) || 'verificado')}</span></div></div></a>`;
+}
+
 // --- Batch: pre-analizar el top N por cuota x seller (reanudable, throttleado por mlGate). ---
 let _p2Batch = null;
 async function runP2Batch(n, force) {
@@ -1840,8 +1881,8 @@ async function p2AI(item, stats, products, reviews, own) {
     '{"estacionalidad":"1 frase: meses peak/valle y qué hacer (máx 140 car)","cuota":"1 frase sobre el atractivo de la categoría; NO digas que ET Brands domina salvo evidencia (máx 130 car)","tendencia":"1 frase (máx 110 car)",' +
     '"clusters":[{"nombre":"subcategoría por specs","chips":["FHD","24-27\\""],"pos":[2,3,5],"peso":"8/16"}],' +
     '"gap":"dónde hay demanda con poca oferta, con números (máx 200 car)","reviewOps":"queja recurrente = oportunidad, concreto (máx 160 car)",' +
-    '"upgrades":[{"costo":"BAJO|MEDIO|ALTO","titulo":"3-6 palabras","texto":"por qué (barato de fabricar, alto valor), máx 110 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>}}],' +
-    '"bundles":[{"nombre":"nombre del set (3-5 palabras)","para":"segmento objetivo","texto":"qué incluye y por qué, máx 90 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>}}],' +
+    '"upgrades":[{"costo":"BAJO|MEDIO|ALTO","titulo":"3-6 palabras","texto":"por qué (barato de fabricar, alto valor), máx 110 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>},"query":"2-5 keywords EN para Amazon"}],' +
+    '"bundles":[{"nombre":"nombre del set (3-5 palabras)","para":"segmento objetivo","texto":"qué incluye y por qué, máx 90 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>},"query":"2-5 keywords EN para Amazon"}],' +
     '"difScore":<0-100>,"difRazon":"1 frase máx 90 car","fitScore":<0-100>,"fitRazon":"1 frase máx 90 car"}\n' +
     'El "difScore" (0-100) = qué tan NATURAL/factible es diferenciarse con marca propia: 100 = upgrades/bundles obvios, baratos de fabricar y de alto valor; 0 = tuviste que forzar ideas poco realistas.\n' +
     'El "fitScore" (0-100) = qué tan bien calza el producto típico con lo que ET Brands hace bien: suma si es pequeño y liviano (<15 kg físico/volumétrico); resta fuerte si requiere certificaciones difíciles (SEC, cosméticos, ingeribles) o si hay que competir con marcas ultra reconocidas en productos muy difíciles (notebooks, celulares, TVs). Sé honesto.\n' +
@@ -1890,8 +1931,8 @@ async function p2VisionAI(item, stats, products, reviews, own) {
     '"clusters":[{"nombre":"subcategoría por specs/materialidad","chips":["rasgos clave"],"pos":[nº de TODOS los top de este cluster],"ownSkus":["SKUs propios que caen aquí"]}],' +
     '"ownAnalysis":[{"sku":"SKU propio","tipo":"qué es REALMENTE según sus fotos (formato/materialidad)","cluster":"a qué cluster pertenece","falta":"qué le falta vs el cluster/competencia, concreto (máx 120 car)"}],' +
     '"gap":"dónde hay demanda con poca oferta, con números (máx 200 car)","reviewOps":"queja recurrente = oportunidad (máx 160 car)",' +
-    '"upgrades":[{"costo":"BAJO|MEDIO|ALTO","titulo":"3-6 palabras","texto":"por qué, máx 110 car","precio":<CLP entero>,"pkg":{"l":<cm>,"a":<cm>,"al":<cm>,"p":<kg>}}],' +
-    '"bundles":[{"nombre":"3-5 palabras","para":"segmento","texto":"qué incluye, máx 90 car","precio":<CLP entero>,"pkg":{"l":<cm>,"a":<cm>,"al":<cm>,"p":<kg>}}],' +
+    '"upgrades":[{"costo":"BAJO|MEDIO|ALTO","titulo":"3-6 palabras","texto":"por qué, máx 110 car","precio":<CLP entero>,"pkg":{"l":<cm>,"a":<cm>,"al":<cm>,"p":<kg>},"query":"2-5 keywords en INGLÉS para buscar este producto en Amazon"}],' +
+    '"bundles":[{"nombre":"3-5 palabras","para":"segmento","texto":"qué incluye, máx 90 car","precio":<CLP entero>,"pkg":{"l":<cm>,"a":<cm>,"al":<cm>,"p":<kg>},"query":"2-5 keywords en INGLÉS del producto principal del set para Amazon"}],' +
     '"difScore":<0-100>,"difRazon":"por qué ese score, 1 frase máx 90 car",' +
     '"fitScore":<0-100>,"fitRazon":"por qué, 1 frase máx 90 car"}\n' +
     'El "difScore" (0-100) es tu autoevaluación de qué tan NATURAL y FACTIBLE es diferenciarse en esta categoría con marca propia: 100 = hay upgrades/bundles obvios, baratos de fabricar en China y de alto valor percibido, con espacio real vs. la competencia; 0 = tuviste que forzar ideas ultra creativas/poco realistas porque el mercado ya está muy resuelto o no hay cómo diferenciar barato. Sé honesto y calibrado.\n' +
@@ -1950,10 +1991,10 @@ function renderP2(report, item, ts) {
   const upgrades = (ai.upgrades || []).map(u => {
     const cc = /(baj|low)/i.test(u.costo) ? 'p2-good' : (/(alt|high)/i.test(u.costo) ? 'p2-bad' : 'p2-mid');
     const ti = u.titulo ? `<b>${esc(u.titulo)}</b> — ` : '';
-    return `<div class="p2up"><span class="c ${cc}">costo ${esc(u.costo || '')}</span><div>${ti}${mdBold(u.texto || '')}${targetFobTag(u.precio, comPct, u.pkg)}</div></div>`;
+    return `<div class="p2up"><span class="c ${cc}">costo ${esc(u.costo || '')}</span><div>${ti}${mdBold(u.texto || '')}${targetFobTag(u.precio, comPct, u.pkg)}<div style="margin-top:2px">${amzBtn(u.query || u.titulo, (u.titulo || '') + ' ' + (u.texto || ''))}</div></div></div>`;
   }).join('');
   const bundles = (ai.bundles || []).map(b => {
-    if (b && typeof b === 'object') return `<li style="margin:6px 0"><b>${esc(b.nombre || '')}</b>${b.para ? ` <span class="muted small">· ${esc(b.para)}</span>` : ''}${b.texto ? `<div style="font-size:12px;color:var(--muted);margin-top:1px">${mdBold(b.texto)}${targetFobTag(b.precio, comPct, b.pkg)}</div>` : ''}</li>`;
+    if (b && typeof b === 'object') return `<li style="margin:6px 0"><b>${esc(b.nombre || '')}</b>${b.para ? ` <span class="muted small">· ${esc(b.para)}</span>` : ''}${b.texto ? `<div style="font-size:12px;color:var(--muted);margin-top:1px">${mdBold(b.texto)}${targetFobTag(b.precio, comPct, b.pkg)}</div>` : ''}<div style="margin-top:2px">${amzBtn(b.query || b.nombre, (b.nombre || '') + ' ' + (b.texto || ''))}</div></li>`;
     return `<li style="margin:5px 0">${mdBold(b)}</li>`;
   }).join('');
   const fmt = v => (v != null && !isNaN(v)) ? '$' + Math.round(v).toLocaleString('es-CL') : '–';
@@ -2043,7 +2084,7 @@ async function p2DeepAI(item, rows, agg) {
     '"clusters":[{"nombre":"subcategoría por specs (2-4 palabras)","unidades":<suma unidades del cluster>,"ejemplos":["título corto"]}],' +
     '"gap":"hueco concreto: muchas unidades con pocas publicaciones, con números (máx 200 car)",' +
     '"concentracion":"qué tan concentrado y qué implica para entrar (máx 180 car)",' +
-    '"oportunidades":[{"titulo":"producto/acción (3-6 palabras)","detalle":"specs clave + segmento objetivo, máx 130 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>}}],' +
+    '"oportunidades":[{"titulo":"producto/acción (3-6 palabras)","detalle":"specs clave + segmento objetivo, máx 130 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>},"query":"2-5 keywords EN para Amazon"}],' +
     '"upgrades":[{"costo":"BAJO|MEDIO|ALTO","titulo":"3-6 palabras","texto":"por qué, máx 110 car","precio":<CLP entero>,"pkg":{"l":<cm>,"a":<cm>,"al":<cm>,"p":<kg>}}],' +
     '"bundles":[{"nombre":"3-5 palabras","para":"segmento","texto":"qué incluye, máx 90 car","precio":<CLP entero>,"pkg":{"l":<cm>,"a":<cm>,"al":<cm>,"p":<kg>}}]}\n' +
     'Las "upgrades" y "bundles" ACTUALIZAN las diferenciaciones del análisis base con los datos REALES del ranking (precios y segmentos dentro del rango observado). REGLAS: NO dupliques lo que ET Brands ya tiene; ancla todo al ranking real; incluye "precio" (CLP) y "pkg" (packaging cm/kg) en oportunidades, upgrades y bundles para el FOB objetivo (33% margen contribución).';
@@ -2106,7 +2147,7 @@ function renderP2Deep(deep) {
     (ai.gap ? `<div class="p2gap" style="margin-top:10px"><b>🎯 Gap oferta/demanda:</b> ${mdBold(ai.gap)}</div>` : '') +
     (sBars ? `<div style="font-weight:800;font-size:12px;margin:12px 0 2px">🏪 Concentración por vendedor (ventas)</div>${sBars}${ai.concentracion ? `<div class="small muted" style="margin-top:4px">${mdBold(ai.concentracion)}</div>` : ''}` : '') +
     ((ai.oportunidades && ai.oportunidades.length) ? `<div style="margin-top:12px"><b style="font-size:12px">💡 Oportunidades:</b><div style="margin-top:4px">${ai.oportunidades.map(o => {
-      if (o && typeof o === 'object') return `<div style="display:flex;gap:8px;margin:6px 0"><span style="color:var(--accent);font-weight:800">›</span><div><b style="font-size:13px">${esc(o.titulo || '')}</b>${o.detalle ? `<div style="font-size:12px;color:var(--muted);margin-top:1px">${mdBold(o.detalle)}${targetFobTag(o.precio, comPct, o.pkg)}</div>` : `<div>${targetFobTag(o.precio, comPct, o.pkg)}</div>`}</div></div>`;
+      if (o && typeof o === 'object') return `<div style="display:flex;gap:8px;margin:6px 0"><span style="color:var(--accent);font-weight:800">›</span><div><b style="font-size:13px">${esc(o.titulo || '')}</b>${o.detalle ? `<div style="font-size:12px;color:var(--muted);margin-top:1px">${mdBold(o.detalle)}${targetFobTag(o.precio, comPct, o.pkg)}</div>` : `<div>${targetFobTag(o.precio, comPct, o.pkg)}</div>`}<div style="margin-top:2px">${amzBtn(o.query || o.titulo, (o.titulo || '') + ' ' + (o.detalle || ''))}</div></div></div>`;
       return `<div style="display:flex;gap:8px;margin:6px 0"><span style="color:var(--accent);font-weight:800">›</span><div style="font-size:13px">${mdBold(o)}</div></div>`;
     }).join('')}</div></div>` : '') +
     `<div class="p2fb"><button onclick="openP2DeepModal()">↻ Reimportar / cambiar mes</button></div></div>`;
