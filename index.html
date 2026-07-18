@@ -270,6 +270,11 @@
     <!-- ===== INPUTS ===== -->
     <div class="panel">
       <h2>Datos del producto</h2>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+        <button class="btn ghost" id="btnImportQuote" type="button" title="Sube la cotización del proveedor (.xlsx); la IA la interpreta y lleva cada producto al Historial">📥 Importar quote</button>
+        <input type="file" id="quoteFile" accept=".xlsx,.xls" style="display:none">
+        <span id="quoteStatus" class="ai-status"></span>
+      </div>
 
       <label>Nombre del producto</label>
       <input type="text" id="inpNombre" placeholder="Ej: Set de mancuernas ajustables 20kg">
@@ -526,6 +531,26 @@
 </div>
 
 <!-- Reporte de detalle de categoría (Investigación) -->
+<!-- Modal: revisar quote importada antes de llevar al Historial -->
+<div id="quoteOverlay" class="modal-overlay hidden" style="z-index:200">
+  <div class="rdetail" style="max-width:1040px">
+    <div class="rd-head">
+      <div><div class="rd-l1">Importar quote</div><h2 id="quoteTitle" style="font-size:18px">Revisar productos</h2></div>
+      <button class="mini" id="quoteClose" type="button" title="Cerrar">✕</button>
+    </div>
+    <div class="row2" style="margin-bottom:8px">
+      <div><label>Proveedor</label><input type="text" id="quoteProv" placeholder="—"></div>
+      <div><label>N° cotización</label><input type="text" id="quoteCot" placeholder="—"></div>
+    </div>
+    <p class="hint" id="quoteHint" style="margin:0 0 8px"></p>
+    <div id="quoteReview" style="overflow:auto"></div>
+    <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
+      <button class="btn" id="quoteCommit" type="button">Importar al Historial</button>
+      <span id="quoteCommitStatus" class="ai-status"></span>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: desglose del Opportunity Score -->
 <div id="oppOverlay" class="modal-overlay hidden" style="z-index:200">
   <div class="rdetail" style="max-width:540px">
@@ -567,12 +592,12 @@
 </div>
 
 <!-- ?v= versiona los assets: al cambiar el número, el navegador ignora el caché de 4h de Cloudflare. Súbelo en cada deploy que toque JS. -->
-<script src="data/ml_categories.js?v=260745"></script>
-<script src="data/fbla_categories.js?v=260745"></script>
-<script src="data/shipping.js?v=260745"></script>
-<script src="src/app.js?v=260745"></script>
-<script src="src/ai.js?v=260745"></script>
-<script src="src/local-ai.js?v=260745"></script>
-<script src="src/ui.js?v=260745"></script>
+<script src="data/ml_categories.js?v=260746"></script>
+<script src="data/fbla_categories.js?v=260746"></script>
+<script src="data/shipping.js?v=260746"></script>
+<script src="src/app.js?v=260746"></script>
+<script src="src/ai.js?v=260746"></script>
+<script src="src/local-ai.js?v=260746"></script>
+<script src="src/ui.js?v=260746"></script>
 </body>
 </html>

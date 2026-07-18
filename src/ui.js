@@ -410,6 +410,104 @@ async function addToComparison() {
   setAiStatus(editing ? (store === 'closed' ? '✓ Cambios guardados en Productos cerrados.' : '✓ Cambios guardados.') : '✓ Producto guardado.', false);
 }
 
+/* ---------------- Importar quote de proveedor (IA → Historial) ---------------- */
+let _quoteData = null;
+async function importQuoteFile(file) {
+  if (!file) return;
+  const st = $('quoteStatus');
+  try {
+    st.classList.remove('err'); st.textContent = 'Leyendo ' + file.name + '…';
+    await loadXLSX();
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const grid = quoteSheetToText(ws);
+    if (!grid.trim()) { st.textContent = 'El Excel está vacío.'; st.classList.add('err'); return; }
+    st.textContent = 'La IA está interpretando la cotización…';
+    const data = await quoteAI(grid, file.name);
+    if (!data || !Array.isArray(data.productos) || !data.productos.length) { st.textContent = 'No se pudieron extraer productos de la quote.'; st.classList.add('err'); return; }
+    st.textContent = '';
+    _quoteData = data;
+    renderQuoteReview(data, file.name);
+  } catch (e) { st.textContent = 'Error importando: ' + (e.message || e); st.classList.add('err'); }
+}
+// Hoja → grilla de texto compacta (solo filas con contenido) para la IA.
+function quoteSheetToText(ws) {
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+  const out = [];
+  for (let i = 0; i < rows.length && out.length < 60; i++) {
+    const cells = (rows[i] || []).map((v, c) => (v === '' || v == null) ? '' : (XLSX.utils.encode_col(c) + ':' + String(v).replace(/\s+/g, ' ').trim().slice(0, 40))).filter(Boolean);
+    if (cells.length) out.push(cells.join(' | '));
+  }
+  return out.join('\n');
+}
+async function quoteAI(grid, filename) {
+  const cfg = loadCfg(country);
+  const prompt =
+    'Eres asistente de importaciones de ET Brands. Te paso una COTIZACIÓN de un proveedor (grilla de celdas de un Excel; cada celda como COL:valor) y el nombre del archivo. Extrae CADA producto cotizado con sus datos normalizados.\n\n' +
+    'ARCHIVO: ' + filename + '\n\nGRILLA:\n' + grid + '\n\n' +
+    'Devuelve SOLO un JSON:\n' +
+    '{"proveedor":"proveedor (del nombre del archivo o la quote)","cotizacion":"N° de cotización (ej N°548, del archivo)",' +
+    '"productos":[{"nombre":"nombre corto y claro en español, máx 80 car","sku":"ITEM NO./código del proveedor o vacío","fob":<FOB USD número o null>,"alto":<cm por UNIDAD o null>,"ancho":<cm o null>,"largo":<cm o null>,"peso":<kg por unidad o null>,"precio":<precio de venta CLP si aparece, si no null>,"faltan":["campos requeridos que NO pudiste determinar con certeza"]}]}\n' +
+    'REGLAS: dimensiones (cm) y peso (kg) son POR UNIDAD (caja/producto individual, NO el master carton). Si la quote solo trae CBM y PCS/CTN sin dimensiones por unidad, deja en null lo que falte y agrégalo a "faltan". Requeridos: fob, alto, ancho, largo, peso. Si un valor dice NA/Not Available/vacío → null y a "faltan". NO inventes números. Un producto por cada fila de producto real de la quote (ignora encabezados y filas vacías).';
+  const raw = await aiText(prompt, cfg, { maxTokens: 2600 });
+  return parseJSONLoose(raw);
+}
+function renderQuoteReview(data, filename) {
+  $('quoteProv').value = data.proveedor || '';
+  $('quoteCot').value = data.cotizacion || '';
+  const req = ['fob', 'alto', 'ancho', 'largo', 'peso'];
+  const miss = (p, k) => (p.faltan && p.faltan.includes(k)) || (req.includes(k) && (p[k] == null || p[k] === ''));
+  const anyMissing = data.productos.some(p => req.some(k => miss(p, k)));
+  $('quoteHint').innerHTML = anyMissing
+    ? '⚠️ Faltan datos (celdas en rojo). Complétalos y aprieta “Importar al Historial”.'
+    : 'Revisa que esté todo bien y aprieta “Importar al Historial”. Los márgenes se calculan solos si pones precio de venta.';
+  const inp = (i, k, v, bad) => `<td><input type="${k === 'nombre' || k === 'sku' ? 'text' : 'number'}" data-i="${i}" data-k="${k}" value="${v == null ? '' : String(v).replace(/"/g, '&quot;')}" style="width:${k === 'nombre' ? '190' : k === 'sku' ? '90' : '68'}px;font-size:12px${bad ? ';border-color:var(--bad);background:rgba(239,68,68,.08)' : ''}"></td>`;
+  const rows = data.productos.map((p, i) => `<tr>${inp(i, 'nombre', p.nombre)}${inp(i, 'sku', p.sku)}${inp(i, 'fob', p.fob, miss(p, 'fob'))}${inp(i, 'alto', p.alto, miss(p, 'alto'))}${inp(i, 'ancho', p.ancho, miss(p, 'ancho'))}${inp(i, 'largo', p.largo, miss(p, 'largo'))}${inp(i, 'peso', p.peso, miss(p, 'peso'))}${inp(i, 'precio', p.precio)}</tr>`).join('');
+  $('quoteReview').innerHTML = `<table class="p2own" style="font-size:12px;white-space:nowrap"><thead><tr><th style="text-align:left">Producto</th><th>SKU</th><th>FOB US$</th><th>Alto cm</th><th>Ancho cm</th><th>Largo cm</th><th>Peso kg</th><th>Precio venta $</th></tr></thead><tbody>${rows}</tbody></table>`;
+  $('quoteTitle').textContent = data.productos.length + ' producto' + (data.productos.length === 1 ? '' : 's') + ' · ' + (filename || '');
+  $('quoteCommitStatus').textContent = '';
+  $('quoteOverlay').classList.remove('hidden');
+}
+async function commitQuote() {
+  if (!_quoteData) return;
+  const prods = _quoteData.productos.map(() => ({}));
+  $('quoteReview').querySelectorAll('input[data-i]').forEach(el => { const i = +el.dataset.i, k = el.dataset.k; prods[i][k] = (k === 'nombre' || k === 'sku') ? el.value.trim() : (el.value === '' ? null : parseFloat(el.value)); });
+  const req = ['fob', 'alto', 'ancho', 'largo', 'peso'];
+  const bad = prods.filter(p => req.some(k => p[k] == null || isNaN(p[k]) || p[k] <= 0));
+  if (bad.length) { $('quoteCommitStatus').innerHTML = '<span style="color:var(--bad)">Faltan FOB/dimensiones/peso en ' + bad.length + ' producto(s).</span>'; return; }
+  const meta = { proveedor: $('quoteProv').value.trim(), cotizacion: $('quoteCot').value.trim() };
+  $('quoteCommitStatus').textContent = 'Guardando…';
+  let n = 0;
+  for (const p of prods) { try { await histAdd(quoteRecord(p, meta)); n++; } catch (e) {} }
+  _quoteData = null;
+  $('quoteOverlay').classList.add('hidden');
+  renderHist();
+  showTab('hist'); renderHistorial();
+  setAiStatus('✓ ' + n + ' producto(s) importados de la quote al Historial.', false);
+}
+// Arma un registro completo del Historial desde un producto de la quote (deduce categoría y calcula COGS/margen).
+function quoteRecord(p, meta) {
+  const alto = +p.alto || 0, ancho = +p.ancho || 0, largo = +p.largo || 0, peso = +p.peso || 0, fob = +p.fob || 0;
+  const cbmUnit = (alto * ancho * largo) / 1e6;
+  const cogs = computeLanded(fob, cbmUnit, cfg.factorCBM, cfg.dolar, cfg, '');
+  const weight = billableWeight(peso, alto, ancho, largo, VOL_DIVISOR);
+  const mi = deduceCategory(p.nombre || '', ML_CATEGORIES, 'name').index;
+  const fi = deduceCategory(p.nombre || '', FBLA_CATEGORIES, 'name').index;
+  const mlComPct = mi >= 0 ? (catCost('ml', mi) || 0) : 0, mlCatName = mi >= 0 ? catName('ml', mi) : '';
+  const fbComPct = fi >= 0 ? (catCost('fbla', fi) || 0) : 0, fblaCatName = fi >= 0 ? catName('fbla', fi) : '';
+  const precioML = +p.precio || 0;
+  const rML = precioML ? computeChannel('ml', precioML, cogs, mlComPct, weight, false, cfg) : null;
+  return {
+    id: newId(), ts: Date.now(), fecha: new Date().toISOString().slice(0, 19).replace('T', ' '),
+    nombre: (p.nombre || '(sin nombre)').slice(0, 120), proveedor: meta.proveedor || '', cotizacion: meta.cotizacion || '', skuProveedor: p.sku || '',
+    alto, ancho, largo, peso, fob, precioML, precioFB: 0, isSuper: false,
+    mlCatIdx: mi, mlCatName, mlComPct, fblaCatIdx: fi, fblaCatName, fbComPct,
+    hs: '', arancelPct: '', dolar: cfg.dolar, factorCBM: cfg.factorCBM,
+    cogs, mlPrice: precioML, mlMargin: rML ? rML.margin : null, mlMarginPct: rML ? rML.marginPct : null,
+    fbPrice: 0, fbMargin: null, fbMarginPct: null, origen: 'quote'
+  };
+}
+
 function resolveCatIdx(idx, name, list) {
   if (idx != null && idx >= 0 && list[idx] && list[idx].name === name) return idx;
   if (name) { for (let i = 0; i < list.length; i++) if (list[i].name === name) return i; }
@@ -2194,6 +2292,12 @@ function init() {
   // deducción 3 s después de que el usuario deja de escribir (la IA tarda y consume cuota)
   $('inpNombre').addEventListener('input', debounce(autoDeduce, 3000));
   $('btnAI').addEventListener('click', () => { if (!deduceText()) { setAiStatus('Escribe primero el nombre del producto.', true); return; } autoDeduce(); });
+  // Importar quote de proveedor (IA → Historial)
+  { const b = $('btnImportQuote'); if (b) b.addEventListener('click', () => $('quoteFile').click()); }
+  { const f = $('quoteFile'); if (f) f.addEventListener('change', e => { const file = e.target.files[0]; if (file) importQuoteFile(file); e.target.value = ''; }); }
+  { const b = $('quoteClose'); if (b) b.onclick = () => $('quoteOverlay').classList.add('hidden'); }
+  { const o = $('quoteOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
+  { const b = $('quoteCommit'); if (b) b.onclick = commitQuote; }
 
   // selects de categoría (la categoría sugerida por IA queda seleccionada; se puede cambiar a mano)
   $('mlCatSelect').addEventListener('change', () => { state.mlCatIdx = parseInt($('mlCatSelect').value, 10); recompute(); });
