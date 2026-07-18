@@ -1710,41 +1710,47 @@ function targetFobTag(precio, comPct, pkg) {
 // --- Referencias de producto en Amazon (Rainforest) con verificación IA ---
 // Botón por sugerencia; al lado un contenedor .amzRefs donde se pintan las tarjetas.
 const AMZ_MIN_REVIEWS = 100;   // prueba de venta mínima
-function amzBtn(query, desc, precio) {
-  const q = (query || '').toString().slice(0, 120), d = (desc || '').toString().slice(0, 240);
+function amzBtn(query, desc, precio, key) {
+  const q = (query || '').toString().slice(0, 120), d = (desc || '').toString().slice(0, 240), k = (key || '').toString().slice(0, 80);
   if (!q) return '';
-  return `<button class="btn ghost" style="font-size:11px;padding:3px 9px;margin-top:4px" data-q="${escapeHtml(q)}" data-d="${escapeHtml(d)}" data-p="${+precio || 0}" onclick="amazonRefsFromBtn(this)">🔎 Ver en Amazon</button><div class="amzRefs"></div>`;
+  return `<button class="btn ghost" style="font-size:11px;padding:3px 9px;margin-top:4px" data-q="${escapeHtml(q)}" data-d="${escapeHtml(d)}" data-p="${+precio || 0}" data-k="${escapeHtml(k)}" onclick="amazonRefsFromBtn(this)">🔎 Ver en Amazon</button><div class="amzRefs"></div>`;
 }
 async function amazonRefsFromBtn(btn) {
   const box = btn.parentElement.querySelector('.amzRefs'); if (!box) return;
   if (btn._busy) return; btn._busy = true; const old = btn.textContent; btn.textContent = '🔎 buscando…';
-  box.innerHTML = '<span class="muted small">Buscando en Amazon (≥' + AMZ_MIN_REVIEWS + ' reseñas) y verificando…</span>';
+  box.innerHTML = '<span class="muted small">Buscando en Amazon (≥' + AMZ_MIN_REVIEWS + ' reseñas) y verificando specs…</span>';
   try {
-    // Banda de precio: el ticket sugerido (CLP) → USD, ±50% (Amazon es retail US, suele ser más barato que Chile).
-    const cfg = loadCfg(country); const precioCLP = +btn.dataset.p || 0;
+    // Banda de precio: el ticket sugerido (CLP) → USD, ±(Amazon es retail US, suele ser más barato que Chile).
+    const cfg = loadCfg(country); const precioCLP = +btn.dataset.p || 0; const key = btn.dataset.k || '';
     let minUsd = null, maxUsd = null;
     if (precioCLP > 0 && cfg.dolar > 0) { const usd = precioCLP / cfg.dolar; minUsd = Math.round(usd * 0.4); maxUsd = Math.round(usd * 1.6); }
-    const j = await (await fetch(api('/api/amazon'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ q: btn.dataset.q, num: 3, minReviews: AMZ_MIN_REVIEWS, minUsd, maxUsd }) })).json();
+    // La búsqueda ANTEPONE el elemento diferenciador (para que aparezca en los resultados).
+    const searchQ = key ? (key + ' ' + btn.dataset.q).slice(0, 120) : btn.dataset.q;
+    const j = await (await fetch(api('/api/amazon'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ q: searchQ, num: 3, minReviews: AMZ_MIN_REVIEWS, minUsd, maxUsd }) })).json();
     if (!j || j.error) { box.innerHTML = '<span class="muted small">' + escapeHtml(j && j.error ? j.error : 'Sin respuesta de Amazon.') + '</span>'; return; }
-    if (!j.candidates || !j.candidates.length) { box.innerHTML = '<span class="muted small">Sin resultados con ≥' + AMZ_MIN_REVIEWS + ' reseñas y precio comparable. Prueba re-analizar el P2 (mejora la búsqueda) o ajustar la sugerencia.</span>'; return; }
-    const verdicts = await amazonVerify(btn.dataset.d, btn.dataset.q, precioCLP, j.candidates);
+    if (!j.candidates || !j.candidates.length) { box.innerHTML = '<div style="font-size:11px;margin-bottom:2px">Similitud: <b style="color:var(--bad)">0%</b></div><span class="muted small">Sin resultados con ≥' + AMZ_MIN_REVIEWS + ' reseñas y precio comparable. Re-analiza el P2 para mejorar la búsqueda.</span>'; return; }
+    const verdicts = await amazonVerify(btn.dataset.d, btn.dataset.q, key, precioCLP, j.candidates);
     const good = j.candidates.map((c, i) => ({ ...c, v: verdicts[i] })).filter(c => c.v && c.v.match)
       .sort((a, b) => (b.v.score || 0) - (a.v.score || 0));   // el más parecido primero
-    box.innerHTML = good.length ? good.map(amzCard).join('')
-      : '<span class="muted small">Ningún resultado calzó con las specs de la sugerencia (verificado por IA).</span>';
+    const top = good.length ? (good[0].v.score || 0) : 0;
+    const simCol = top >= 70 ? 'var(--good)' : top >= 40 ? 'var(--mid)' : 'var(--bad)';
+    const header = `<div style="font-size:11px;margin-bottom:3px">Similitud con la sugerencia: <b style="color:${simCol}">${top}%</b></div>`;
+    box.innerHTML = header + (good.length ? good.map(amzCard).join('')
+      : '<span class="muted small">Ningún resultado tiene el elemento clave de la sugerencia' + (key ? ' («' + escapeHtml(key) + '»)' : '') + ' (verificado por IA).</span>');
   } catch (e) { box.innerHTML = '<span class="muted small">Error consultando Amazon.</span>'; }
   finally { btn.textContent = old; btn._busy = false; }
 }
-// La IA compara SPECS: mismo tipo Y las specs clave de la sugerencia deben calzar. Devuelve un score de cercanía.
-async function amazonVerify(desc, query, precioCLP, candidates) {
+// La IA compara SPECS y EXIGE el elemento diferenciador clave; devuelve un score de cercanía.
+async function amazonVerify(desc, query, key, precioCLP, candidates) {
   const cfg = loadCfg(country);
   const list = candidates.map((c, i) => `${i + 1}) ${c.title} | precio ${c.price || 's/precio'} | ficha: ${(c.specs || '').slice(0, 320)}`).join('\n');
   const prompt = 'ET Brands quiere lanzar este producto (sugerencia del análisis): ' + desc +
-    (query ? ('\nSpecs/keywords clave que debe cumplir: ' + query) : '') +
-    (precioCLP > 0 ? ('\nTicket objetivo en Chile: $' + Math.round(precioCLP).toLocaleString('es-CL') + ' CLP (referencial; Amazon es retail US).') : '') +
+    (key ? ('\n>>> ELEMENTO DIFERENCIADOR OBLIGATORIO: "' + key + '". La referencia de Amazon DEBE tenerlo/serlo SÍ O SÍ.') : '\n>>> Identifica tú el ELEMENTO DIFERENCIADOR de la sugerencia (lo que la hace especial: ej. 200Hz, funda de neopreno incluida, dock USB-C) y exígelo.') +
+    (query ? ('\nSpecs/keywords: ' + query) : '') +
+    (precioCLP > 0 ? ('\nTicket objetivo Chile: $' + Math.round(precioCLP).toLocaleString('es-CL') + ' CLP (referencial; Amazon es retail US).') : '') +
     '\n\nCandidatos de Amazon.com (título | precio USD | ficha):\n' + list +
-    '\n\nPara CADA candidato evalúa qué tan PARECIDO es a la sugerencia, comparando SPECS (tamaño, tecnología, materialidad, características clave). REGLAS ESTRICTAS: match=false si es otra categoría de producto (ej. se pidió MONITOR y es notebook/laptop), si es un accesorio en vez del producto, o si las specs clave NO calzan. match=true SOLO si es el mismo producto con las specs clave compatibles.\n' +
-    'Devuelve SOLO JSON: {"matches":[{"i":<1-based>,"match":true|false,"score":<0-100 cuán parecido en specs>,"razon":"specs que coinciden, máx 55 car"}]}';
+    '\n\nPara CADA candidato: match=true SOLO si es el MISMO TIPO de producto Y tiene claramente el ELEMENTO DIFERENCIADOR OBLIGATORIO. Si es el producto base pero le FALTA ese elemento (ej. es 100Hz cuando se pidió 200Hz, o no trae la funda), match=false. También false si es otra categoría (ej. notebook en vez de monitor) o un accesorio suelto. Ante duda, false. "score" = 0-100 de cuán parecido es a la sugerencia en specs (incluyendo el elemento clave).\n' +
+    'Devuelve SOLO JSON: {"matches":[{"i":<1-based>,"match":true|false,"score":<0-100>,"razon":"specs/elemento que coincide, máx 55 car"}]}';
   const raw = await aiText(prompt, cfg, { maxTokens: 600 });
   const j = parseJSONLoose(raw); const out = {};
   if (j && Array.isArray(j.matches)) for (const m of j.matches) if (m && m.i) out[m.i - 1] = m;
@@ -1891,8 +1897,8 @@ async function p2AI(item, stats, products, reviews, own) {
     '{"estacionalidad":"1 frase: meses peak/valle y qué hacer (máx 140 car)","cuota":"1 frase sobre el atractivo de la categoría; NO digas que ET Brands domina salvo evidencia (máx 130 car)","tendencia":"1 frase (máx 110 car)",' +
     '"clusters":[{"nombre":"subcategoría por specs","chips":["FHD","24-27\\""],"pos":[2,3,5],"peso":"8/16"}],' +
     '"gap":"dónde hay demanda con poca oferta, con números (máx 200 car)","reviewOps":"queja recurrente = oportunidad, concreto (máx 160 car)",' +
-    '"upgrades":[{"costo":"BAJO|MEDIO|ALTO","titulo":"3-6 palabras","texto":"por qué (barato de fabricar, alto valor), máx 110 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>},"query":"2-5 keywords EN para Amazon"}],' +
-    '"bundles":[{"nombre":"nombre del set (3-5 palabras)","para":"segmento objetivo","texto":"qué incluye y por qué, máx 90 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>},"query":"2-5 keywords EN para Amazon"}],' +
+    '"upgrades":[{"costo":"BAJO|MEDIO|ALTO","titulo":"3-6 palabras","texto":"por qué (barato de fabricar, alto valor), máx 110 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>},"key":"spec/elemento MÁS diferenciador obligatorio (ej. 200Hz)","query":"keywords EN centradas en el elemento clave + producto"}],' +
+    '"bundles":[{"nombre":"nombre del set (3-5 palabras)","para":"segmento objetivo","texto":"qué incluye y por qué, máx 90 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>},"key":"elemento que hace al set (ej. funda de neopreno)","query":"keywords EN centradas en ese elemento clave"}],' +
     '"difScore":<0-100>,"difRazon":"1 frase máx 90 car","fitScore":<0-100>,"fitRazon":"1 frase máx 90 car"}\n' +
     'El "difScore" (0-100) = qué tan NATURAL/factible es diferenciarse con marca propia: 100 = upgrades/bundles obvios, baratos de fabricar y de alto valor; 0 = tuviste que forzar ideas poco realistas.\n' +
     'El "fitScore" (0-100) = qué tan bien calza el producto típico con lo que ET Brands hace bien: suma si es pequeño y liviano (<15 kg físico/volumétrico); resta fuerte si requiere certificaciones difíciles (SEC, cosméticos, ingeribles) o si hay que competir con marcas ultra reconocidas en productos muy difíciles (notebooks, celulares, TVs). Sé honesto.\n' +
@@ -1941,8 +1947,8 @@ async function p2VisionAI(item, stats, products, reviews, own) {
     '"clusters":[{"nombre":"subcategoría por specs/materialidad","chips":["rasgos clave"],"pos":[nº de TODOS los top de este cluster],"ownSkus":["SKUs propios que caen aquí"]}],' +
     '"ownAnalysis":[{"sku":"SKU propio","tipo":"qué es REALMENTE según sus fotos (formato/materialidad)","cluster":"a qué cluster pertenece","falta":"qué le falta vs el cluster/competencia, concreto (máx 120 car)"}],' +
     '"gap":"dónde hay demanda con poca oferta, con números (máx 200 car)","reviewOps":"queja recurrente = oportunidad (máx 160 car)",' +
-    '"upgrades":[{"costo":"BAJO|MEDIO|ALTO","titulo":"3-6 palabras","texto":"por qué, máx 110 car","precio":<CLP entero>,"pkg":{"l":<cm>,"a":<cm>,"al":<cm>,"p":<kg>},"query":"2-5 keywords en INGLÉS para buscar este producto en Amazon"}],' +
-    '"bundles":[{"nombre":"3-5 palabras","para":"segmento","texto":"qué incluye, máx 90 car","precio":<CLP entero>,"pkg":{"l":<cm>,"a":<cm>,"al":<cm>,"p":<kg>},"query":"2-5 keywords en INGLÉS del producto principal del set para Amazon"}],' +
+    '"upgrades":[{"costo":"BAJO|MEDIO|ALTO","titulo":"3-6 palabras","texto":"por qué, máx 110 car","precio":<CLP entero>,"pkg":{"l":<cm>,"a":<cm>,"al":<cm>,"p":<kg>},"key":"el SPEC/elemento MÁS diferenciador que la referencia DEBE tener sí o sí (ej. 200Hz, dock USB-C, panel 2.5K)","query":"keywords en INGLÉS centradas en ese elemento diferenciador + el producto"}],' +
+    '"bundles":[{"nombre":"3-5 palabras","para":"segmento","texto":"qué incluye, máx 90 car","precio":<CLP entero>,"pkg":{"l":<cm>,"a":<cm>,"al":<cm>,"p":<kg>},"key":"el elemento que HACE al set (ej. funda de neopreno incluida, hub USB-C) — la referencia DEBE tenerlo","query":"keywords en INGLÉS centradas en ese elemento clave del set"}],' +
     '"difScore":<0-100>,"difRazon":"por qué ese score, 1 frase máx 90 car",' +
     '"fitScore":<0-100>,"fitRazon":"por qué, 1 frase máx 90 car"}\n' +
     'El "difScore" (0-100) es tu autoevaluación de qué tan NATURAL y FACTIBLE es diferenciarse en esta categoría con marca propia: 100 = hay upgrades/bundles obvios, baratos de fabricar en China y de alto valor percibido, con espacio real vs. la competencia; 0 = tuviste que forzar ideas ultra creativas/poco realistas porque el mercado ya está muy resuelto o no hay cómo diferenciar barato. Sé honesto y calibrado.\n' +
@@ -2001,10 +2007,10 @@ function renderP2(report, item, ts) {
   const upgrades = (ai.upgrades || []).map(u => {
     const cc = /(baj|low)/i.test(u.costo) ? 'p2-good' : (/(alt|high)/i.test(u.costo) ? 'p2-bad' : 'p2-mid');
     const ti = u.titulo ? `<b>${esc(u.titulo)}</b> — ` : '';
-    return `<div class="p2up"><span class="c ${cc}">costo ${esc(u.costo || '')}</span><div>${ti}${mdBold(u.texto || '')}${targetFobTag(u.precio, comPct, u.pkg)}<div style="margin-top:2px">${amzBtn(u.query || u.titulo, (u.titulo || '') + ' ' + (u.texto || ''), u.precio)}</div></div></div>`;
+    return `<div class="p2up"><span class="c ${cc}">costo ${esc(u.costo || '')}</span><div>${ti}${mdBold(u.texto || '')}${targetFobTag(u.precio, comPct, u.pkg)}<div style="margin-top:2px">${amzBtn(u.query || u.titulo, (u.titulo || '') + ' ' + (u.texto || ''), u.precio, u.key)}</div></div></div>`;
   }).join('');
   const bundles = (ai.bundles || []).map(b => {
-    if (b && typeof b === 'object') return `<li style="margin:6px 0"><b>${esc(b.nombre || '')}</b>${b.para ? ` <span class="muted small">· ${esc(b.para)}</span>` : ''}${b.texto ? `<div style="font-size:12px;color:var(--muted);margin-top:1px">${mdBold(b.texto)}${targetFobTag(b.precio, comPct, b.pkg)}</div>` : ''}<div style="margin-top:2px">${amzBtn(b.query || b.nombre, (b.nombre || '') + ' ' + (b.texto || ''), b.precio)}</div></li>`;
+    if (b && typeof b === 'object') return `<li style="margin:6px 0"><b>${esc(b.nombre || '')}</b>${b.para ? ` <span class="muted small">· ${esc(b.para)}</span>` : ''}${b.texto ? `<div style="font-size:12px;color:var(--muted);margin-top:1px">${mdBold(b.texto)}${targetFobTag(b.precio, comPct, b.pkg)}</div>` : ''}<div style="margin-top:2px">${amzBtn(b.query || b.nombre, (b.nombre || '') + ' ' + (b.texto || ''), b.precio, b.key)}</div></li>`;
     return `<li style="margin:5px 0">${mdBold(b)}</li>`;
   }).join('');
   const fmt = v => (v != null && !isNaN(v)) ? '$' + Math.round(v).toLocaleString('es-CL') : '–';
@@ -2094,7 +2100,7 @@ async function p2DeepAI(item, rows, agg) {
     '"clusters":[{"nombre":"subcategoría por specs (2-4 palabras)","unidades":<suma unidades del cluster>,"ejemplos":["título corto"]}],' +
     '"gap":"hueco concreto: muchas unidades con pocas publicaciones, con números (máx 200 car)",' +
     '"concentracion":"qué tan concentrado y qué implica para entrar (máx 180 car)",' +
-    '"oportunidades":[{"titulo":"producto/acción (3-6 palabras)","detalle":"specs clave + segmento objetivo, máx 130 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>},"query":"2-5 keywords EN para Amazon"}],' +
+    '"oportunidades":[{"titulo":"producto/acción (3-6 palabras)","detalle":"specs clave + segmento objetivo, máx 130 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>},"key":"spec/elemento MÁS diferenciador obligatorio","query":"keywords EN centradas en el elemento clave + producto"}],' +
     '"upgrades":[{"costo":"BAJO|MEDIO|ALTO","titulo":"3-6 palabras","texto":"por qué, máx 110 car","precio":<CLP entero>,"pkg":{"l":<cm>,"a":<cm>,"al":<cm>,"p":<kg>}}],' +
     '"bundles":[{"nombre":"3-5 palabras","para":"segmento","texto":"qué incluye, máx 90 car","precio":<CLP entero>,"pkg":{"l":<cm>,"a":<cm>,"al":<cm>,"p":<kg>}}]}\n' +
     'Las "upgrades" y "bundles" ACTUALIZAN las diferenciaciones del análisis base con los datos REALES del ranking (precios y segmentos dentro del rango observado). REGLAS: NO dupliques lo que ET Brands ya tiene; ancla todo al ranking real; incluye "precio" (CLP) y "pkg" (packaging cm/kg) en oportunidades, upgrades y bundles para el FOB objetivo (33% margen contribución).';
@@ -2157,7 +2163,7 @@ function renderP2Deep(deep) {
     (ai.gap ? `<div class="p2gap" style="margin-top:10px"><b>🎯 Gap oferta/demanda:</b> ${mdBold(ai.gap)}</div>` : '') +
     (sBars ? `<div style="font-weight:800;font-size:12px;margin:12px 0 2px">🏪 Concentración por vendedor (ventas)</div>${sBars}${ai.concentracion ? `<div class="small muted" style="margin-top:4px">${mdBold(ai.concentracion)}</div>` : ''}` : '') +
     ((ai.oportunidades && ai.oportunidades.length) ? `<div style="margin-top:12px"><b style="font-size:12px">💡 Oportunidades:</b><div style="margin-top:4px">${ai.oportunidades.map(o => {
-      if (o && typeof o === 'object') return `<div style="display:flex;gap:8px;margin:6px 0"><span style="color:var(--accent);font-weight:800">›</span><div><b style="font-size:13px">${esc(o.titulo || '')}</b>${o.detalle ? `<div style="font-size:12px;color:var(--muted);margin-top:1px">${mdBold(o.detalle)}${targetFobTag(o.precio, comPct, o.pkg)}</div>` : `<div>${targetFobTag(o.precio, comPct, o.pkg)}</div>`}<div style="margin-top:2px">${amzBtn(o.query || o.titulo, (o.titulo || '') + ' ' + (o.detalle || ''), o.precio)}</div></div></div>`;
+      if (o && typeof o === 'object') return `<div style="display:flex;gap:8px;margin:6px 0"><span style="color:var(--accent);font-weight:800">›</span><div><b style="font-size:13px">${esc(o.titulo || '')}</b>${o.detalle ? `<div style="font-size:12px;color:var(--muted);margin-top:1px">${mdBold(o.detalle)}${targetFobTag(o.precio, comPct, o.pkg)}</div>` : `<div>${targetFobTag(o.precio, comPct, o.pkg)}</div>`}<div style="margin-top:2px">${amzBtn(o.query || o.titulo, (o.titulo || '') + ' ' + (o.detalle || ''), o.precio, o.key)}</div></div></div>`;
       return `<div style="display:flex;gap:8px;margin:6px 0"><span style="color:var(--accent);font-weight:800">›</span><div style="font-size:13px">${mdBold(o)}</div></div>`;
     }).join('')}</div></div>` : '') +
     `<div class="p2fb"><button onclick="openP2DeepModal()">↻ Reimportar / cambiar mes</button></div></div>`;
