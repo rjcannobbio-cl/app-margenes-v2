@@ -1097,6 +1097,8 @@ let _researchFilters = {};   // {minVentas,minTicket,minCuota,l1,crece:'si'|'no'
 // (token de PG en el servidor): listamos los ítems propios y resolvemos su category_id.
 // Cache local 7 días por país. Se recalcula en segundo plano y repinta la tabla.
 let _myCats = new Set();
+let _p2Index = {};   // { catId: {ts, dif} } — categorías que ya tienen P2 (para columna P2 y opportunity score)
+async function loadP2Index() { try { const j = await (await fetch(api('/api/p2?index=1'))).json(); _p2Index = (j && typeof j === 'object') ? j : {}; } catch (e) { _p2Index = {}; } }
 async function ptApp(path, query) {
   try { const r = await fetch(api('/api/pg-passthrough'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path, query }) }); if (!r.ok) return null; const j = await r.json(); return (j && j.body != null) ? j.body : null; } catch (e) { return null; }
 }
@@ -1164,7 +1166,7 @@ function researchYtdYoY(x) {
   const cur = sumYtd(curYear), prev = sumYtd(curYear - 1);
   return (cur != null && prev != null && prev > 0) ? (cur - prev) / prev * 100 : null;
 }
-async function renderResearch() { _researchAll = await researchLoad(); _researchSig = JSON.stringify(_researchAll); paintResearch(); p2BatchUI(); loadMyCats().then(() => paintResearch()).catch(() => {}); }
+async function renderResearch() { _researchAll = await researchLoad(); _researchSig = JSON.stringify(_researchAll); paintResearch(); p2BatchUI(); loadMyCats().then(() => paintResearch()).catch(() => {}); loadP2Index().then(paintResearch).catch(() => {}); }
 
 // --- Filtro avanzado de la tabla de investigación ---
 function researchFiltersActive() { const f = _researchFilters || {}; return !!(f.minVentas != null || f.minTicket != null || f.minCuota != null || f.l1 || f.crece || f.canib); }
@@ -1225,11 +1227,13 @@ function paintResearch() {
   // ordenar por cuota x seller descendente (categoría más atractiva primero)
   const yoyCell = x => { const y = yoy12(x.serie); if (y == null) return '<td class="mcell muted">–</td>'; const col = y >= 0 ? 'var(--good)' : 'var(--bad)'; return `<td class="mcell" style="color:${col};font-weight:600">${y >= 0 ? '+' : ''}${y.toFixed(1)}%</td>`; };
   const canibCell = x => (x.canibalizacion || _myCats.has(x.id)) ? '<td style="text-align:center"><span style="color:var(--accent);font-weight:700" title="Ya tenemos productos publicados en esta categoría">● Sí</span></td>' : '<td style="text-align:center" class="muted">–</td>';
+  const p2Cell = x => _p2Index[x.id] ? '<td style="text-align:center"><span style="color:var(--good);font-weight:700" title="Ya tiene análisis P2 guardado">Sí</span></td>' : '<td style="text-align:center" class="muted">No</td>';
   const rows = filtered.slice().sort((a, b) => (parseFloat(b.ventasGmv) || 0) - (parseFloat(a.ventasGmv) || 0)).map(x => {
     const cuota = researchCuota(x);
     return `<tr data-id="${escapeHtml(x.id || '')}">
       <td>${escapeHtml(x.l1 || '')}</td>
       <td>${escapeHtml(x.leaf || '')}</td>
+      ${p2Cell(x)}
       ${canibCell(x)}
       <td class="mcell">${fmtCLP(x.ventasGmv)}</td>
       ${yoyCell(x)}
@@ -1237,8 +1241,8 @@ function paintResearch() {
       <td class="mcell">${intfmt(x.competidores)}</td>
       <td class="mcell">${cuota != null ? fmtCLP(cuota) : '–'}</td>
     </tr>`; }).join('');
-  wrap.innerHTML = `<table class="histtab dbtab" style="min-width:1120px"><thead><tr>
-    <th>Categoría L1</th><th>Categoría hoja</th><th title="Categorías donde ET Brands ya tiene productos publicados">Canibalización</th><th>Ventas prom (GMV, 12m)</th><th title="Crecimiento del GMV: últimos 12 meses vs los 12 meses previos (misma métrica en toda la app)">Crec. YoY (12m)</th><th>Ticket medio (12m)</th><th>Competidores prof. (12m)</th><th>Cuota x seller</th>
+  wrap.innerHTML = `<table class="histtab dbtab restab-compact" style="min-width:980px"><thead><tr>
+    <th>Categoría L1</th><th>Categoría hoja</th><th title="Categorías con análisis P2 guardado">P2</th><th title="Categorías donde ET Brands ya tiene productos publicados">Canibalización</th><th>Ventas prom (GMV, 12m)</th><th title="Crecimiento del GMV: últimos 12 meses vs los 12 meses previos (misma métrica en toda la app)">Crec. YoY (12m)</th><th>Ticket medio (12m)</th><th title="Cantidad de vendedores profesionales en la categoría (12m)">Vendedores</th><th>Cuota x seller</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
   wrap.querySelectorAll('tbody tr[data-id]').forEach(tr => { tr.title = 'Clic para ver el reporte de la categoría'; tr.onclick = () => openResearchDetail(_researchAll.find(x => x.id === tr.dataset.id)); });
 }
@@ -1585,7 +1589,7 @@ async function runP2Batch(n, force) {
 function p2BatchUI() {
   const b = _p2Batch;
   const bar = $('p2BatchBar'), fill = $('p2BatchFill'), txt = $('p2BatchTxt'), btn = $('p2BatchBtn'), stop = $('p2BatchStop');
-  const running = !!(b && b.running && !b.stop);   // "Detener" solo mientras corre de verdad (y no se pidió parar)
+  const running = !!(b && b.running && !b.stop && b.done < b.total);   // corre de verdad (no pedido parar, no completado)
   if (stop) stop.classList.toggle('hidden', !running);
   if (btn) btn.classList.toggle('hidden', running);
   if (!b) { if (bar) bar.classList.add('hidden'); return; }

@@ -25,7 +25,14 @@ export async function onRequest({ request, env }) {
     const all = JSON.parse((await kv.get(KEY)) || '{}');
     if (request.method === 'GET') {
       const id = url.searchParams.get('id');
-      return json(id ? (all[id] || null) : all);
+      if (id) return json(all[id] || null);
+      // ?index=1 → resumen liviano {catId: {ts, dif}} para la tabla (P2 sí/no + opportunity score), sin bajar los reportes completos.
+      if (url.searchParams.get('index')) {
+        const out = {};
+        for (const k in all) { const r = all[k] || {}; const ai = (r.report && r.report.ai) || {}; out[k] = { ts: r.ts || 0, dif: (typeof ai.difScore === 'number' ? ai.difScore : null) }; }
+        return json(out);
+      }
+      return json(all);
     }
     if (request.method === 'PUT') {
       const item = await request.json();
