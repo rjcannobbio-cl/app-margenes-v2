@@ -1727,22 +1727,25 @@ async function amazonRefsFromBtn(btn) {
     const j = await (await fetch(api('/api/amazon'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ q: btn.dataset.q, num: 3, minReviews: AMZ_MIN_REVIEWS, minUsd, maxUsd }) })).json();
     if (!j || j.error) { box.innerHTML = '<span class="muted small">' + escapeHtml(j && j.error ? j.error : 'Sin respuesta de Amazon.') + '</span>'; return; }
     if (!j.candidates || !j.candidates.length) { box.innerHTML = '<span class="muted small">Sin resultados con ≥' + AMZ_MIN_REVIEWS + ' reseñas y precio comparable. Prueba re-analizar el P2 (mejora la búsqueda) o ajustar la sugerencia.</span>'; return; }
-    const verdicts = await amazonVerify(btn.dataset.d, precioCLP, j.candidates);
-    const good = j.candidates.map((c, i) => ({ ...c, v: verdicts[i] })).filter(c => c.v && c.v.match);
+    const verdicts = await amazonVerify(btn.dataset.d, btn.dataset.q, precioCLP, j.candidates);
+    const good = j.candidates.map((c, i) => ({ ...c, v: verdicts[i] })).filter(c => c.v && c.v.match)
+      .sort((a, b) => (b.v.score || 0) - (a.v.score || 0));   // el más parecido primero
     box.innerHTML = good.length ? good.map(amzCard).join('')
-      : '<span class="muted small">Ningún resultado calzó con la sugerencia por tipo de producto (verificado por IA).</span>';
+      : '<span class="muted small">Ningún resultado calzó con las specs de la sugerencia (verificado por IA).</span>';
   } catch (e) { box.innerHTML = '<span class="muted small">Error consultando Amazon.</span>'; }
   finally { btn.textContent = old; btn._busy = false; }
 }
-// La IA entra a las specs de cada candidato y confirma si REALMENTE es el MISMO TIPO de producto sugerido.
-async function amazonVerify(desc, precioCLP, candidates) {
+// La IA compara SPECS: mismo tipo Y las specs clave de la sugerencia deben calzar. Devuelve un score de cercanía.
+async function amazonVerify(desc, query, precioCLP, candidates) {
   const cfg = loadCfg(country);
-  const list = candidates.map((c, i) => `${i + 1}) ${c.title} | precio ${c.price || 's/precio'} | ${(c.specs || '').slice(0, 280)}`).join('\n');
-  const prompt = 'ET Brands quiere lanzar este producto (sugerencia del análisis): ' + desc + (precioCLP > 0 ? ('\nTicket objetivo en Chile: $' + Math.round(precioCLP).toLocaleString('es-CL') + ' CLP.') : '') +
-    '\n\nCandidatos de Amazon.com (título | precio USD | specs de la ficha):\n' + list +
-    '\n\nPara CADA candidato responde si es EFECTIVAMENTE el MISMO TIPO de producto sugerido. REGLAS ESTRICTAS: match=false si es otra categoría de producto (ej. se pidió un MONITOR y el candidato es un notebook/laptop/otra cosa), o si las specs clave no calzan, o si es claramente un accesorio en vez del producto. Ante cualquier duda, false.\n' +
-    'Devuelve SOLO JSON: {"matches":[{"i":<número 1-based>,"match":true|false,"razon":"por qué, máx 55 car"}]}';
-  const raw = await aiText(prompt, cfg, { maxTokens: 500 });
+  const list = candidates.map((c, i) => `${i + 1}) ${c.title} | precio ${c.price || 's/precio'} | ficha: ${(c.specs || '').slice(0, 320)}`).join('\n');
+  const prompt = 'ET Brands quiere lanzar este producto (sugerencia del análisis): ' + desc +
+    (query ? ('\nSpecs/keywords clave que debe cumplir: ' + query) : '') +
+    (precioCLP > 0 ? ('\nTicket objetivo en Chile: $' + Math.round(precioCLP).toLocaleString('es-CL') + ' CLP (referencial; Amazon es retail US).') : '') +
+    '\n\nCandidatos de Amazon.com (título | precio USD | ficha):\n' + list +
+    '\n\nPara CADA candidato evalúa qué tan PARECIDO es a la sugerencia, comparando SPECS (tamaño, tecnología, materialidad, características clave). REGLAS ESTRICTAS: match=false si es otra categoría de producto (ej. se pidió MONITOR y es notebook/laptop), si es un accesorio en vez del producto, o si las specs clave NO calzan. match=true SOLO si es el mismo producto con las specs clave compatibles.\n' +
+    'Devuelve SOLO JSON: {"matches":[{"i":<1-based>,"match":true|false,"score":<0-100 cuán parecido en specs>,"razon":"specs que coinciden, máx 55 car"}]}';
+  const raw = await aiText(prompt, cfg, { maxTokens: 600 });
   const j = parseJSONLoose(raw); const out = {};
   if (j && Array.isArray(j.matches)) for (const m of j.matches) if (m && m.i) out[m.i - 1] = m;
   return out;
@@ -1752,7 +1755,7 @@ function amzCard(c) {
   return `<a href="${esc(c.link)}" target="_blank" rel="noopener" style="display:flex;gap:8px;align-items:center;background:#121215;border:1px solid var(--line);border-radius:8px;padding:6px;margin:4px 0;text-decoration:none;color:var(--ink)">` +
     (c.image ? `<img src="${esc(c.image)}" alt="" style="width:46px;height:46px;object-fit:contain;background:#fff;border-radius:4px;flex:none">` : '') +
     `<div style="flex:1;min-width:0"><div style="font-size:11px;line-height:1.3;max-height:2.6em;overflow:hidden">${esc(c.title)}</div>` +
-    `<div style="font-size:11px;color:var(--muted);margin-top:2px">${c.price ? '<b style="color:var(--ink)">' + esc(String(c.price)) + '</b>' : ''}${c.rating ? ' · ⭐' + Number(c.rating) + (c.reviews ? ' (' + Number(c.reviews).toLocaleString('es-CL') + ')' : '') : ''} · <span style="color:var(--good)" title="Verificado por IA">✓ ${esc((c.v && c.v.razon) || 'verificado')}</span></div></div></a>`;
+    `<div style="font-size:11px;color:var(--muted);margin-top:2px">${c.price ? '<b style="color:var(--ink)">' + esc(String(c.price)) + '</b>' : ''}${c.rating ? ' · ⭐' + Number(c.rating) + (c.reviews ? ' (' + Number(c.reviews).toLocaleString('es-CL') + ')' : '') : ''} · <span style="color:var(--good)" title="Verificado por IA (parecido en specs)">✓ ${(c.v && c.v.score != null) ? Number(c.v.score) + '% · ' : ''}${esc((c.v && c.v.razon) || 'verificado')}</span></div></div></a>`;
 }
 
 // --- Batch: pre-analizar el top N por cuota x seller (reanudable, throttleado por mlGate). ---
