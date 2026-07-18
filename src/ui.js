@@ -1092,6 +1092,7 @@ function exportCatalogoCSV() {
 const RESEARCH_KEY = 'mpresearch';
 let _researchBackend = null, _researchAll = [], _researchSig = '';
 let _researchFilters = {};   // {minVentas,minTicket,minCuota,l1,crece:'si'|'no',canib:'si'|'no'}
+let _researchSort = { key: 'gmv', dir: -1 };   // orden de la tabla (dir: -1 desc, 1 asc)
 // Canibalización: categorías hoja donde ET Brands YA tiene publicaciones. ML ya no
 // permite consultas anónimas, así que vamos autenticados por el proxy /api/pg-passthrough
 // (token de PG en el servidor): listamos los ítems propios y resolvemos su category_id.
@@ -1209,6 +1210,36 @@ function clearResearchFilter() {
   $('researchFilterOverlay').classList.add('hidden');
   paintResearch();
 }
+// --- Opportunity Score (0-100, relativo entre categorías con P2) ---
+const OPP_W = { dif: 0.35, size: 0.22, comp: 0.18, growth: 0.15, ticket: 0.06, seas: 0.04 };
+function pctRank(sortedAsc, v) { const n = sortedAsc.length; if (!n) return 50; let c = 0; for (let i = 0; i < n; i++) { if (sortedAsc[i] <= v) c++; else break; } return c / n * 100; }
+function seasonEvenness(serie) {   // menos variabilidad estacional = más parejo = mejor
+  const s = p2Seasonality(Array.isArray(serie) ? serie : []); const v = s.map(p => p.idx).filter(x => !isNaN(x)); if (!v.length) return 0;
+  const m = v.reduce((a, b) => a + b, 0) / v.length; return -Math.sqrt(v.reduce((a, b) => a + (b - m) * (b - m), 0) / v.length);
+}
+// Referencia de percentiles: TODAS las categorías con P2 (score estable, no depende del filtro).
+function oppRef() {
+  const ref = _researchAll.filter(x => _p2Index[x.id]);
+  return {
+    gmv: ref.map(x => parseFloat(x.ventasGmv) || 0).sort((a, b) => a - b),
+    comp: ref.map(x => -(parseFloat(x.competidores) || 0)).sort((a, b) => a - b),
+    yoy: ref.map(x => yoy12(x.serie)).filter(v => v != null).sort((a, b) => a - b),
+    ticket: ref.map(x => parseFloat(x.ticket) || 0).sort((a, b) => a - b),
+    seas: ref.map(x => seasonEvenness(x.serie)).sort((a, b) => a - b)
+  };
+}
+function oppScore(x, ref) {
+  const idx = _p2Index[x.id]; if (!idx) return null;
+  const dif = (idx.dif != null) ? idx.dif : 50;   // sin re-analizar aún → neutro
+  const size = pctRank(ref.gmv, parseFloat(x.ventasGmv) || 0);
+  const comp = pctRank(ref.comp, -(parseFloat(x.competidores) || 0));   // menos vendedores = mejor
+  const y = yoy12(x.serie); const growth = (y == null) ? 50 : pctRank(ref.yoy, y);
+  const ticket = pctRank(ref.ticket, parseFloat(x.ticket) || 0);
+  const seas = pctRank(ref.seas, seasonEvenness(x.serie));
+  let s = OPP_W.dif * dif + OPP_W.size * size + OPP_W.comp * comp + OPP_W.growth * growth + OPP_W.ticket * ticket + OPP_W.seas * seas;
+  if (idx.conc != null) s += idx.conc < 0.25 ? 5 : (idx.conc > 0.5 ? -5 : 0);   // bonus concentración (ranking profundo)
+  return Math.max(0, Math.min(100, Math.round(s)));
+}
 function paintResearch() {
   const q = normalize(($('researchFilter') && $('researchFilter').value) || '');
   const conVentas = _researchAll.filter(x => (parseFloat(x.ventasGmv) || 0) > 0);   // omite categorías con 0 ventas
@@ -1228,11 +1259,15 @@ function paintResearch() {
   const yoyCell = x => { const y = yoy12(x.serie); if (y == null) return '<td class="mcell muted">–</td>'; const col = y >= 0 ? 'var(--good)' : 'var(--bad)'; return `<td class="mcell" style="color:${col};font-weight:600">${y >= 0 ? '+' : ''}${y.toFixed(1)}%</td>`; };
   const canibCell = x => (x.canibalizacion || _myCats.has(x.id)) ? '<td style="text-align:center"><span style="color:var(--accent);font-weight:700" title="Ya tenemos productos publicados en esta categoría">● Sí</span></td>' : '<td style="text-align:center" class="muted">–</td>';
   const p2Cell = x => _p2Index[x.id] ? '<td style="text-align:center"><span style="color:var(--good);font-weight:700" title="Ya tiene análisis P2 guardado">Sí</span></td>' : '<td style="text-align:center" class="muted">No</td>';
-  const rows = filtered.slice().sort((a, b) => (parseFloat(b.ventasGmv) || 0) - (parseFloat(a.ventasGmv) || 0)).map(x => {
+  const ref = oppRef();
+  const oppCell = x => { const s = oppScore(x, ref); if (s == null) return '<td style="text-align:center" class="muted" title="Sin P2: corre el análisis para obtener el score">–</td>'; const col = s >= 66 ? 'var(--good)' : s >= 40 ? 'var(--mid)' : 'var(--bad)'; return `<td style="text-align:center;font-weight:800;color:${col}" title="Opportunity Score 0-100">${s}</td>`; };
+  const sortVal = x => { switch (_researchSort.key) { case 'opp': { const s = oppScore(x, ref); return s == null ? -1 : s; } case 'yoy': { const y = yoy12(x.serie); return y == null ? -1e9 : y; } case 'ticket': return parseFloat(x.ticket) || 0; case 'comp': return parseFloat(x.competidores) || 0; case 'cuota': return researchCuota(x) || 0; default: return parseFloat(x.ventasGmv) || 0; } };
+  const rows = filtered.slice().sort((a, b) => _researchSort.dir * (sortVal(a) - sortVal(b))).map(x => {
     const cuota = researchCuota(x);
     return `<tr data-id="${escapeHtml(x.id || '')}">
       <td>${escapeHtml(x.l1 || '')}</td>
       <td>${escapeHtml(x.leaf || '')}</td>
+      ${oppCell(x)}
       ${p2Cell(x)}
       ${canibCell(x)}
       <td class="mcell">${fmtCLP(x.ventasGmv)}</td>
@@ -1241,9 +1276,11 @@ function paintResearch() {
       <td class="mcell">${intfmt(x.competidores)}</td>
       <td class="mcell">${cuota != null ? fmtCLP(cuota) : '–'}</td>
     </tr>`; }).join('');
-  wrap.innerHTML = `<table class="histtab dbtab restab-compact" style="min-width:980px"><thead><tr>
-    <th>Categoría L1</th><th>Categoría hoja</th><th title="Categorías con análisis P2 guardado">P2</th><th title="Categorías donde ET Brands ya tiene productos publicados">Canibalización</th><th>Ventas prom (GMV, 12m)</th><th title="Crecimiento del GMV: últimos 12 meses vs los 12 meses previos (misma métrica en toda la app)">Crec. YoY (12m)</th><th>Ticket medio (12m)</th><th title="Cantidad de vendedores profesionales en la categoría (12m)">Vendedores</th><th>Cuota x seller</th>
+  const arrow = k => _researchSort.key === k ? (_researchSort.dir === -1 ? ' ▼' : ' ▲') : '';
+  wrap.innerHTML = `<table class="histtab dbtab restab-compact" style="min-width:1020px"><thead><tr>
+    <th>Categoría L1</th><th>Categoría hoja</th><th data-sort="opp" style="cursor:pointer" title="Opportunity Score 0-100 (solo con P2): diferenciabilidad IA 35% + tamaño + competencia (menos vendedores) + crecimiento + ticket + estacionalidad. Clic para ordenar.">Opportunity${arrow('opp')}</th><th title="Categorías con análisis P2 guardado">P2</th><th title="Categorías donde ET Brands ya tiene productos publicados">Canibalización</th><th data-sort="gmv" style="cursor:pointer">Ventas prom (GMV, 12m)${arrow('gmv')}</th><th data-sort="yoy" style="cursor:pointer" title="Crecimiento del GMV: últimos 12 meses vs los 12 previos. Clic para ordenar.">Crec. YoY (12m)${arrow('yoy')}</th><th data-sort="ticket" style="cursor:pointer">Ticket medio (12m)${arrow('ticket')}</th><th data-sort="comp" style="cursor:pointer" title="Cantidad de vendedores profesionales (12m). Clic para ordenar.">Vendedores${arrow('comp')}</th><th data-sort="cuota" style="cursor:pointer">Cuota x seller${arrow('cuota')}</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
+  wrap.querySelectorAll('th[data-sort]').forEach(th => { th.onclick = () => { const k = th.dataset.sort; if (_researchSort.key === k) _researchSort.dir *= -1; else { _researchSort.key = k; _researchSort.dir = -1; } paintResearch(); }; });
   wrap.querySelectorAll('tbody tr[data-id]').forEach(tr => { tr.title = 'Clic para ver el reporte de la categoría'; tr.onclick = () => openResearchDetail(_researchAll.find(x => x.id === tr.dataset.id)); });
 }
 
@@ -1685,7 +1722,9 @@ async function p2AI(item, stats, products, reviews, own) {
     '"clusters":[{"nombre":"subcategoría por specs","chips":["FHD","24-27\\""],"pos":[2,3,5],"peso":"8/16"}],' +
     '"gap":"dónde hay demanda con poca oferta, con números (máx 200 car)","reviewOps":"queja recurrente = oportunidad, concreto (máx 160 car)",' +
     '"upgrades":[{"costo":"BAJO|MEDIO|ALTO","titulo":"3-6 palabras","texto":"por qué (barato de fabricar, alto valor), máx 110 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>}}],' +
-    '"bundles":[{"nombre":"nombre del set (3-5 palabras)","para":"segmento objetivo","texto":"qué incluye y por qué, máx 90 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>}}]}\n' +
+    '"bundles":[{"nombre":"nombre del set (3-5 palabras)","para":"segmento objetivo","texto":"qué incluye y por qué, máx 90 car","precio":<precio de venta objetivo CLP, entero>,"pkg":{"l":<largo cm>,"a":<ancho cm>,"al":<alto cm>,"p":<peso kg>}}],' +
+    '"difScore":<0-100>,"difRazon":"1 frase máx 90 car"}\n' +
+    'El "difScore" (0-100) = qué tan NATURAL/factible es diferenciarse con marca propia: 100 = upgrades/bundles obvios, baratos de fabricar y de alto valor; 0 = tuviste que forzar ideas poco realistas. Sé honesto.\n' +
     'Para CADA upgrade y bundle incluye "precio" (precio de venta objetivo en CLP, entero sin puntos) y "pkg" = dimensiones del PACKAGING/caja de envío en cm (l=largo, a=ancho, al=alto) y peso en kg (p), estimados de forma realista para ese producto. Con eso la app calcula el FOB objetivo.\n' +
     'REGLAS CRÍTICAS: (1) NO sugieras algo que YA EXISTE en el catálogo propio de arriba (revisa specs; ej. si ya hay un curvo 27" 165Hz, no lo propongas). Si el mejor movimiento es sobre un producto que ya tienes, dilo como "mejorar listing/precio de [SKU]", no como producto nuevo. (2) Ancla cada sugerencia al top real (specs/precios/reseñas) y usa precios DENTRO del rango real del mercado.';
   const raw = await aiText(prompt, cfg, { maxTokens: 3500 });
@@ -1732,7 +1771,9 @@ async function p2VisionAI(item, stats, products, reviews, own) {
     '"ownAnalysis":[{"sku":"SKU propio","tipo":"qué es REALMENTE según sus fotos (formato/materialidad)","cluster":"a qué cluster pertenece","falta":"qué le falta vs el cluster/competencia, concreto (máx 120 car)"}],' +
     '"gap":"dónde hay demanda con poca oferta, con números (máx 200 car)","reviewOps":"queja recurrente = oportunidad (máx 160 car)",' +
     '"upgrades":[{"costo":"BAJO|MEDIO|ALTO","titulo":"3-6 palabras","texto":"por qué, máx 110 car","precio":<CLP entero>,"pkg":{"l":<cm>,"a":<cm>,"al":<cm>,"p":<kg>}}],' +
-    '"bundles":[{"nombre":"3-5 palabras","para":"segmento","texto":"qué incluye, máx 90 car","precio":<CLP entero>,"pkg":{"l":<cm>,"a":<cm>,"al":<cm>,"p":<kg>}}]}\n' +
+    '"bundles":[{"nombre":"3-5 palabras","para":"segmento","texto":"qué incluye, máx 90 car","precio":<CLP entero>,"pkg":{"l":<cm>,"a":<cm>,"al":<cm>,"p":<kg>}}],' +
+    '"difScore":<0-100>,"difRazon":"por qué ese score, 1 frase máx 90 car"}\n' +
+    'El "difScore" (0-100) es tu autoevaluación de qué tan NATURAL y FACTIBLE es diferenciarse en esta categoría con marca propia: 100 = hay upgrades/bundles obvios, baratos de fabricar en China y de alto valor percibido, con espacio real vs. la competencia; 0 = tuviste que forzar ideas ultra creativas/poco realistas porque el mercado ya está muy resuelto o no hay cómo diferenciar barato. Sé honesto y calibrado.\n' +
     'REGLAS CRÍTICAS:\n' +
     '1) NO propongas como upgrade/bundle/oportunidad algo que YA EXISTE en TUS PRODUCTOS (revisa sus specs y FOTOS de arriba). Ej: si ya tienes un curvo 27" 165Hz, NO lo sugieras como nuevo. Si el mejor movimiento es sobre un producto que ya tienes, enmárcalo como "mejorar listing/precio/fotos de [SKU]" (no como producto nuevo) o apunta a un segmento/specs que NO cubres.\n' +
     '2) Cada sugerencia debe estar ANCLADA en lo que realmente se vende en el top mostrado (specs, precios y reseñas que ves). El precio objetivo debe caer DENTRO del rango real del mercado de esta categoría. Nada genérico ni fuera de rango.\n' +

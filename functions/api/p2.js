@@ -29,7 +29,13 @@ export async function onRequest({ request, env }) {
       // ?index=1 → resumen liviano {catId: {ts, dif}} para la tabla (P2 sí/no + opportunity score), sin bajar los reportes completos.
       if (url.searchParams.get('index')) {
         const out = {};
-        for (const k in all) { const r = all[k] || {}; const ai = (r.report && r.report.ai) || {}; out[k] = { ts: r.ts || 0, dif: (typeof ai.difScore === 'number' ? ai.difScore : null) }; }
+        for (const k in all) {
+          const r = all[k] || {}; const rep = r.report || {}; const ai = rep.ai || {};
+          let conc = null;   // concentración = participación del vendedor #1 del ranking profundo (si existe)
+          const ts2 = rep.deep && rep.deep.agg && rep.deep.agg.topSellers;
+          if (Array.isArray(ts2) && ts2.length) { const tot = ts2.reduce((a, s) => a + (s.ventas || 0), 0); if (tot > 0) conc = (ts2[0].ventas || 0) / tot; }
+          out[k] = { ts: r.ts || 0, dif: (typeof ai.difScore === 'number' ? ai.difScore : null), conc };
+        }
         return json(out);
       }
       return json(all);
