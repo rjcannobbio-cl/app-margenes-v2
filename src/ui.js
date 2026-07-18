@@ -1709,32 +1709,39 @@ function targetFobTag(precio, comPct, pkg) {
 
 // --- Referencias de producto en Amazon (Rainforest) con verificación IA ---
 // Botón por sugerencia; al lado un contenedor .amzRefs donde se pintan las tarjetas.
-function amzBtn(query, desc) {
+const AMZ_MIN_REVIEWS = 100;   // prueba de venta mínima
+function amzBtn(query, desc, precio) {
   const q = (query || '').toString().slice(0, 120), d = (desc || '').toString().slice(0, 240);
   if (!q) return '';
-  return `<button class="btn ghost" style="font-size:11px;padding:3px 9px;margin-top:4px" data-q="${escapeHtml(q)}" data-d="${escapeHtml(d)}" onclick="amazonRefsFromBtn(this)">🔎 Ver en Amazon</button><div class="amzRefs"></div>`;
+  return `<button class="btn ghost" style="font-size:11px;padding:3px 9px;margin-top:4px" data-q="${escapeHtml(q)}" data-d="${escapeHtml(d)}" data-p="${+precio || 0}" onclick="amazonRefsFromBtn(this)">🔎 Ver en Amazon</button><div class="amzRefs"></div>`;
 }
 async function amazonRefsFromBtn(btn) {
   const box = btn.parentElement.querySelector('.amzRefs'); if (!box) return;
   if (btn._busy) return; btn._busy = true; const old = btn.textContent; btn.textContent = '🔎 buscando…';
-  box.innerHTML = '<span class="muted small">Buscando en Amazon y verificando…</span>';
+  box.innerHTML = '<span class="muted small">Buscando en Amazon (≥' + AMZ_MIN_REVIEWS + ' reseñas) y verificando…</span>';
   try {
-    const j = await (await fetch(api('/api/amazon'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ q: btn.dataset.q, num: 3 }) })).json();
+    // Banda de precio: el ticket sugerido (CLP) → USD, ±50% (Amazon es retail US, suele ser más barato que Chile).
+    const cfg = loadCfg(country); const precioCLP = +btn.dataset.p || 0;
+    let minUsd = null, maxUsd = null;
+    if (precioCLP > 0 && cfg.dolar > 0) { const usd = precioCLP / cfg.dolar; minUsd = Math.round(usd * 0.4); maxUsd = Math.round(usd * 1.6); }
+    const j = await (await fetch(api('/api/amazon'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ q: btn.dataset.q, num: 3, minReviews: AMZ_MIN_REVIEWS, minUsd, maxUsd }) })).json();
     if (!j || j.error) { box.innerHTML = '<span class="muted small">' + escapeHtml(j && j.error ? j.error : 'Sin respuesta de Amazon.') + '</span>'; return; }
-    if (!j.candidates || !j.candidates.length) { box.innerHTML = '<span class="muted small">Sin resultados en Amazon para esa búsqueda.</span>'; return; }
-    const verdicts = await amazonVerify(btn.dataset.d, j.candidates);
+    if (!j.candidates || !j.candidates.length) { box.innerHTML = '<span class="muted small">Sin resultados con ≥' + AMZ_MIN_REVIEWS + ' reseñas y precio comparable. Prueba re-analizar el P2 (mejora la búsqueda) o ajustar la sugerencia.</span>'; return; }
+    const verdicts = await amazonVerify(btn.dataset.d, precioCLP, j.candidates);
     const good = j.candidates.map((c, i) => ({ ...c, v: verdicts[i] })).filter(c => c.v && c.v.match);
     box.innerHTML = good.length ? good.map(amzCard).join('')
-      : '<span class="muted small">Ningún resultado de Amazon calzó con la sugerencia (verificado por IA).</span>';
+      : '<span class="muted small">Ningún resultado calzó con la sugerencia por tipo de producto (verificado por IA).</span>';
   } catch (e) { box.innerHTML = '<span class="muted small">Error consultando Amazon.</span>'; }
   finally { btn.textContent = old; btn._busy = false; }
 }
-// La IA entra a las specs de cada candidato y confirma si REALMENTE es el producto sugerido.
-async function amazonVerify(desc, candidates) {
+// La IA entra a las specs de cada candidato y confirma si REALMENTE es el MISMO TIPO de producto sugerido.
+async function amazonVerify(desc, precioCLP, candidates) {
   const cfg = loadCfg(country);
-  const list = candidates.map((c, i) => `${i + 1}) ${c.title} | ${(c.specs || '').slice(0, 300)}`).join('\n');
-  const prompt = 'Producto que ET Brands quiere lanzar (sugerencia): ' + desc + '\n\nCandidatos de Amazon (título | specs de la ficha):\n' + list +
-    '\n\nPara cada candidato, di si es EFECTIVAMENTE ese producto (mismo tipo y specs clave compatibles). Sé estricto: ante la duda, false.\nDevuelve SOLO JSON: {"matches":[{"i":<número 1-based>,"match":true|false,"razon":"máx 55 car"}]}';
+  const list = candidates.map((c, i) => `${i + 1}) ${c.title} | precio ${c.price || 's/precio'} | ${(c.specs || '').slice(0, 280)}`).join('\n');
+  const prompt = 'ET Brands quiere lanzar este producto (sugerencia del análisis): ' + desc + (precioCLP > 0 ? ('\nTicket objetivo en Chile: $' + Math.round(precioCLP).toLocaleString('es-CL') + ' CLP.') : '') +
+    '\n\nCandidatos de Amazon.com (título | precio USD | specs de la ficha):\n' + list +
+    '\n\nPara CADA candidato responde si es EFECTIVAMENTE el MISMO TIPO de producto sugerido. REGLAS ESTRICTAS: match=false si es otra categoría de producto (ej. se pidió un MONITOR y el candidato es un notebook/laptop/otra cosa), o si las specs clave no calzan, o si es claramente un accesorio en vez del producto. Ante cualquier duda, false.\n' +
+    'Devuelve SOLO JSON: {"matches":[{"i":<número 1-based>,"match":true|false,"razon":"por qué, máx 55 car"}]}';
   const raw = await aiText(prompt, cfg, { maxTokens: 500 });
   const j = parseJSONLoose(raw); const out = {};
   if (j && Array.isArray(j.matches)) for (const m of j.matches) if (m && m.i) out[m.i - 1] = m;
@@ -1991,10 +1998,10 @@ function renderP2(report, item, ts) {
   const upgrades = (ai.upgrades || []).map(u => {
     const cc = /(baj|low)/i.test(u.costo) ? 'p2-good' : (/(alt|high)/i.test(u.costo) ? 'p2-bad' : 'p2-mid');
     const ti = u.titulo ? `<b>${esc(u.titulo)}</b> — ` : '';
-    return `<div class="p2up"><span class="c ${cc}">costo ${esc(u.costo || '')}</span><div>${ti}${mdBold(u.texto || '')}${targetFobTag(u.precio, comPct, u.pkg)}<div style="margin-top:2px">${amzBtn(u.query || u.titulo, (u.titulo || '') + ' ' + (u.texto || ''))}</div></div></div>`;
+    return `<div class="p2up"><span class="c ${cc}">costo ${esc(u.costo || '')}</span><div>${ti}${mdBold(u.texto || '')}${targetFobTag(u.precio, comPct, u.pkg)}<div style="margin-top:2px">${amzBtn(u.query || u.titulo, (u.titulo || '') + ' ' + (u.texto || ''), u.precio)}</div></div></div>`;
   }).join('');
   const bundles = (ai.bundles || []).map(b => {
-    if (b && typeof b === 'object') return `<li style="margin:6px 0"><b>${esc(b.nombre || '')}</b>${b.para ? ` <span class="muted small">· ${esc(b.para)}</span>` : ''}${b.texto ? `<div style="font-size:12px;color:var(--muted);margin-top:1px">${mdBold(b.texto)}${targetFobTag(b.precio, comPct, b.pkg)}</div>` : ''}<div style="margin-top:2px">${amzBtn(b.query || b.nombre, (b.nombre || '') + ' ' + (b.texto || ''))}</div></li>`;
+    if (b && typeof b === 'object') return `<li style="margin:6px 0"><b>${esc(b.nombre || '')}</b>${b.para ? ` <span class="muted small">· ${esc(b.para)}</span>` : ''}${b.texto ? `<div style="font-size:12px;color:var(--muted);margin-top:1px">${mdBold(b.texto)}${targetFobTag(b.precio, comPct, b.pkg)}</div>` : ''}<div style="margin-top:2px">${amzBtn(b.query || b.nombre, (b.nombre || '') + ' ' + (b.texto || ''), b.precio)}</div></li>`;
     return `<li style="margin:5px 0">${mdBold(b)}</li>`;
   }).join('');
   const fmt = v => (v != null && !isNaN(v)) ? '$' + Math.round(v).toLocaleString('es-CL') : '–';
@@ -2147,7 +2154,7 @@ function renderP2Deep(deep) {
     (ai.gap ? `<div class="p2gap" style="margin-top:10px"><b>🎯 Gap oferta/demanda:</b> ${mdBold(ai.gap)}</div>` : '') +
     (sBars ? `<div style="font-weight:800;font-size:12px;margin:12px 0 2px">🏪 Concentración por vendedor (ventas)</div>${sBars}${ai.concentracion ? `<div class="small muted" style="margin-top:4px">${mdBold(ai.concentracion)}</div>` : ''}` : '') +
     ((ai.oportunidades && ai.oportunidades.length) ? `<div style="margin-top:12px"><b style="font-size:12px">💡 Oportunidades:</b><div style="margin-top:4px">${ai.oportunidades.map(o => {
-      if (o && typeof o === 'object') return `<div style="display:flex;gap:8px;margin:6px 0"><span style="color:var(--accent);font-weight:800">›</span><div><b style="font-size:13px">${esc(o.titulo || '')}</b>${o.detalle ? `<div style="font-size:12px;color:var(--muted);margin-top:1px">${mdBold(o.detalle)}${targetFobTag(o.precio, comPct, o.pkg)}</div>` : `<div>${targetFobTag(o.precio, comPct, o.pkg)}</div>`}<div style="margin-top:2px">${amzBtn(o.query || o.titulo, (o.titulo || '') + ' ' + (o.detalle || ''))}</div></div></div>`;
+      if (o && typeof o === 'object') return `<div style="display:flex;gap:8px;margin:6px 0"><span style="color:var(--accent);font-weight:800">›</span><div><b style="font-size:13px">${esc(o.titulo || '')}</b>${o.detalle ? `<div style="font-size:12px;color:var(--muted);margin-top:1px">${mdBold(o.detalle)}${targetFobTag(o.precio, comPct, o.pkg)}</div>` : `<div>${targetFobTag(o.precio, comPct, o.pkg)}</div>`}<div style="margin-top:2px">${amzBtn(o.query || o.titulo, (o.titulo || '') + ' ' + (o.detalle || ''), o.precio)}</div></div></div>`;
       return `<div style="display:flex;gap:8px;margin:6px 0"><span style="color:var(--accent);font-weight:800">›</span><div style="font-size:13px">${mdBold(o)}</div></div>`;
     }).join('')}</div></div>` : '') +
     `<div class="p2fb"><button onclick="openP2DeepModal()">↻ Reimportar / cambiar mes</button></div></div>`;

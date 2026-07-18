@@ -27,17 +27,27 @@ export async function onRequestPost({ request, env }) {
   const q = (body && body.q || '').toString().trim();
   if (!q) return json({ error: 'falta q' }, 400);
   const num = Math.min(Math.max(parseInt(body && body.num) || 3, 1), 4);
-  const ck = 'amz:' + q.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 120);
+  const minReviews = Math.max(parseInt(body && body.minReviews) || 0, 0);   // prueba de venta
+  const minUsd = (body && body.minUsd != null) ? +body.minUsd : null;        // rango de precio (USD)
+  const maxUsd = (body && body.maxUsd != null) ? +body.maxUsd : null;
+  const ck = 'amz:' + [q, minReviews, minUsd, maxUsd].join('_').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 200);
 
   // Cache (evita gastar requests del trial en la misma búsqueda).
   if (kv) { try { const c = JSON.parse((await kv.get(ck)) || 'null'); if (c && c.ts && (Date.now() - c.ts < TTL)) return json({ ok: true, q, cached: true, candidates: c.candidates }); } catch (e) {} }
 
   try {
-    // 1) Búsqueda.
+    // 1) Búsqueda (traemos muchos y filtramos ANTES de gastar requests en las fichas).
     const sr = await fetch(`${RF}?api_key=${encodeURIComponent(key)}&type=search&amazon_domain=${DOMAIN}&search_term=${encodeURIComponent(q)}`);
     const sj = await sr.json().catch(() => null);
     if (!sr.ok) return json({ error: 'Rainforest search ' + sr.status, detail: sj && (sj.request_info || sj) }, 502);
-    const results = ((sj && sj.search_results) || []).filter(r => r && r.asin && r.title && !r.sponsored).slice(0, num);
+    const priceVal = r => (r.price && typeof r.price.value === 'number') ? r.price.value : null;
+    const results = ((sj && sj.search_results) || []).filter(r => {
+      if (!r || !r.asin || !r.title || r.sponsored) return false;
+      if ((r.ratings_total || 0) < minReviews) return false;                 // reseñas mínimas
+      const pv = priceVal(r);
+      if (minUsd != null || maxUsd != null) { if (pv == null) return false; if (minUsd != null && pv < minUsd) return false; if (maxUsd != null && pv > maxUsd) return false; }
+      return true;
+    }).slice(0, num);
 
     // 2) Detalle (ficha) de cada candidato → specs reales para verificar.
     const candidates = [];
