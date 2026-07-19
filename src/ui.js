@@ -674,11 +674,142 @@ function showTab(name) {
   $('tabCat').classList.toggle('hidden', name !== 'cat');
   $('tabClosed').classList.toggle('hidden', name !== 'closed');
   $('tabResearch').classList.toggle('hidden', name !== 'research');
+  { const t = $('tabTrack'); if (t) t.classList.toggle('hidden', name !== 'track'); }
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   if (name === 'hist') renderHistorial();
   if (name === 'cat') renderCatalogo();
   if (name === 'closed') renderClosed();
   if (name === 'research') renderResearch();
+  if (name === 'track') renderTrack();
+}
+
+/* ================= Seguimiento de productos nuevos (categoría D) ================= */
+let _trackData = null;                     // { products:{ts,items}, meta:{sku:{firstSale,velMadura,velInicial}} }
+let _trackMetrics = {};                    // {sku:{summary, weeks, visitas, ...}} — Fase 2 (financieros/visitas)
+const TRACK_GROUPS = [['ventas', 'Ventas'], ['margen', 'Margen'], ['tacos', 'TACOS'], ['visitas', 'Visitas'], ['conv', 'Conversión']];
+let _trackCollapsed = new Set(TRACK_GROUPS.map(g => g[0]));   // todos colapsados por defecto
+const WK_MS = 7 * 864e5;
+function trackStatus(msg, err) { const el = $('trackStatus'); if (!el) return; el.textContent = msg || ''; el.style.color = err ? 'var(--bad)' : 'var(--muted)'; }
+async function trackLoad() { try { const j = await (await fetch(api('/api/track'))).json(); _trackData = (j && !j.error) ? j : { products: null, meta: {} }; } catch (e) { _trackData = { products: null, meta: {} }; } }
+async function renderTrack() { if (!_trackData) { $('trackDbWrap').innerHTML = '<p class="muted" style="padding:16px">Cargando…</p>'; await trackLoad(); } paintTrack(); }
+// Maduro (12 sem desde 1ª venta) + Cumple velocidad (ventana móvil 5 sem ≥ vel madura en las primeras 12 sem).
+function trackDerived(it, m) {
+  m = m || {};
+  const firstSale = m.firstSale || '';
+  const velMadura = (m.velMadura != null && m.velMadura !== '') ? +m.velMadura : null;
+  const maduro = firstSale ? (Date.now() - Date.parse(firstSale + 'T00:00:00')) >= 12 * WK_MS : false;
+  const wk = (it.weeks || []).filter(w => w.s && w.s >= firstSale).slice(0, 12).map(w => w.u || 0);
+  const roll = (vals, win, thr) => { if (vals.length < win) return null; let best = -Infinity; for (let i = 0; i + win <= vals.length; i++) { const s = vals.slice(i, i + win).reduce((a, b) => a + b, 0) / win; if (s > best) best = s; } return best >= thr; };
+  const cumpleVel = (maduro && velMadura) ? roll(wk, 5, velMadura) : null;
+  // Cumple margen: necesita margen semanal (Fase 2). Placeholder por ahora.
+  const mx = _trackMetrics[it.sku];
+  const mgWeeks = (mx && mx.weeks) ? mx.weeks.filter(w => w.bucket >= firstSale).slice(0, 12).map(w => w.marginPct || 0) : null;
+  const cumpleMargen = (maduro && mgWeeks) ? roll(mgWeeks, 5, 30) : null;
+  return { firstSale, velMadura, maduro, cumpleVel, cumpleMargen, velReal: it.avgWeekly };
+}
+function paintTrack() {
+  const d = _trackData || { products: null, meta: {} };
+  const items = (d.products && d.products.items) || [];
+  const wrap = $('trackDbWrap');
+  if (!items.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Sin productos D. Aprieta “↻ Actualizar productos D” para leerlos de ProfitGuard, y “⬆ Importar Excel” para las fechas de 1ª venta y velocidades maduras.</p>'; $('trackCount').textContent = ''; return; }
+  const meta = d.meta || {};
+  const q = normalize(($('trackFilter') && $('trackFilter').value) || '');
+  const onlyInc = $('trackOnlyIncomplete') && $('trackOnlyIncomplete').checked;
+  let rows = items.filter(it => !q || normalize((it.sku || '') + ' ' + (it.name || '')).includes(q));
+  if (onlyInc) rows = rows.filter(it => { const mm = meta[it.sku] || {}; return !(mm.velMadura > 0); });
+  const esc = escapeHtml;
+  const numFmt = v => (v == null || v === '' || isNaN(v)) ? '–' : Math.round(v).toLocaleString('es-CL');
+  const yn = v => v == null ? '<span class="muted">—</span>' : (v ? '<span style="color:var(--good);font-weight:700">Sí</span>' : '<span style="color:var(--bad);font-weight:700">No</span>');
+  const mv = _trackMetrics;
+  const cellFor = (sku, g, span) => { const x = mv[sku]; const s = x && x.summary, w = x && x.last;   // Fase 2: financieros/visitas
+    const val = (o) => { if (!o) return '–'; switch (g) { case 'ventas': return numFmt(o.units); case 'margen': return o.marginPct != null ? Math.round(o.marginPct) + '%' : '–'; case 'tacos': return o.tacos != null ? Math.round(o.tacos * 10) / 10 + '%' : '–'; case 'visitas': return numFmt(o.visits); case 'conv': return o.conv != null ? Math.round(o.conv * 10) / 10 + '%' : '–'; } };
+    return span === 'desde' ? val(s) : val(w); };
+  // Encabezado con grupos colapsables (2 sub-cols: desde 1ª venta | última sem).
+  let h1 = '<th rowspan="2">SKU</th><th rowspan="2" style="text-align:left">Título</th><th rowspan="2" title="Se define después">Vel. inicial</th><th rowspan="2" title="Velocidad real (prom. semanal)">Vel. real</th><th rowspan="2" title="Editable">Vel. madura</th><th rowspan="2">1ª venta</th>';
+  let h2 = '';
+  for (const [k, name] of TRACK_GROUPS) {
+    if (_trackCollapsed.has(k)) { h1 += `<th rowspan="2" class="trk-grp" data-g="${k}" style="cursor:pointer" title="Expandir">▸ ${name}</th>`; }
+    else { h1 += `<th colspan="2" class="trk-grp" data-g="${k}" style="cursor:pointer" title="Colapsar">▾ ${name}</th>`; h2 += '<th title="Desde 1ª venta">desde 1ª v.</th><th title="Última semana cerrada">últ. sem</th>'; }
+  }
+  h1 += '<th rowspan="2" title="12 semanas desde la 1ª venta">Maduro</th><th rowspan="2">Cumple vel.</th><th rowspan="2">Cumple margen</th>';
+  const body = rows.map(it => {
+    const der = trackDerived(it, meta[it.sku]);
+    let tds = '';
+    for (const [k] of TRACK_GROUPS) {
+      if (_trackCollapsed.has(k)) tds += `<td class="mcell muted">–</td>`;
+      else tds += `<td class="mcell">${cellFor(it.sku, k, 'desde')}</td><td class="mcell">${cellFor(it.sku, k, 'ult')}</td>`;
+    }
+    return `<tr data-sku="${esc(it.sku || '')}">
+      <td>${esc(it.sku || '')}</td>
+      <td title="${esc(it.name || '')}" style="max-width:220px;overflow:hidden;text-overflow:ellipsis">${esc(it.name || '')}${it.kit ? ' <span class="muted" title="Kit/pack">·kit</span>' : ''}</td>
+      <td class="mcell muted">–</td>
+      <td class="mcell">${der.velReal != null ? der.velReal : '–'}</td>
+      <td><input type="number" class="trk-vm" data-sku="${esc(it.sku || '')}" value="${der.velMadura != null ? der.velMadura : ''}" placeholder="–" min="0" step="0.1" style="width:60px;text-align:right;font-size:12px"></td>
+      <td><input type="date" class="trk-fs" data-sku="${esc(it.sku || '')}" value="${esc(der.firstSale || '')}" style="width:130px;font-size:11px"></td>
+      ${tds}
+      <td style="text-align:center">${yn(der.firstSale ? der.maduro : null)}</td>
+      <td style="text-align:center">${yn(der.cumpleVel)}</td>
+      <td style="text-align:center">${yn(der.cumpleMargen)}</td>
+    </tr>`;
+  }).join('');
+  const upd = d.products && d.products.ts ? new Date(d.products.ts).toLocaleDateString('es-CL') : '—';
+  $('trackCount').textContent = rows.length + '/' + items.length + ' productos D · actualizado ' + upd;
+  wrap.innerHTML = `<table class="histtab dbtab restab-compact" style="min-width:1200px"><thead><tr>${h1}</tr><tr>${h2}</tr></thead><tbody>${body}</tbody></table>`;
+  // Interacciones: colapsar/expandir grupos, editar madura/1ª venta, click fila → gráfico.
+  wrap.querySelectorAll('.trk-grp').forEach(th => th.onclick = () => { const k = th.dataset.g; if (_trackCollapsed.has(k)) _trackCollapsed.delete(k); else _trackCollapsed.add(k); paintTrack(); });
+  wrap.querySelectorAll('.trk-vm').forEach(inp => { inp.onclick = e => e.stopPropagation(); inp.onchange = () => trackSaveMeta(inp.dataset.sku, { velMadura: inp.value === '' ? null : parseFloat(inp.value) }); });
+  wrap.querySelectorAll('.trk-fs').forEach(inp => { inp.onclick = e => e.stopPropagation(); inp.onchange = () => trackSaveMeta(inp.dataset.sku, { firstSale: inp.value || '' }); });
+  wrap.querySelectorAll('tbody tr[data-sku]').forEach(tr => { tr.style.cursor = 'pointer'; tr.onclick = () => openTrackChart(tr.dataset.sku); });
+}
+async function trackSaveMeta(sku, patch) {
+  if (!_trackData) return; _trackData.meta = _trackData.meta || {}; _trackData.meta[sku] = Object.assign({}, _trackData.meta[sku], patch);
+  paintTrack();
+  try { await fetch(api('/api/track'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'meta', sku, patch }) }); } catch (e) {}
+}
+async function trackRefreshProducts() {
+  trackStatus('Leyendo productos categoría D de ProfitGuard…');
+  try { const j = await (await fetch(api('/api/track'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'refreshProducts' }) })).json();
+    if (j.error) { trackStatus('Error: ' + j.error, true); return; } trackStatus('✓ ' + j.count + ' productos D.'); await trackLoad(); paintTrack();
+  } catch (e) { trackStatus('Error de red: ' + e.message, true); }
+}
+// Import Excel: columnas SKU · Vel madura · 1a venta (Fecha 1ra venta.xlsx).
+async function trackImportFile(file) {
+  try {
+    trackStatus('Leyendo ' + file.name + '…'); await loadXLSX();
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+    const toDate = v => { if (!v) return ''; if (v instanceof Date) return v.toISOString().slice(0, 10); if (typeof v === 'number') { const dt = XLSX.SSF ? XLSX.SSF.parse_date_code(v) : null; return dt ? `${dt.y}-${String(dt.m).padStart(2, '0')}-${String(dt.d).padStart(2, '0')}` : ''; } const s = String(v).trim(); const m = s.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/); return m ? `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}` : s.slice(0, 10); };
+    const out = rows.map(r => ({ sku: String(_pick(r, ['SKU', 'Sku'])).trim(), velMadura: _num(_pick(r, ['Vel madura', 'Velocidad madura', 'Vel. madura'])), firstSale: toDate(_pick(r, ['1a venta', '1ª venta', 'Fecha 1ra venta', 'Primera venta'])) })).filter(r => r.sku);
+    if (!out.length) { trackStatus('El Excel no tiene filas con SKU.', true); return; }
+    const j = await (await fetch(api('/api/track'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'import', rows: out }) })).json();
+    if (j.error) { trackStatus('Error: ' + j.error, true); return; }
+    trackStatus('✓ ' + (j.imported || out.length) + ' filas importadas.'); await trackLoad(); paintTrack();
+  } catch (e) { trackStatus('Error importando: ' + e.message, true); }
+}
+// Popup con la evolución semanal del producto (Fase 1: velocidad/unidades; resto Fase 2).
+let _trackChartSku = null, _trackChartMetric = 'ventas';
+function openTrackChart(sku) {
+  const it = ((_trackData && _trackData.products && _trackData.products.items) || []).find(x => x.sku === sku); if (!it) return;
+  _trackChartSku = sku; _trackChartMetric = 'ventas';
+  $('trackChartSku').textContent = sku + (((_trackData.meta || {})[sku] || {}).firstSale ? ' · 1ª venta ' + _trackData.meta[sku].firstSale : '');
+  $('trackChartName').textContent = it.name || sku;
+  document.querySelectorAll('.track-mbtn').forEach(b => b.classList.toggle('active', b.dataset.metric === 'ventas'));
+  paintTrackChart();
+  $('trackOverlay').classList.remove('hidden');
+}
+function paintTrackChart() {
+  const it = ((_trackData && _trackData.products && _trackData.products.items) || []).find(x => x.sku === _trackChartSku); if (!it) return;
+  const meta = (_trackData.meta || {})[_trackChartSku] || {};
+  const mx = _trackMetrics[_trackChartSku];
+  let pts = [], label = '', note = '';
+  if (_trackChartMetric === 'ventas') { pts = (it.weeks || []).map(w => ({ m: (w.s || '').slice(5), v: w.u || 0 })); label = 'Unidades/semana'; }
+  else if (mx && mx.weeks) {
+    const f = { margen: w => w.marginPct, visitas: w => w.visits, conv: w => w.conv }[_trackChartMetric];
+    pts = mx.weeks.map(w => ({ m: (w.bucket || '').slice(5), v: f(w) || 0 }));
+    label = { margen: 'Margen %', visitas: 'Visitas', conv: 'Conversión %' }[_trackChartMetric];
+  } else { note = 'Este dato (margen/visitas/conversión) se activa en la siguiente fase.'; }
+  $('trackChart').innerHTML = pts.length ? rdChartSVG(pts, 'v') : '<p class="muted" style="padding:24px;text-align:center">' + escapeHtml(note || 'Sin datos.') + '</p>';
+  $('trackChartHint').textContent = pts.length ? label + ' — desde la 1ª venta.' : note;
 }
 
 function compositeId(x) {
@@ -2378,6 +2509,16 @@ function init() {
   $('btnResearchImport').onclick = () => $('researchFile').click();
   $('researchFile').addEventListener('change', e => { const f = e.target.files[0]; if (f) importResearchJSON(f); e.target.value = ''; });
   $('researchFilter').addEventListener('input', debounce(paintResearch, 200));
+  // Seguimiento de productos nuevos
+  { const b = $('btnTrackImport'); if (b) b.onclick = () => $('trackFile').click(); }
+  { const f = $('trackFile'); if (f) f.addEventListener('change', e => { const file = e.target.files[0]; if (file) trackImportFile(file); e.target.value = ''; }); }
+  { const b = $('btnTrackRefreshProducts'); if (b) b.onclick = trackRefreshProducts; }
+  { const b = $('btnTrackRefreshMetrics'); if (b) b.onclick = () => trackStatus('Las métricas financieras/visitas se activan en la próxima fase.'); }
+  { const el = $('trackFilter'); if (el) el.addEventListener('input', debounce(paintTrack, 200)); }
+  { const el = $('trackOnlyIncomplete'); if (el) el.addEventListener('change', paintTrack); }
+  { const b = $('trackClose'); if (b) b.onclick = () => $('trackOverlay').classList.add('hidden'); }
+  { const o = $('trackOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
+  document.querySelectorAll('.track-mbtn').forEach(b => b.onclick = () => { _trackChartMetric = b.dataset.metric; document.querySelectorAll('.track-mbtn').forEach(x => x.classList.toggle('active', x === b)); paintTrackChart(); });
   { const b = $('btnResearchFilter'); if (b) b.onclick = openResearchFilter; }
   { const b = $('btnResearchClear'); if (b) b.onclick = clearResearchFilter; }
   { const b = $('researchFilterClose'); if (b) b.onclick = () => $('researchFilterOverlay').classList.add('hidden'); }

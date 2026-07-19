@@ -263,6 +263,7 @@
     <button class="tab" data-tab="cat" type="button">Catálogo</button>
     <button class="tab" data-tab="closed" type="button">Productos cerrados</button>
     <button class="tab" data-tab="research" type="button">Investigación</button>
+    <button class="tab cl-only" data-tab="track" type="button">Seguimiento</button>
   </div>
 
   <div id="tabCalc">
@@ -442,6 +443,21 @@
     <div class="hint" style="margin-bottom:10px">Categorías hoja con datos de Nubimetrics (visión global de ML, promedio de los últimos 12 meses). <b>Cuota x seller = ventas (GMV) ÷ competidores profesionales</b>. Los datos se recolectan desde tu sesión de Nubimetrics y se importan aquí (snapshot). Clic en una fila: detalle (próximamente).</div>
     <div id="researchDbWrap" class="db-wrap"></div>
   </div>
+
+  <div id="tabTrack" class="hidden">
+    <div class="hist-actions">
+      <input type="text" id="trackFilter" class="hist-filter" placeholder="Filtrar: SKU o título…">
+      <button class="btn" id="btnTrackImport" type="button" title="Importar Excel con SKU, Vel madura y Fecha 1ª venta">⬆ Importar Excel</button>
+      <input type="file" id="trackFile" accept=".xlsx,.xls" style="display:none">
+      <button class="btn ghost" id="btnTrackRefreshProducts" type="button" title="Re-lee los productos categoría D desde ProfitGuard (semanal)">↻ Actualizar productos D</button>
+      <button class="btn ghost" id="btnTrackRefreshMetrics" type="button" title="Actualiza ventas/margen/TACOS/visitas (segundo plano)">↻ Actualizar métricas</button>
+      <label class="check" style="margin:0"><input type="checkbox" id="trackOnlyIncomplete"> <span class="muted">Solo velocidad madura incompleta</span></label>
+      <span class="muted" id="trackCount"></span>
+      <span class="muted" id="trackStatus" style="flex-basis:100%;margin-top:4px"></span>
+    </div>
+    <div class="hint" style="margin-bottom:10px">Seguimiento de productos nuevos (categoría <b>D</b> de ProfitGuard). <b>Maduro</b> = 12 semanas desde la 1ª venta. <b>Cumple velocidad/margen</b> = ya maduro y, en alguna ventana móvil de 5 semanas de sus primeras 12, el promedio semanal ≥ velocidad madura / ≥ 30%. Los grupos por período vienen colapsados; clic en el encabezado para expandir. Clic en una fila: gráfico de evolución.</div>
+    <div id="trackDbWrap" class="db-wrap"></div>
+  </div>
 </div>
 
 <!-- Modal: filtrar categorías de investigación -->
@@ -551,6 +567,24 @@
   </div>
 </div>
 
+<!-- Modal: evolución de un producto en seguimiento -->
+<div id="trackOverlay" class="modal-overlay hidden" style="z-index:200">
+  <div class="rdetail" style="max-width:820px">
+    <div class="rd-head">
+      <div><div class="rd-l1" id="trackChartSku"></div><h2 id="trackChartName" style="font-size:18px"></h2></div>
+      <button class="mini" id="trackClose" type="button" title="Cerrar">✕</button>
+    </div>
+    <div class="rd-metrics" style="margin-bottom:8px">
+      <button class="rd-mbtn active track-mbtn" data-metric="ventas" type="button">Ventas (u)</button>
+      <button class="rd-mbtn track-mbtn" data-metric="margen" type="button">Margen %</button>
+      <button class="rd-mbtn track-mbtn" data-metric="visitas" type="button">Visitas ML</button>
+      <button class="rd-mbtn track-mbtn" data-metric="conv" type="button">Conversión %</button>
+    </div>
+    <div id="trackChart" class="rd-chart"></div>
+    <p class="hint" id="trackChartHint" style="margin-top:6px"></p>
+  </div>
+</div>
+
 <!-- Modal: desglose del Opportunity Score -->
 <div id="oppOverlay" class="modal-overlay hidden" style="z-index:200">
   <div class="rdetail" style="max-width:540px">
@@ -592,12 +626,12 @@
 </div>
 
 <!-- ?v= versiona los assets: al cambiar el número, el navegador ignora el caché de 4h de Cloudflare. Súbelo en cada deploy que toque JS. -->
-<script src="data/ml_categories.js?v=260750"></script>
-<script src="data/fbla_categories.js?v=260750"></script>
-<script src="data/shipping.js?v=260750"></script>
-<script src="src/app.js?v=260750"></script>
-<script src="src/ai.js?v=260750"></script>
-<script src="src/local-ai.js?v=260750"></script>
-<script src="src/ui.js?v=260750"></script>
+<script src="data/ml_categories.js?v=260751"></script>
+<script src="data/fbla_categories.js?v=260751"></script>
+<script src="data/shipping.js?v=260751"></script>
+<script src="src/app.js?v=260751"></script>
+<script src="src/ai.js?v=260751"></script>
+<script src="src/local-ai.js?v=260751"></script>
+<script src="src/ui.js?v=260751"></script>
 </body>
 </html>
