@@ -714,10 +714,13 @@ function trackDerived(it, m) {
   const wk = (mx && mx.weeks && mx.weeks.length)
     ? mx.weeks.filter(w => w.bucket >= firstSale).slice(0, 12).map(w => w.units || 0)
     : (it.weeks || []).filter(w => w.s && w.s >= firstSale).slice(0, 12).map(w => w.u || 0);
-  const cumpleVel = (maduro && velMadura) ? roll(wk, 5, velMadura) : null;
+  // 3 estados: 'si' (ya alcanzó el umbral en una ventana de 5 sem → irreversible, aunque no esté maduro),
+  //            'no' (maduro y nunca lo alcanzó), 'curso' (aún inmaduro y todavía puede lograrlo), null (sin dato para evaluar).
+  const evalCumple = (vals, thr) => { const a = roll(vals, 5, thr); return a === true ? 'si' : (maduro ? 'no' : 'curso'); };
+  const cumpleVel = velMadura ? evalCumple(wk, velMadura) : null;
   // Cumple margen: margen semanal ≥30% en alguna ventana móvil de 5 sem de las primeras 12.
   const mgWeeks = (mx && mx.weeks) ? mx.weeks.filter(w => w.bucket >= firstSale).slice(0, 12).map(w => w.marginPct || 0) : null;
-  const cumpleMargen = (maduro && mgWeeks) ? roll(mgWeeks, 5, 30) : null;
+  const cumpleMargen = mgWeeks ? evalCumple(mgWeeks, 30) : null;
   const velReal = (mx && mx.summary && mx.summary.velReal != null) ? mx.summary.velReal : it.avgWeekly;
   const velApp = (it.velApp != null) ? it.velApp : (it.avgWeekly != null ? it.avgWeekly : null);   // velocidad que muestra PG
   const firstSaleDay = (mx && mx.firstSaleDay) || firstSale;   // día exacto (firstSale es el lunes de la semana, para las ventanas)
@@ -743,6 +746,11 @@ function paintTrack() {
   const esc = escapeHtml;
   const numFmt = v => (v == null || v === '' || isNaN(v)) ? '–' : Math.round(v).toLocaleString('es-CL');
   const yn = v => v == null ? '<span class="muted">—</span>' : (v ? '<span style="color:var(--good);font-weight:700">Sí</span>' : '<span style="color:var(--bad);font-weight:700">No</span>');
+  // Cumple vel/margen con 3 estados (Sí ya logrado / En curso inmaduro / No maduro-fallido).
+  const cumpleCell = (st, maduro) => st === 'si' ? `<span style="color:var(--good);font-weight:700" title="${maduro ? 'Cumplió' : 'Ya alcanzó el umbral antes de madurar'}">Sí${maduro ? '' : ' ✦'}</span>`
+    : st === 'no' ? '<span style="color:var(--bad);font-weight:700">No</span>'
+      : st === 'curso' ? '<span style="color:var(--mid);font-weight:700" title="Aún inmaduro; todavía puede cumplir dentro de sus primeras 12 semanas">En curso</span>'
+        : '<span class="muted">—</span>';
   const mv = _trackMetrics;
   // Valor de una métrica para un período ('desde' = resumen desde 1ª venta | 'ult' = última semana cerrada).
   const cellFor = (sku, metric, period) => { const x = mv[sku]; const o = period === 'desde' ? (x && x.summary) : (x && x.last);
@@ -757,7 +765,9 @@ function paintTrack() {
     if (_trackCollapsed.has(pk)) { h1 += `<th rowspan="2" class="trk-grp" data-g="${pk}" style="cursor:pointer" title="Expandir">▸ ${pname}</th>`; }
     else { h1 += `<th colspan="${TRACK_METRIC_COLS.length}" class="trk-grp" data-g="${pk}" style="cursor:pointer" title="Colapsar">▾ ${pname}</th>`; h2 += TRACK_METRIC_COLS.map(m => `<th>${m[1]}</th>`).join(''); }
   }
-  h1 += '<th rowspan="2" title="12 semanas desde la 1ª venta">Maduro</th><th rowspan="2">Cumple vel.</th><th rowspan="2">Cumple margen</th>';
+  h1 += '<th rowspan="2" title="12 semanas desde la 1ª venta">Maduro</th>'
+    + '<th rowspan="2" title="Sí = ya alcanzó la vel. madura en una ventana de 5 sem (✦ = aún antes de madurar) · En curso = joven, aún puede lograrlo · No = maduro y no lo logró">Cumple vel.</th>'
+    + '<th rowspan="2" title="Sí = ya tuvo margen ≥30% en una ventana de 5 sem (✦ = aún antes de madurar) · En curso = joven, aún puede lograrlo · No = maduro y no lo logró">Cumple margen</th>';
   const body = rows.map(it => {
     const der = trackDerived(it, meta[it.sku]);
     let tds = '';
@@ -775,8 +785,8 @@ function paintTrack() {
       <td class="mcell">${der.stock != null ? numFmt(der.stock) : '<span class="muted">–</span>'}</td>
       ${tds}
       <td style="text-align:center">${yn(der.firstSale ? der.maduro : null)}</td>
-      <td style="text-align:center">${yn(der.cumpleVel)}</td>
-      <td style="text-align:center">${yn(der.cumpleMargen)}</td>
+      <td style="text-align:center">${cumpleCell(der.cumpleVel, der.maduro)}</td>
+      <td style="text-align:center">${cumpleCell(der.cumpleMargen, der.maduro)}</td>
     </tr>`;
   }).join('');
   const upd = d.products && d.products.ts ? new Date(d.products.ts).toLocaleDateString('es-CL') : '—';
