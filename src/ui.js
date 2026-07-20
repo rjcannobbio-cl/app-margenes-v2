@@ -706,13 +706,17 @@ function trackDerived(it, m) {
   const firstSale = (mx && mx.firstSale) || m.firstSale || '';   // 1ª venta: PG manda, Excel es fallback
   const velMadura = (m.velMadura != null && m.velMadura !== '') ? +m.velMadura : null;
   const maduro = firstSale ? (Date.now() - Date.parse(firstSale + 'T00:00:00')) >= 12 * WK_MS : false;
-  const wk = (it.weeks || []).filter(w => w.s && w.s >= firstSale).slice(0, 12).map(w => w.u || 0);
   const roll = (vals, win, thr) => { if (vals.length < win) return null; let best = -Infinity; for (let i = 0; i + win <= vals.length; i++) { const s = vals.slice(i, i + win).reduce((a, b) => a + b, 0) / win; if (s > best) best = s; } return best >= thr; };
+  // Unidades semanales (con kits) desde las métricas; fallback a la serie de la lista (propias) si aún no hay métricas.
+  const wk = (mx && mx.weeks && mx.weeks.length)
+    ? mx.weeks.filter(w => w.bucket >= firstSale).slice(0, 12).map(w => w.units || 0)
+    : (it.weeks || []).filter(w => w.s && w.s >= firstSale).slice(0, 12).map(w => w.u || 0);
   const cumpleVel = (maduro && velMadura) ? roll(wk, 5, velMadura) : null;
-  // Cumple margen: margen semanal ≥30% en alguna ventana móvil de 5 sem de las primeras 12 (Fase 2).
+  // Cumple margen: margen semanal ≥30% en alguna ventana móvil de 5 sem de las primeras 12.
   const mgWeeks = (mx && mx.weeks) ? mx.weeks.filter(w => w.bucket >= firstSale).slice(0, 12).map(w => w.marginPct || 0) : null;
   const cumpleMargen = (maduro && mgWeeks) ? roll(mgWeeks, 5, 30) : null;
-  return { firstSale, velMadura, maduro, cumpleVel, cumpleMargen, velReal: it.avgWeekly };
+  const velReal = (mx && mx.summary && mx.summary.velReal != null) ? mx.summary.velReal : it.avgWeekly;
+  return { firstSale, velMadura, maduro, cumpleVel, cumpleMargen, velReal };
 }
 function paintTrack() {
   const d = _trackData || { products: null, meta: {} };
@@ -816,7 +820,7 @@ async function trackImportFile(file) {
 // Popup con la evolución semanal (multi-serie con toggle + hover). Fase 1: solo ventas (u)
 // tiene datos; margen/ticket/tacos/stock llegan con las métricas (Fase 2), visitas/conv (Fase 3).
 const TRACK_SERIES = [
-  { key: 'ventas', label: 'Ventas (u)', color: '#ef4444', unit: 'u' },
+  { key: 'ventas', label: 'Ventas (u, con kits)', color: '#ef4444', unit: 'u' },
   { key: 'margen', label: 'Margen %', color: '#22c55e', unit: '%' },
   { key: 'ticket', label: 'Ticket', color: '#f0a830', unit: '$' },
   { key: 'tacos', label: 'TACOS %', color: '#6aa9ff', unit: '%' },
@@ -830,7 +834,7 @@ function isoWeek(s) { const d = new Date(String(s) + 'T00:00:00'); if (isNaN(d))
 function wkLabel(w) { if (w.n != null) return 'W' + w.n; const iw = w.s ? isoWeek(w.s) : null; return iw != null ? 'W' + iw : (w.s || '').slice(5); }
 function trackWeeksData(it, mx) {
   let arr;
-  if (mx && mx.weeks && mx.weeks.length) arr = mx.weeks.map(w => ({ label: w.label || (w.n != null ? 'W' + w.n : (w.bucket ? 'W' + (isoWeek(w.bucket) || '') : '')), ventas: w.ownUnits, margen: w.marginPct, ticket: w.ticket, tacos: w.tacos, stock: w.stock, visitas: w.visits, conv: w.conv }));
+  if (mx && mx.weeks && mx.weeks.length) arr = mx.weeks.map(w => ({ label: w.label || (w.n != null ? 'W' + w.n : (w.bucket ? 'W' + (isoWeek(w.bucket) || '') : '')), ventas: w.units, margen: w.marginPct, ticket: w.ticket, tacos: w.tacos, stock: w.stock, visitas: w.visits, conv: w.conv }));
   else arr = (it.weeks || []).map(w => ({ label: wkLabel(w), ventas: w.u, margen: null, ticket: null, tacos: null, stock: null, visitas: null, conv: null }));
   const fi = arr.findIndex(w => w.ventas != null && w.ventas > 0);   // por defecto: desde la 1ª venta
   return fi > 0 ? arr.slice(fi) : arr;

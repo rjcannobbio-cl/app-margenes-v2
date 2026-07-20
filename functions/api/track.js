@@ -16,7 +16,8 @@
 
    KV: track_products = {ts, items:[{id,sku,name,kit,avgWeekly,weeks:[{s,e,u,n}]}]}
        track_meta     = {sku:{firstSale,velMadura,velInicial}}
-       track_metrics  = {ts, m:{sku:{firstSale, summary:{units,marginPct,tacos,ticket}, last:{...}, weeks:[{bucket,label,ownUnits,marginPct,ticket,tacos,stock}]}}}
+       track_metrics  = {ts, m:{sku:{firstSale, summary:{units,marginPct,tacos,ticket,velReal}, last:{...}, weeks:[{bucket,label,units,marginPct,ticket,tacos,stock}]}}}
+                          (units = ventas TOTALES con kits = totalUnits de PG)
    Usa el mismo secret de PG que pg-sync (solo Chile).
    ============================================================ */
 
@@ -112,29 +113,36 @@ export async function onRequest({ request, env }) {
             const j = await r.json();
             const series = (j.chart && j.chart.series) || [];
             const cents = o => (o && o.cents != null) ? o.cents / 100 : null;
+            // "units" = ventas TOTALES (con kits) = totalUnits (no ownUnits, que es solo el listado propio).
             const weeks = series.map(w => ({
-              bucket: w.bucket, label: w.label, ownUnits: w.ownUnits || 0,
+              bucket: w.bucket, label: w.label, units: w.totalUnits || 0,
               marginPct: w.marginPercentage != null ? w.marginPercentage : null,
               ticket: cents(w.averageTicket),
               tacos: w.adSpendPercentage != null ? w.adSpendPercentage : null,
               stock: w.stock != null ? w.stock : null
             }));
-            const fi = weeks.findIndex(w => w.ownUnits > 0);
+            const fi = weeks.findIndex(w => w.units > 0);
             const firstSale = fi >= 0 ? weeks[fi].bucket : null;
+            const wkArr = fi >= 0 ? weeks.slice(fi) : [];
             // última semana CERRADA = último bucket cuyo fin (+6 días) es anterior a hoy
             let last = null;
             for (let i = weeks.length - 1; i >= 0; i--) {
               const end = Date.parse(weeks[i].bucket + 'T00:00:00') + 6 * 864e5;
-              if (end < todayMs) { const w = weeks[i]; last = { units: w.ownUnits, marginPct: w.marginPct, tacos: w.tacos, ticket: w.ticket }; break; }
+              if (end < todayMs) { const w = weeks[i]; last = { units: w.units, marginPct: w.marginPct, tacos: w.tacos, ticket: w.ticket }; break; }
             }
-            // summary desde 1ª venta = summary de PG (los ceros previos no alteran unidades ni margen/tacos ponderados)
+            // velocidad real (con kits) = promedio de las últimas 8 semanas CERRADAS con actividad
+            const closed = wkArr.filter(w => (Date.parse(w.bucket + 'T00:00:00') + 6 * 864e5) < todayMs);
+            const recent = closed.slice(-8);
+            const velReal = recent.length ? Math.round(recent.reduce((a, w) => a + (w.units || 0), 0) / recent.length * 10) / 10 : null;
+            // summary desde 1ª venta = summary de PG (con kits; los ceros previos no alteran unidades ni margen/tacos ponderados)
             const summary = {
-              units: j.ownUnits != null ? j.ownUnits : weeks.reduce((a, w) => a + (w.ownUnits || 0), 0),
+              units: j.totalUnits != null ? j.totalUnits : weeks.reduce((a, w) => a + (w.units || 0), 0),
               marginPct: j.marginPercentage != null ? j.marginPercentage : null,
               tacos: j.adSpendPercentage != null ? j.adSpendPercentage : null,
-              ticket: cents(j.averageIncome)
+              ticket: cents(j.averageIncome),
+              velReal
             };
-            store.m[it.sku] = { firstSale, summary, last, weeks: fi >= 0 ? weeks.slice(fi) : [] };
+            store.m[it.sku] = { firstSale, summary, last, weeks: wkArr };
           } catch (e) { store.m[it.sku] = { error: String((e && e.message) || e) }; }
         }
         store.ts = Date.now();
