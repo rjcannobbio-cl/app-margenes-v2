@@ -710,17 +710,24 @@ function trackDerived(it, m) {
   const velMadura = (m.velMadura != null && m.velMadura !== '') ? +m.velMadura : null;
   const maduro = firstSale ? (Date.now() - Date.parse(firstSale + 'T00:00:00')) >= 12 * WK_MS : false;
   const roll = (vals, win, thr) => { if (vals.length < win) return null; let best = -Infinity; for (let i = 0; i + win <= vals.length; i++) { const s = vals.slice(i, i + win).reduce((a, b) => a + b, 0) / win; if (s > best) best = s; } return best >= thr; };
-  // Unidades semanales (con kits) desde las métricas; fallback a la serie de la lista (propias) si aún no hay métricas.
+  // 3 estados a partir de un booleano/null: 'si' (ya se logró → irreversible, aunque no esté maduro),
+  //   'no' (maduro y nunca se logró), 'curso' (aún inmaduro, todavía puede lograrlo), null (sin dato para evaluar).
+  const evalState = a => a === true ? 'si' : (maduro ? 'no' : 'curso');
+  // Cumple velocidad: unidades (con kits) ≥ vel madura en alguna ventana de 5 sem (fallback a la serie de la lista).
   const wk = (mx && mx.weeks && mx.weeks.length)
     ? mx.weeks.filter(w => w.bucket >= firstSale).slice(0, 12).map(w => w.units || 0)
     : (it.weeks || []).filter(w => w.s && w.s >= firstSale).slice(0, 12).map(w => w.u || 0);
-  // 3 estados: 'si' (ya alcanzó el umbral en una ventana de 5 sem → irreversible, aunque no esté maduro),
-  //            'no' (maduro y nunca lo alcanzó), 'curso' (aún inmaduro y todavía puede lograrlo), null (sin dato para evaluar).
-  const evalCumple = (vals, thr) => { const a = roll(vals, 5, thr); return a === true ? 'si' : (maduro ? 'no' : 'curso'); };
-  const cumpleVel = velMadura ? evalCumple(wk, velMadura) : null;
-  // Cumple margen: margen semanal ≥30% en alguna ventana móvil de 5 sem de las primeras 12.
-  const mgWeeks = (mx && mx.weeks) ? mx.weeks.filter(w => w.bucket >= firstSale).slice(0, 12).map(w => w.marginPct || 0) : null;
-  const cumpleMargen = mgWeeks ? evalCumple(mgWeeks, 30) : null;
+  const cumpleVel = velMadura ? evalState(roll(wk, 5, velMadura)) : null;
+  // Cumple margen: en la MISMA ventana de 5 sem debe cumplirse velocidad (unid ≥ vel madura) Y margen ≥ 30%.
+  // (No basta margen alto en semanas lentas; se busca vender el VOLUMEN objetivo AL MARGEN objetivo a la vez.)
+  const mxWk = (mx && mx.weeks) ? mx.weeks.filter(w => w.bucket >= firstSale).slice(0, 12) : null;
+  let cumpleMargen = null;
+  if (mxWk && velMadura) {
+    const u = mxWk.map(w => w.units || 0), mg = mxWk.map(w => w.marginPct || 0);
+    let ok = null;
+    if (u.length >= 5) { ok = false; for (let i = 0; i + 5 <= u.length; i++) { const au = u.slice(i, i + 5).reduce((a, b) => a + b, 0) / 5, am = mg.slice(i, i + 5).reduce((a, b) => a + b, 0) / 5; if (au >= velMadura && am >= 30) { ok = true; break; } } }
+    cumpleMargen = evalState(ok);
+  }
   const velReal = (mx && mx.summary && mx.summary.velReal != null) ? mx.summary.velReal : it.avgWeekly;
   const velApp = (it.velApp != null) ? it.velApp : (it.avgWeekly != null ? it.avgWeekly : null);   // velocidad que muestra PG
   const firstSaleDay = (mx && mx.firstSaleDay) || firstSale;   // día exacto (firstSale es el lunes de la semana, para las ventanas)
@@ -767,7 +774,7 @@ function paintTrack() {
   }
   h1 += '<th rowspan="2" title="12 semanas desde la 1ª venta">Maduro</th>'
     + '<th rowspan="2" title="Sí = ya alcanzó la vel. madura en una ventana de 5 sem (✦ = aún antes de madurar) · En curso = joven, aún puede lograrlo · No = maduro y no lo logró">Cumple vel.</th>'
-    + '<th rowspan="2" title="Sí = ya tuvo margen ≥30% en una ventana de 5 sem (✦ = aún antes de madurar) · En curso = joven, aún puede lograrlo · No = maduro y no lo logró">Cumple margen</th>';
+    + '<th rowspan="2" title="Sí = hubo una ventana de 5 sem que cumple velocidad Y margen ≥30% A LA VEZ (✦ = aún antes de madurar) · En curso = joven, aún puede lograrlo · No = maduro sin lograrlo. Vende el volumen objetivo al margen objetivo simultáneamente.">Cumple margen</th>';
   const body = rows.map(it => {
     const der = trackDerived(it, meta[it.sku]);
     let tds = '';
