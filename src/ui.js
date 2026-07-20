@@ -690,6 +690,7 @@ let _trackMetrics = {};                    // {sku:{summary, weeks, visitas, ...
 const TRACK_PERIODS = [['desde', 'Desde 1ª venta'], ['ult', 'Última semana']];
 const TRACK_METRIC_COLS = [['ventas', 'Ventas'], ['margen', 'Margen'], ['tacos', 'TACOS'], ['visitas', 'Visitas'], ['conv', 'Conversión']];
 let _trackCollapsed = new Set(['ult']);   // solo "Última semana" colapsado por defecto
+let _trackSort = null;                     // orden por 1ª venta: null | 'fs-asc' | 'fs-desc'
 const WK_MS = 7 * 864e5;
 function trackStatus(msg, err) { const el = $('trackStatus'); if (!el) return; el.textContent = msg || ''; el.style.color = err ? 'var(--bad)' : 'var(--muted)'; }
 let _trackMetricsTs = 0;
@@ -718,7 +719,8 @@ function trackDerived(it, m) {
   const mgWeeks = (mx && mx.weeks) ? mx.weeks.filter(w => w.bucket >= firstSale).slice(0, 12).map(w => w.marginPct || 0) : null;
   const cumpleMargen = (maduro && mgWeeks) ? roll(mgWeeks, 5, 30) : null;
   const velReal = (mx && mx.summary && mx.summary.velReal != null) ? mx.summary.velReal : it.avgWeekly;
-  return { firstSale, velMadura, maduro, cumpleVel, cumpleMargen, velReal };
+  const velApp = (it.velApp != null) ? it.velApp : (it.avgWeekly != null ? it.avgWeekly : null);   // velocidad que muestra PG
+  return { firstSale, velMadura, maduro, cumpleVel, cumpleMargen, velReal, velApp };
 }
 function paintTrack() {
   const d = _trackData || { products: null, meta: {} };
@@ -731,6 +733,11 @@ function paintTrack() {
   let rows = items.filter(it => !it.kit);   // excluir kits (por si el KV viejo aún los tuviera)
   rows = rows.filter(it => !q || normalize((it.sku || '') + ' ' + (it.name || '')).includes(q));
   if (onlyInc) rows = rows.filter(it => { const mm = meta[it.sku] || {}; return !(mm.velMadura > 0); });
+  // Orden por 1ª venta (los sin fecha van al final). _trackSort: null | 'fs-asc' | 'fs-desc'.
+  if (_trackSort === 'fs-asc' || _trackSort === 'fs-desc') {
+    const fsOf = it => { const x = _trackMetrics[it.sku]; return (x && x.firstSale) || ((meta[it.sku] || {}).firstSale) || ''; };
+    rows.sort((a, b) => { const fa = fsOf(a), fb = fsOf(b); if (!fa && !fb) return 0; if (!fa) return 1; if (!fb) return -1; return _trackSort === 'fs-asc' ? fa.localeCompare(fb) : fb.localeCompare(fa); });
+  }
   const esc = escapeHtml;
   const numFmt = v => (v == null || v === '' || isNaN(v)) ? '–' : Math.round(v).toLocaleString('es-CL');
   const yn = v => v == null ? '<span class="muted">—</span>' : (v ? '<span style="color:var(--good);font-weight:700">Sí</span>' : '<span style="color:var(--bad);font-weight:700">No</span>');
@@ -740,7 +747,8 @@ function paintTrack() {
     if (!o) return '–';
     switch (metric) { case 'ventas': return numFmt(o.units); case 'margen': return o.marginPct != null ? Math.round(o.marginPct) + '%' : '–'; case 'tacos': return o.tacos != null ? Math.round(o.tacos * 10) / 10 + '%' : '–'; case 'visitas': return numFmt(o.visits); case 'conv': return o.conv != null ? Math.round(o.conv * 10) / 10 + '%' : '–'; } };
   // Encabezado: 2 clusters por PERÍODO ("Desde 1ª venta" | "Última semana"), cada uno con las 5 métricas.
-  let h1 = '<th rowspan="2">SKU</th><th rowspan="2" style="text-align:left">Título</th><th rowspan="2" title="Se define después">Vel. inicial</th><th rowspan="2" title="Velocidad real (prom. semanal)">Vel. real</th><th rowspan="2" title="Editable">Vel. madura</th><th rowspan="2">1ª venta</th>';
+  const fsArrow = _trackSort === 'fs-asc' ? ' ▲' : _trackSort === 'fs-desc' ? ' ▼' : ' ⇅';
+  let h1 = '<th rowspan="2">SKU</th><th rowspan="2" style="text-align:left">Título</th><th rowspan="2" title="Se define después">Vel. inicial</th><th rowspan="2" title="Velocidad de venta que muestra ProfitGuard">Vel. App</th><th rowspan="2" title="Editable">Vel. madura</th>' + `<th rowspan="2" id="trkSortFs" style="cursor:pointer" title="Ordenar por fecha de 1ª venta">1ª venta${fsArrow}</th>`;
   let h2 = '';
   for (const [pk, pname] of TRACK_PERIODS) {
     if (_trackCollapsed.has(pk)) { h1 += `<th rowspan="2" class="trk-grp" data-g="${pk}" style="cursor:pointer" title="Expandir">▸ ${pname}</th>`; }
@@ -758,7 +766,7 @@ function paintTrack() {
       <td>${esc(it.sku || '')}</td>
       <td title="${esc(it.name || '')}" style="max-width:220px;overflow:hidden;text-overflow:ellipsis">${esc(it.name || '')}${it.kit ? ' <span class="muted" title="Kit/pack">·kit</span>' : ''}</td>
       <td class="mcell muted">–</td>
-      <td class="mcell">${der.velReal != null ? der.velReal : '–'}</td>
+      <td class="mcell">${der.velApp != null ? der.velApp : '–'}</td>
       <td><input type="number" class="trk-vm" data-sku="${esc(it.sku || '')}" value="${der.velMadura != null ? der.velMadura : ''}" placeholder="–" min="0" step="0.1" style="width:60px;text-align:right;font-size:12px"></td>
       <td title="Obtenida de ProfitGuard (1ª venta real). '–' = aún sin ventas.">${der.firstSale ? esc(der.firstSale) : '<span class="muted">–</span>'}</td>
       ${tds}
@@ -772,6 +780,7 @@ function paintTrack() {
   wrap.innerHTML = `<table class="histtab dbtab restab-compact" style="min-width:1200px"><thead><tr>${h1}</tr><tr>${h2}</tr></thead><tbody>${body}</tbody></table>`;
   // Interacciones: colapsar/expandir grupos, editar madura/1ª venta, click fila → gráfico.
   wrap.querySelectorAll('.trk-grp').forEach(th => th.onclick = () => { const k = th.dataset.g; if (_trackCollapsed.has(k)) _trackCollapsed.delete(k); else _trackCollapsed.add(k); paintTrack(); });
+  { const th = wrap.querySelector('#trkSortFs'); if (th) th.onclick = () => { _trackSort = _trackSort === 'fs-asc' ? 'fs-desc' : (_trackSort === 'fs-desc' ? null : 'fs-asc'); paintTrack(); }; }
   wrap.querySelectorAll('.trk-vm').forEach(inp => { inp.onclick = e => e.stopPropagation(); inp.onchange = () => trackSaveMeta(inp.dataset.sku, { velMadura: inp.value === '' ? null : parseFloat(inp.value) }); });
   wrap.querySelectorAll('tbody tr[data-sku]').forEach(tr => { tr.style.cursor = 'pointer'; tr.onclick = () => openTrackChart(tr.dataset.sku); });
 }
@@ -847,8 +856,26 @@ function openTrackChart(sku) {
   _trackChartSku = sku;
   $('trackChartName').textContent = it.name || sku;
   $('trackChartSku').textContent = sku;
+  paintTrackCards(_trackMetrics[sku]);
   paintTrackChart();
   $('trackOverlay').classList.remove('hidden');
+}
+// Cuadritos de métricas del producto (resumen desde 1ª venta), estilo ficha de PG.
+function paintTrackCards(mx) {
+  const s = mx && mx.summary;
+  const money = v => (v == null || isNaN(v)) ? '–' : '$' + Math.round(v).toLocaleString('es-CL');
+  const pct = v => (v == null || isNaN(v)) ? '–' : (Math.round(v * 10) / 10) + '%';
+  const num = v => (v == null || isNaN(v)) ? '–' : Math.round(v).toLocaleString('es-CL');
+  const card = (label, val, color) => `<div style="background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:10px;padding:9px 11px"><div class="muted" style="font-size:10.5px;text-transform:uppercase;letter-spacing:.3px">${label}</div><div style="font-size:17px;font-weight:800;margin-top:2px${color ? ';color:' + color : ''}">${val}</div></div>`;
+  const mg = s ? s.marginPct : null, tacos = s ? s.tacos : null;
+  $('trackCards').innerHTML = [
+    card('Ventas (con kits)', s ? num(s.units) : '–'),
+    card('Ticket promedio', s ? money(s.ticket) : '–'),
+    card('Margen', s ? pct(mg) : '–', mg == null ? '' : (mg >= 30 ? 'var(--good)' : (mg < 0 ? 'var(--bad)' : ''))),
+    card('TACOS', s ? pct(tacos) : '–', tacos == null ? '' : (tacos > 20 ? 'var(--bad)' : '')),
+    card('Visitas ML', s && s.visits != null ? num(s.visits) : '–'),
+    card('Conversión', s && s.conv != null ? pct(s.conv) : '–')
+  ].join('');
 }
 function paintTrackChart() {
   const it = ((_trackData && _trackData.products && _trackData.products.items) || []).find(x => x.sku === _trackChartSku); if (!it) return;
