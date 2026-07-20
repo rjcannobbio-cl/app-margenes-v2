@@ -690,7 +690,7 @@ let _trackMetrics = {};                    // {sku:{summary, weeks, visitas, ...
 const TRACK_PERIODS = [['desde', 'Desde 1ª venta'], ['ult', 'Última semana']];
 const TRACK_METRIC_COLS = [['ventas', 'Ventas'], ['margen', 'Margen'], ['tacos', 'TACOS'], ['visitas', 'Visitas'], ['conv', 'Conversión']];
 let _trackCollapsed = new Set(['ult']);   // solo "Última semana" colapsado por defecto
-let _trackSort = null;                     // orden por 1ª venta: null | 'fs-asc' | 'fs-desc'
+let _trackSort = 'fs-desc';                 // por defecto: 1ª venta más reciente → más antigua → vacío. (null | 'fs-asc' | 'fs-desc')
 const WK_MS = 7 * 864e5;
 function trackStatus(msg, err) { const el = $('trackStatus'); if (!el) return; el.textContent = msg || ''; el.style.color = err ? 'var(--bad)' : 'var(--muted)'; }
 let _trackMetricsTs = 0;
