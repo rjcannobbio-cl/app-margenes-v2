@@ -720,8 +720,9 @@ function trackDerived(it, m) {
   const cumpleMargen = (maduro && mgWeeks) ? roll(mgWeeks, 5, 30) : null;
   const velReal = (mx && mx.summary && mx.summary.velReal != null) ? mx.summary.velReal : it.avgWeekly;
   const velApp = (it.velApp != null) ? it.velApp : (it.avgWeekly != null ? it.avgWeekly : null);   // velocidad que muestra PG
-  const diasDesde1a = firstSale ? Math.floor((Date.now() - Date.parse(firstSale + 'T00:00:00')) / 864e5) : null;
-  return { firstSale, diasDesde1a, velMadura, maduro, cumpleVel, cumpleMargen, velReal, velApp, stock: it.stock != null ? it.stock : null };
+  const firstSaleDay = (mx && mx.firstSaleDay) || firstSale;   // día exacto (firstSale es el lunes de la semana, para las ventanas)
+  const diasDesde1a = firstSaleDay ? Math.floor((Date.now() - Date.parse(firstSaleDay + 'T00:00:00')) / 864e5) : null;
+  return { firstSale, firstSaleDay, diasDesde1a, velMadura, maduro, cumpleVel, cumpleMargen, velReal, velApp, stock: it.stock != null ? it.stock : null };
 }
 function paintTrack() {
   const d = _trackData || { products: null, meta: {} };
@@ -770,7 +771,7 @@ function paintTrack() {
       <td class="mcell muted">–</td>
       <td class="mcell">${der.velApp != null ? der.velApp : '–'}</td>
       <td><input type="number" class="trk-vm" data-sku="${esc(it.sku || '')}" value="${der.velMadura != null ? der.velMadura : ''}" placeholder="–" min="0" step="0.1" style="width:60px;text-align:right;font-size:12px"></td>
-      <td class="mcell" title="${der.firstSale ? '1ª venta: ' + esc(der.firstSale) : 'Aún sin ventas'}">${der.diasDesde1a != null ? der.diasDesde1a + ' d' : '<span class="muted">–</span>'}</td>
+      <td class="mcell" title="${der.firstSaleDay ? '1ª venta: ' + esc(der.firstSaleDay) : 'Aún sin ventas'}">${der.diasDesde1a != null ? der.diasDesde1a : '<span class="muted">–</span>'}</td>
       <td class="mcell">${der.stock != null ? numFmt(der.stock) : '<span class="muted">–</span>'}</td>
       ${tds}
       <td style="text-align:center">${yn(der.firstSale ? der.maduro : null)}</td>
@@ -881,6 +882,7 @@ function openTrackChart(sku) {
   _trackChartSku = sku;
   $('trackChartName').textContent = it.name || sku;
   $('trackChartSku').textContent = sku;
+  { const a = $('trackPgLink'); if (a) { if (it.id != null) { a.href = 'https://app.profitguard.cl/sales_speed/' + it.id; a.style.display = ''; } else a.style.display = 'none'; } }
   paintTrackCards(_trackMetrics[sku]);
   paintTrackChart();
   $('trackOverlay').classList.remove('hidden');
