@@ -159,14 +159,14 @@ export async function onRequest({ request, env }) {
             // Día EXACTO de la 1ª venta (el bucket semanal es el lunes → los días salían en múltiplos de 7). Cacheado.
             let firstSaleDay = firstSale;
             if (fi >= 0) {
-              if (prev.firstSaleDay) firstSaleDay = prev.firstSaleDay;
+              if (prev.firstSaleDay) firstSaleDay = String(prev.firstSaleDay).slice(0, 10);
               else {
                 const wkStart = weeks[fi].bucket;
                 const wkEnd = new Date(Date.parse(wkStart + 'T00:00:00') + 6 * 864e5).toISOString().slice(0, 10);
                 try {
                   await sleep(600);
                   const rd = await fetch(`${PG}/sales_speed/products/${it.id}?group_by=day&from=${wkStart}&to=${wkEnd}`, { headers });
-                  if (rd.ok) { const dd = (await rd.json()); const dj = dd.data || dd; const dser = (dj.chart && dj.chart.series) || []; const fday = dser.find(x => (x.totalUnits || 0) > 0); if (fday && fday.bucket) firstSaleDay = fday.bucket; }
+                  if (rd.ok) { const dd = (await rd.json()); const dj = dd.data || dd; const dser = (dj.chart && dj.chart.series) || []; const fday = dser.find(x => (x.totalUnits || 0) > 0); if (fday && fday.bucket) firstSaleDay = String(fday.bucket).slice(0, 10); }
                 } catch (e) {}
               }
             }
