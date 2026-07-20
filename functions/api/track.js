@@ -74,7 +74,7 @@ export async function onRequest({ request, env }) {
             items.push({
               id: it.id, sku: it.sku, name: (it.name || '').slice(0, 90), kit: !!it.kit, category: it.category || '',
               avgWeekly: it.averageWeeklySales != null ? it.averageWeeklySales : null,
-              weeks: (it.weeklySales || []).map(w => ({ s: w.startDate, e: w.endDate, u: w.units || 0 }))
+              weeks: (it.weeklySales || []).map(w => ({ s: w.startDate, e: w.endDate, u: w.units || 0, n: w.number }))
             });
           }
           const tp = (j.meta && j.meta.total_pages) || 1; if (page >= tp) break;

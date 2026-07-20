@@ -800,7 +800,7 @@ let _trackChartSku = null, _trackSeriesOn = new Set(['ventas']), _trackGeo = nul
 function trackFmt(unit, v) { if (v == null || isNaN(v)) return '–'; if (unit === '%') return (Math.round(v * 10) / 10) + '%'; if (unit === '$') return '$' + Math.round(v).toLocaleString('es-CL'); return Math.round(v).toLocaleString('es-CL'); }
 function trackWeeksData(it, mx) {
   if (mx && mx.weeks && mx.weeks.length) return mx.weeks.map(w => ({ label: w.label || (w.bucket || '').slice(5), ventas: w.ownUnits, margen: w.marginPct, ticket: w.ticket, tacos: w.tacos, stock: w.stock, visitas: w.visits, conv: w.conv }));
-  return (it.weeks || []).map(w => ({ label: (w.s || '').slice(5), ventas: w.u, margen: null, ticket: null, tacos: null, stock: null, visitas: null, conv: null }));
+  return (it.weeks || []).map(w => ({ label: w.n != null ? 'W' + w.n : (w.s || '').slice(5), ventas: w.u, margen: null, ticket: null, tacos: null, stock: null, visitas: null, conv: null }));
 }
 function openTrackChart(sku) {
   const it = ((_trackData && _trackData.products && _trackData.products.items) || []).find(x => x.sku === sku); if (!it) return;
