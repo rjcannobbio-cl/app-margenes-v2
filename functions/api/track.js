@@ -69,11 +69,14 @@ export async function onRequest({ request, env }) {
           const r = await fetch(`${PG}/sales_speed/products?category=d&week_count=30&page=${page}&page_size=100`, { headers });
           if (!r.ok) { if (page === 1) return json({ error: `ProfitGuard ${r.status}` }, 502); break; }
           const j = await r.json();
-          for (const it of (j.items || [])) items.push({
-            id: it.id, sku: it.sku, name: (it.name || '').slice(0, 90), kit: !!it.kit,
-            avgWeekly: it.averageWeeklySales != null ? it.averageWeeklySales : null,
-            weeks: (it.weeklySales || []).map(w => ({ s: w.startDate, e: w.endDate, u: w.units || 0 }))
-          });
+          for (const it of (j.items || [])) {
+            if (String(it.category || '').toLowerCase() !== 'd') continue;   // solo clase D (guard defensivo)
+            items.push({
+              id: it.id, sku: it.sku, name: (it.name || '').slice(0, 90), kit: !!it.kit, category: it.category || '',
+              avgWeekly: it.averageWeeklySales != null ? it.averageWeeklySales : null,
+              weeks: (it.weeklySales || []).map(w => ({ s: w.startDate, e: w.endDate, u: w.units || 0 }))
+            });
+          }
           const tp = (j.meta && j.meta.total_pages) || 1; if (page >= tp) break;
         }
         const out = { ts: Date.now(), items };
