@@ -1542,10 +1542,15 @@ function setResearchStatus(msg, isErr) { const el = $('researchStatus'); if (!el
 function researchCuota(x) { const v = parseFloat(x.ventasGmv) || 0, c = parseFloat(x.competidores) || 0; return c > 0 ? v / c : null; }
 // Crecimiento interanual CANÓNICO (usado en TODA la app para que coincida): suma de los
 // últimos 12 meses vs los 12 meses previos. Robusto ante estacionalidad (necesita ≥24 meses).
+// Valor de un punto de serie por métrica. 'unidades' se DERIVA (gmv/ticket) porque el recolector guarda gmv/prof/ticket.
+function p2MetricVal(p, metric) {
+  if (metric === 'unidades') { const g = parseFloat(p.gmv) || 0, t = parseFloat(p.ticket) || 0; return t > 0 ? g / t : 0; }
+  return parseFloat(p[metric || 'gmv']) || 0;
+}
 function yoy12m(serie, field) {
   const s = Array.isArray(serie) ? serie : [];
   if (s.length < 24) return null;
-  const g = s.map(p => parseFloat(p[field || 'gmv']) || 0);
+  const g = s.map(p => p2MetricVal(p, field || 'gmv'));
   const last = g.slice(-12).reduce((a, b) => a + b, 0), prev = g.slice(-24, -12).reduce((a, b) => a + b, 0);
   return prev > 0 ? (last - prev) / prev * 100 : null;
 }
@@ -1738,7 +1743,7 @@ function renderRdChart() {
   let fromV = ($('rdFrom') && $('rdFrom').value) || '', toV = ($('rdTo') && $('rdTo').value) || '';
   if (fromV && toV && fromV > toV) { const t = fromV; fromV = toV; toV = t; }   // por si eligen invertido
   const sub = serie.filter(p => { const ym = (p.m || '').slice(0, 7); return (!fromV || ym >= fromV) && (!toV || ym <= toV); });
-  const points = sub.map(p => ({ m: (p.m || '').slice(0, 7), v: parseFloat(p[metric]) || 0 }));
+  const points = sub.map(p => ({ m: (p.m || '').slice(0, 7), v: p2MetricVal(p, metric) }));
   if (!points.length) {
     $('rdChart').innerHTML = '<p class="muted" style="padding:24px;text-align:center;line-height:1.6">Aún no hay serie mensual para este rango.<br>Corre el recolector con <b>run({months:36})</b> y re-importa para ver la evolución.</p>';
     $('rdYoy').textContent = '';
@@ -1762,15 +1767,16 @@ function rdChartSVG(points, metric) {
   const xs = points.map((p, i) => X(i)), ys = points.map(p => Y(p.v));
   const line = points.map((p, i) => (i ? 'L' : 'M') + xs[i].toFixed(1) + ',' + ys[i].toFixed(1)).join(' ');
   const area = 'M' + xs[0].toFixed(1) + ',' + (padT + ih) + ' ' + points.map((p, i) => 'L' + xs[i].toFixed(1) + ',' + ys[i].toFixed(1)).join(' ') + ' L' + xs[points.length - 1].toFixed(1) + ',' + (padT + ih) + ' Z';
-  const fmtFull = v => metric === 'prof' ? Math.round(v).toLocaleString('es-CL') : ('$' + Math.round(v).toLocaleString('es-CL'));
-  const fmtAxis = v => metric === 'prof' ? Math.round(v) : (v >= 1e9 ? '$' + (v / 1e9).toFixed(1) + 'b' : v >= 1e6 ? '$' + Math.round(v / 1e6) + 'M' : '$' + Math.round(v / 1e3) + 'k');
+  const isCount = metric === 'prof' || metric === 'unidades';   // conteo (no $)
+  const fmtFull = v => isCount ? Math.round(v).toLocaleString('es-CL') : ('$' + Math.round(v).toLocaleString('es-CL'));
+  const fmtAxis = v => isCount ? (v >= 1e6 ? Math.round(v / 1e6) + 'M' : v >= 1e3 ? Math.round(v / 1e3) + 'k' : Math.round(v)) : (v >= 1e9 ? '$' + (v / 1e9).toFixed(1) + 'b' : v >= 1e6 ? '$' + Math.round(v / 1e6) + 'M' : '$' + Math.round(v / 1e3) + 'k');
   const yTicks = [max, (max + min) / 2, min].map(v => `<line x1="${padL}" y1="${Y(v).toFixed(1)}" x2="${W - padR}" y2="${Y(v).toFixed(1)}" stroke="var(--line)" stroke-width="1"/><text x="${padL - 8}" y="${(Y(v) + 3).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--muted)">${fmtAxis(v)}</text>`).join('');
   const idxs = [...new Set([0, Math.floor(points.length / 2), points.length - 1])];
   const xLabels = idxs.map(i => `<text x="${xs[i].toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="10" fill="var(--muted)">${points[i].m}</text>`).join('');
   const dots = points.map((p, i) => `<circle cx="${xs[i].toFixed(1)}" cy="${ys[i].toFixed(1)}" r="2.6" fill="var(--accent)"/>`).join('');
   const guide = `<line class="rd-guide" x1="0" y1="${padT}" x2="0" y2="${padT + ih}" stroke="var(--accent)" stroke-width="1" stroke-dasharray="3 3" style="display:none"/>`;
   const active = `<circle class="rd-active" r="5" fill="var(--accent)" stroke="#121215" stroke-width="2" style="display:none"/>`;
-  const metricName = metric === 'gmv' ? 'Ventas en $' : metric === 'prof' ? 'Vendedores' : 'Ticket medio';
+  const metricName = metric === 'gmv' ? 'Ventas en $' : metric === 'prof' ? 'Vendedores' : metric === 'unidades' ? 'Unidades' : 'Ticket medio';
   _rdGeo = { xs, ys, vals, labels: points.map(p => rdMonthLabel(p.m)), W, H, fmt: fmtFull, metricName };
   const tip = `<div class="rd-tip"><div class="tm"></div><div class="tv"><span class="dot"></span><span class="tl"></span> : <b></b></div></div>`;
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:720px;display:block">${yTicks}<path d="${area}" fill="rgba(255,102,0,.14)"/><path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2"/>${guide}${dots}${active}${xLabels}</svg>${tip}`;
@@ -1838,6 +1844,16 @@ function p2Seasonality(serie) {
   const idx = []; for (let m = 1; m <= 12; m++) { const a = by[m] || []; const av = a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0; idx.push({ m, mo: P2_MESES[m - 1], idx: avgAll ? Math.round(av / avgAll * 100) : 0 }); }
   return idx;
 }
+// Estacionalidad PARA MOSTRAR: solo el último año calendario cerrado; cada mes = % de la venta (GMV) de ese año (los 12 suman ~100).
+function p2SeasonYearShare(serie) {
+  const year = new Date().getFullYear() - 1;
+  const by = {};
+  for (const p of (serie || [])) { const [py, pm] = (p.m || '').slice(0, 7).split('-').map(Number); if (py === year && pm >= 1 && pm <= 12) { const v = parseFloat(p.gmv); if (!isNaN(v)) by[pm] = (by[pm] || 0) + v; } }
+  const total = Object.values(by).reduce((a, b) => a + b, 0);
+  const months = [];
+  for (let m = 1; m <= 12; m++) { const v = by[m] || 0; months.push({ m, mo: P2_MESES[m - 1], idx: total ? Math.round(v / total * 1000) / 10 : 0 }); }
+  return { year, nMonths: Object.keys(by).length, months };
+}
 function p2Trend(serie) {
   const yoy = yoy12(serie);   // misma métrica canónica que la tabla y el gráfico
   return { yoy, dir: yoy == null ? 'sin datos' : (yoy > 8 ? 'EN ALZA' : yoy < -8 ? 'A LA BAJA' : 'ESTABLE') };
@@ -1869,7 +1885,8 @@ async function p2CachePut(id, report) { return fetch(api('/api/p2'), { method: '
 async function computeP2Report(item, onProgress) {
   const log = onProgress || (() => {});
   const serie = Array.isArray(item.serie) ? item.serie : [];
-  const stats = { seasonality: p2Seasonality(serie), trend: p2Trend(serie), cuota: p2CuotaClass(item), ticket: item.ticket, ventasGmv: item.ventasGmv, competidores: item.competidores };
+  const seas = p2SeasonYearShare(serie);
+  const stats = { seasonality: seas.months, seasonYear: seas.year, seasonMonths: seas.nMonths, trend: p2Trend(serie), cuota: p2CuotaClass(item), ticket: item.ticket, ventasGmv: item.ventasGmv, competidores: item.competidores };
   log('Trayendo los productos más vendidos de Mercado Libre…');
   const hl = await mlGet('/highlights/MLC/category/' + item.id).catch(() => null);
   let products = [], reviews = null;
@@ -2175,7 +2192,7 @@ async function saveP2Ctx() {
 async function p2AI(item, stats, products, reviews, own) {
   await loadBizCtx();
   const cfg = loadCfg(country);
-  const seas = stats.seasonality.map(s => s.mo + ' ' + s.idx).join(', ');
+  const seas = stats.seasonality.map(z => z.mo + ' ' + z.idx + '%').join(', ');
   const prod = products.map(p => '#' + p.pos + ' ' + p.name + ' | ' + p.attrs).join('\n');
   const revTxt = (reviews || []).map(r => r.name + ' (' + (r.avg || '?') + '★, ' + (r.total || 0) + '): ' + (r.samples || []).map(s => s.rate + '★ "' + s.content + '"').join(' | ')).join('\n');
   const ownTxt = p2OwnTxt(own);
@@ -2185,7 +2202,7 @@ async function p2AI(item, stats, products, reviews, own) {
     'Eres analista de sourcing de ET Brands. Analiza la categoría "' + item.leaf + '" (' + item.l1 + ') para decidir si conviene REFORZAR el catálogo o entrar con un producto NUEVO de marca propia, y con cuál.\n\n' +
     (ownTxt ? ('CATÁLOGO PROPIO ACTUAL DE ET BRANDS EN ESTA CATEGORÍA (marca real ' + (own.brand ? '"' + own.brand + '"' : '') + ', costo y velocidad de venta):\n' + ownTxt + '\nUsa SIEMPRE la marca propia REAL de arriba (NO inventes marcas). NO sugieras "desarrollar" un producto que ya existe en esta lista; sugiere lo que FALTA (specs/segmentos sin cubrir) o mejoras a lo existente. Aprovecha qué se vende rápido (velocidad) y el costo para estimar viabilidad.\n\n') :
       'NOTA: no se encontró catálogo propio en esta categoría (quizás ET Brands aún no vende acá). Usa la marca propia que corresponda al rubro.\n\n') +
-    'ESTACIONALIDAD (índice 100=promedio, prom. 3 años): ' + seas + '\n' +
+    'ESTACIONALIDAD (% de la venta del año ' + (stats.seasonYear || '') + '; los 12 meses suman 100): ' + seas + '\n' +
     'TENDENCIA YoY: ' + (stats.trend.yoy != null ? stats.trend.yoy.toFixed(1) + '%' : 's/d') + ' (' + stats.trend.dir + ')\n' +
     'CUOTA x vendedor: ' + (stats.cuota.clase) + ' (percentil ' + (stats.cuota.pct || '?') + '). IMPORTANTE: es el ingreso promedio por vendedor de TODA la categoría (' + (stats.competidores ? Math.round(stats.competidores) + ' vendedores' : 'el mercado') + '), NO la participación de ET Brands. Percentil alto = categoría donde cada vendedor factura mucho (atractiva), NO significa que ET Brands domine. ET Brands es solo uno más salvo que el catálogo propio de arriba diga lo contrario.\n\n' +
     'TOP PRODUCTOS MÁS VENDIDOS DEL MERCADO (ML, con specs):\n' + (prod || '(sin datos)') + '\n\n' +
@@ -2217,7 +2234,7 @@ async function p2VisionAI(item, stats, products, reviews, own) {
   if (!withPics.length && !ownWithPics.length) return { _err: 'sin fotos para visión' };
   const img = u => ({ type: 'image', source: { type: 'url', url: u } });
   const txt = t => ({ type: 'text', text: t });
-  const seas = stats.seasonality.map(s => s.mo + ' ' + s.idx).join(', ');
+  const seas = stats.seasonality.map(z => z.mo + ' ' + z.idx + '%').join(', ');
   const revByPos = {}; (reviews || []).forEach(r => { revByPos[r.pos] = (r.samples || []).map(s => s.rate + '★"' + (s.content || '').slice(0, 90) + '"').join(' | '); });
   const ownTxt = p2OwnTxt(own);
   const fb = p2Feedback(item.id);
@@ -2227,7 +2244,7 @@ async function p2VisionAI(item, stats, products, reviews, own) {
     bizContext() + '\n\n' +
     'Eres analista de sourcing de ET Brands. Vas a analizar la categoría "' + item.leaf + '" (' + item.l1 + ') MIRANDO LAS FOTOS, fichas y reseñas de cada producto (del mercado y los propios) para: (1) clusterizar los top por specs/materialidad/formato REALES que ves en las fotos, (2) ubicar CADA producto propio en su cluster y decir qué le falta, (3) proponer con qué producto propio entrar o mejorar.\n\n' +
     (ownTxt ? ('TUS PRODUCTOS ACTUALES (marca real ' + (own.brand ? '"' + own.brand + '"' : '') + '; abajo van sus fotos):\n' + ownTxt + '\nNO sugieras "desarrollar" algo que ya tienes (míralo en las fotos: formato, materialidad, si ya viene enrollado/comprimido, etc.). Sugiere lo que FALTA de verdad.\n\n') : 'NOTA: no hay catálogo propio detectado en esta categoría.\n\n') +
-    'ESTACIONALIDAD (100=prom): ' + seas + '\nTENDENCIA YoY: ' + (stats.trend.yoy != null ? stats.trend.yoy.toFixed(1) + '%' : 's/d') + ' (' + stats.trend.dir + ')\n' +
+    'ESTACIONALIDAD (% del año ' + (stats.seasonYear || '') + '): ' + seas + '\nTENDENCIA YoY: ' + (stats.trend.yoy != null ? stats.trend.yoy.toFixed(1) + '%' : 's/d') + ' (' + stats.trend.dir + ')\n' +
     'CUOTA x vendedor: ' + stats.cuota.clase + ' (pct ' + (stats.cuota.pct || '?') + ') — promedio de TODA la categoría, NO de ET Brands.\n' +
     (fb ? '\nFEEDBACK PREVIO DEL EQUIPO (respétalo): ' + fb + '\n' : '') +
     '\nA CONTINUACIÓN, cada producto con su ficha y 1-2 fotos. Primero los TOP del mercado, luego TUS productos.'
@@ -2271,7 +2288,9 @@ function renderP2(report, item, ts) {
   const host = $('p2Panel'); const s = report.stats || {}, ai = report.ai || {}, prods = report.products || [], revs = report.reviews || [];
   const byPos = {}; prods.forEach(p => byPos[p.pos] = p);
   const esc = escapeHtml;
-  const bars = (s.seasonality || []).map(x => `<div class="p2bar ${x.idx >= 115 ? 'peak' : ''}"><div class="idx">${x.idx}</div><div class="col" style="height:${Math.max(6, Math.min(100, x.idx * 0.7))}%"></div><div class="mo">${x.mo}</div></div>`).join('');
+  const seasArr = s.seasonality || [];
+  const maxSh = Math.max(...seasArr.map(x => x.idx), 0.1), meanSh = 100 / 12;   // peak = mes ≥ 15% sobre un reparto parejo
+  const bars = seasArr.map(x => `<div class="p2bar ${x.idx >= meanSh * 1.15 ? 'peak' : ''}"><div class="idx">${x.idx}%</div><div class="col" style="height:${Math.max(4, Math.round(x.idx / maxSh * 100))}%"></div><div class="mo">${x.mo}</div></div>`).join('');
   const trendCol = s.trend && s.trend.yoy != null ? (s.trend.yoy >= 0 ? 'var(--good)' : 'var(--bad)') : 'var(--muted)';
   const cuotaBadge = { ALTA: 'p2-hot', MEDIA: 'p2-mid', BAJA: 'p2-bad' }[(s.cuota || {}).clase] || 'p2-mid';
   const aiLine = (tag, txt) => txt ? `<div class="p2ai"><span class="tag">🤖 ${tag}</span>${mdBold(txt)}</div>` : '';
@@ -2321,7 +2340,7 @@ function renderP2(report, item, ts) {
     `<div class="p2tool"><button class="btn ghost" style="font-size:12px;padding:7px 12px" id="p2ChatToggle">💬 Pregúntale a la IA</button><button class="btn ${report.deep ? 'ghost' : ''}" style="font-size:12px;padding:7px 12px" id="p2DeepToggle">📊 ${report.deep ? 'Re-analizar en profundidad' : 'Analizar en profundidad'}</button></div>` +
     ('own' in report ? renderP2Own(report.own) : '') +
     renderP2OwnAnalysis(ai) +
-    `<div class="p2sec"><div class="p2sec-h"><div class="ic">📅</div><h3>Estacionalidad</h3></div><div class="p2bars">${bars}</div>${aiLine('Lectura', ai.estacionalidad)}${fbRow('estacionalidad')}</div>` +
+    `<div class="p2sec"><div class="p2sec-h"><div class="ic">📅</div><h3>Estacionalidad</h3><span class="muted" style="font-size:11px;margin-left:6px">% de la venta anual · ${s.seasonYear || ''}${(s.seasonMonths != null && s.seasonMonths < 12) ? ` (solo ${s.seasonMonths} meses con datos)` : ''}</span></div><div class="p2bars">${bars}</div>${aiLine('Lectura', ai.estacionalidad)}${fbRow('estacionalidad')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">💰</div><h3>Atractivo · cuota por vendedor</h3><span class="verdict ${cuotaBadge}">${esc((s.cuota || {}).clase || '—')}</span></div><p style="margin:2px 0;font-size:13px">${fmt((s.cuota || {}).cuota)}/vendedor · percentil ${(s.cuota || {}).pct || '?'} · ${s.competidores ? Math.round(s.competidores) + ' vendedores' : ''}</p>${aiLine('Lectura', ai.cuota)}${fbRow('cuota')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">📈</div><h3>Tendencia</h3><span class="verdict ${s.trend && s.trend.yoy >= 0 ? 'p2-good' : 'p2-bad'}">${esc((s.trend || {}).dir || '—')}</span></div><p style="margin:2px 0"><b style="color:${trendCol};font-size:20px">${s.trend && s.trend.yoy != null ? (s.trend.yoy >= 0 ? '+' : '') + s.trend.yoy.toFixed(1) + '%' : '–'}</b> <span class="muted small">YoY (últimos 12m vs previos)</span></p>${aiLine('Lectura', ai.tendencia)}${fbRow('tendencia')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">🏆</div><h3>Top vendedores</h3></div><a class="btn" href="${esc(report.rankUrl || '#')}" target="_blank" rel="noopener">🏆 Ver ranking en Nubimetrics ↗</a></div>` +
@@ -2511,7 +2530,7 @@ function renderP2Chat(report) {
 function p2ChatContext(report) {
   const s = report.stats || {}, ai = report.ai || {};
   let c = 'Categoría: ' + report.cat.leaf + ' (' + report.cat.l1 + ').\n';
-  c += 'Estacionalidad (idx 100=prom): ' + (s.seasonality || []).map(x => x.mo + x.idx).join(' ') + '.\n';
+  c += 'Estacionalidad (% del año ' + (s.seasonYear || '') + '): ' + (s.seasonality || []).map(x => x.mo + x.idx + '%').join(' ') + '.\n';
   c += 'Cuota x vendedor: ' + ((s.cuota || {}).clase) + ' (pct ' + ((s.cuota || {}).pct) + ') — ingreso promedio por vendedor de TODA la categoría, NO la participación de ET Brands. Tendencia: ' + ((s.trend || {}).dir) + ' ' + ((s.trend || {}).yoy != null ? s.trend.yoy.toFixed(0) + '%' : '') + '. Ticket ~$' + Math.round(s.ticket || 0).toLocaleString('es-CL') + '.\n';
   c += 'Top productos ML: ' + (report.products || []).slice(0, 12).map(p => '#' + p.pos + ' ' + p.name).join('; ') + '.\n';
   const ownTxt = p2OwnTxt(report.own); if (ownTxt) c += 'CATÁLOGO PROPIO ET BRANDS' + (report.own && report.own.brand ? ' (marca ' + report.own.brand + ')' : '') + ':\n' + ownTxt + '\n';
