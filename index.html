@@ -34,6 +34,9 @@
   table.dbtab{border:none;border-radius:0;white-space:nowrap;min-width:1100px;overflow:visible}
   .dbtab th{position:sticky;top:0;z-index:2}
   .dbtab th:first-child{left:0;z-index:3}
+  /* Header de 2 filas (Seguimiento): la 2ª fila se pega debajo de la 1ª, no encima */
+  #trackDbWrap .dbtab thead th{box-sizing:border-box;height:30px}
+  #trackDbWrap .dbtab thead tr:nth-child(2) th{top:30px}
   .dbtab td:first-child{max-width:280px;overflow:hidden;text-overflow:ellipsis;position:sticky;left:0;z-index:1;background:var(--panel)}
   .histtab tbody tr:nth-child(even) td:first-child{background:#1d1d22}
   .histtab tbody tr:hover td:first-child{background:#241a10}
@@ -447,15 +450,12 @@
   <div id="tabTrack" class="hidden">
     <div class="hist-actions">
       <input type="text" id="trackFilter" class="hist-filter" placeholder="Filtrar: SKU o título…">
-      <button class="btn" id="btnTrackImport" type="button" title="Importar Excel con SKU, Vel madura y Fecha 1ª venta">⬆ Importar Excel</button>
-      <input type="file" id="trackFile" accept=".xlsx,.xls" style="display:none">
       <button class="btn ghost" id="btnTrackRefreshProducts" type="button" title="Re-lee los productos categoría D desde ProfitGuard (semanal)">↻ Actualizar productos D</button>
       <button class="btn ghost" id="btnTrackRefreshMetrics" type="button" title="Ventas/margen/TACOS (PG) + visitas/conversión (ML). Las visitas tardan por el rate limit de ML.">↻ Actualizar métricas y visitas</button>
       <label class="check" style="margin:0"><input type="checkbox" id="trackOnlyIncomplete"> <span class="muted">Solo velocidad madura incompleta</span></label>
       <span class="muted" id="trackCount"></span>
       <span class="muted" id="trackStatus" style="flex-basis:100%;margin-top:4px"></span>
     </div>
-    <div class="hint" style="margin-bottom:10px">Seguimiento de productos nuevos (categoría <b>D</b> de ProfitGuard). <b>Maduro</b> = 12 semanas desde la 1ª venta. <b>Cumple velocidad/margen</b> = ya maduro y, en alguna ventana móvil de 5 semanas de sus primeras 12, el promedio semanal ≥ velocidad madura / ≥ 30%. Las columnas se agrupan en dos clusters por período: <b>Desde 1ª venta</b> (abierto) y <b>Última semana</b> (colapsado); clic en el encabezado para plegar/expandir. Clic en una fila: gráfico de evolución.</div>
     <div id="trackDbWrap" class="db-wrap"></div>
   </div>
 </div>
@@ -630,6 +630,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=261600"></script>
+<script src="src/ui.js?v=261700"></script>
 </body>
 </html>

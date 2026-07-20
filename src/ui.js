@@ -2656,8 +2656,6 @@ function init() {
   $('researchFile').addEventListener('change', e => { const f = e.target.files[0]; if (f) importResearchJSON(f); e.target.value = ''; });
   $('researchFilter').addEventListener('input', debounce(paintResearch, 200));
   // Seguimiento de productos nuevos
-  { const b = $('btnTrackImport'); if (b) b.onclick = () => $('trackFile').click(); }
-  { const f = $('trackFile'); if (f) f.addEventListener('change', e => { const file = e.target.files[0]; if (file) trackImportFile(file); e.target.value = ''; }); }
   { const b = $('btnTrackRefreshProducts'); if (b) b.onclick = trackRefreshProducts; }
   { const b = $('btnTrackRefreshMetrics'); if (b) b.onclick = () => trackRefreshAll(false); }
   { const el = $('trackFilter'); if (el) el.addEventListener('input', debounce(paintTrack, 200)); }
