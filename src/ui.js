@@ -715,7 +715,8 @@ function paintTrack() {
   const meta = d.meta || {};
   const q = normalize(($('trackFilter') && $('trackFilter').value) || '');
   const onlyInc = $('trackOnlyIncomplete') && $('trackOnlyIncomplete').checked;
-  let rows = items.filter(it => !q || normalize((it.sku || '') + ' ' + (it.name || '')).includes(q));
+  let rows = items.filter(it => !it.kit);   // excluir kits (por si el KV viejo aún los tuviera)
+  rows = rows.filter(it => !q || normalize((it.sku || '') + ' ' + (it.name || '')).includes(q));
   if (onlyInc) rows = rows.filter(it => { const mm = meta[it.sku] || {}; return !(mm.velMadura > 0); });
   const esc = escapeHtml;
   const numFmt = v => (v == null || v === '' || isNaN(v)) ? '–' : Math.round(v).toLocaleString('es-CL');
@@ -799,15 +800,17 @@ const TRACK_SERIES = [
 let _trackChartSku = null, _trackSeriesOn = new Set(['ventas']), _trackGeo = null;
 function trackFmt(unit, v) { if (v == null || isNaN(v)) return '–'; if (unit === '%') return (Math.round(v * 10) / 10) + '%'; if (unit === '$') return '$' + Math.round(v).toLocaleString('es-CL'); return Math.round(v).toLocaleString('es-CL'); }
 function trackWeeksData(it, mx) {
-  if (mx && mx.weeks && mx.weeks.length) return mx.weeks.map(w => ({ label: w.label || (w.bucket || '').slice(5), ventas: w.ownUnits, margen: w.marginPct, ticket: w.ticket, tacos: w.tacos, stock: w.stock, visitas: w.visits, conv: w.conv }));
-  return (it.weeks || []).map(w => ({ label: w.n != null ? 'W' + w.n : (w.s || '').slice(5), ventas: w.u, margen: null, ticket: null, tacos: null, stock: null, visitas: null, conv: null }));
+  let arr;
+  if (mx && mx.weeks && mx.weeks.length) arr = mx.weeks.map(w => ({ label: w.label || (w.bucket || '').slice(5), ventas: w.ownUnits, margen: w.marginPct, ticket: w.ticket, tacos: w.tacos, stock: w.stock, visitas: w.visits, conv: w.conv }));
+  else arr = (it.weeks || []).map(w => ({ label: w.n != null ? 'W' + w.n : (w.s || '').slice(5), ventas: w.u, margen: null, ticket: null, tacos: null, stock: null, visitas: null, conv: null }));
+  const fi = arr.findIndex(w => w.ventas != null && w.ventas > 0);   // por defecto: desde la 1ª venta
+  return fi > 0 ? arr.slice(fi) : arr;
 }
 function openTrackChart(sku) {
   const it = ((_trackData && _trackData.products && _trackData.products.items) || []).find(x => x.sku === sku); if (!it) return;
   _trackChartSku = sku;
-  const fs = ((_trackData.meta || {})[sku] || {}).firstSale;
-  $('trackChartSku').textContent = sku + (fs ? ' · 1ª venta ' + fs : ' · sin ventas aún');
   $('trackChartName').textContent = it.name || sku;
+  $('trackChartSku').textContent = sku;
   paintTrackChart();
   $('trackOverlay').classList.remove('hidden');
 }

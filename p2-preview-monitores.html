@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>P2 · Monitores · ET Brands (prototipo local)</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0e0e11; --panel:#17171b; --panel2:#1f1f24; --line:#2b2b31;
+    --ink:#f1f1f4; --muted:#9a9aa3; --faint:#6b6b73;
+    --accent:#FF6600; --accent-d:#ff8128;
+    --good:#22c55e; --good-bg:rgba(34,197,94,.14);
+    --mid:#f0a830; --mid-bg:rgba(240,168,48,.14);
+    --bad:#ef4444; --bad-bg:rgba(239,68,68,.13);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:'Montserrat',system-ui,'Segoe UI',sans-serif;font-size:14px;line-height:1.5;border-top:3px solid var(--accent)}
+  .wrap{max-width:960px;margin:0 auto;padding:22px 20px 80px}
+  .demo-banner{background:linear-gradient(90deg,rgba(255,102,0,.16),transparent);border:1px solid var(--accent);border-radius:10px;padding:10px 14px;font-size:12px;color:#f0c79b;margin-bottom:20px}
+  .demo-banner b{color:var(--accent-d)}
+  h1{font-size:24px;font-weight:800;margin:0;letter-spacing:-.3px}
+  .brk{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+  .head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:6px}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:16px 0 26px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .kpi .l{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.3px}
+  .kpi .v{font-size:19px;font-weight:800;margin-top:3px}
+  @media(max-width:680px){.kpis{grid-template-columns:repeat(2,1fr)}}
+
+  .sec{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:16px}
+  .sec-h{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+  .sec-h .ic{width:30px;height:30px;border-radius:8px;background:var(--panel2);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+  .sec-h h2{font-size:16px;font-weight:800;margin:0}
+  .sec-h .verdict{margin-left:auto;font-size:12px;font-weight:800;padding:5px 11px;border-radius:20px}
+  .v-good{background:var(--good-bg);color:var(--good)} .v-mid{background:var(--mid-bg);color:var(--mid)} .v-bad{background:var(--bad-bg);color:var(--bad)}
+  .v-hot{background:var(--accent);color:#1b1205}
+  .ai{background:var(--panel2);border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:11px 14px;margin-top:12px;font-size:13.5px}
+  .ai .tag{font-size:10px;font-weight:800;color:var(--accent-d);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px}
+  .muted{color:var(--muted)} .small{font-size:12px}
+  ul{margin:8px 0 0;padding-left:18px} li{margin:5px 0}
+  .feedback{display:flex;gap:8px;align-items:center;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+  .fb-btn{background:var(--panel2);border:1px solid var(--line);color:var(--muted);border-radius:8px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit}
+  .fb-btn:hover{color:var(--ink);border-color:var(--accent)}
+  .fb-lbl{font-size:11px;color:var(--faint);margin-left:auto}
+
+  .bars{display:flex;align-items:flex-end;gap:6px;height:150px;margin:6px 0 4px}
+  .bar{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+  .bar .col{width:100%;border-radius:4px 4px 0 0;background:var(--panel2);position:relative}
+  .bar.peak .col{background:linear-gradient(180deg,var(--accent),var(--accent-d))}
+  .bar.low .col{background:#3a3a42}
+  .bar .idx{font-size:10px;font-weight:700;margin-bottom:3px;color:var(--muted)}
+  .bar.peak .idx{color:var(--accent-d)}
+  .bar .mo{font-size:10px;color:var(--faint);margin-top:5px}
+
+  table.pt{width:100%;border-collapse:collapse;margin-top:6px;font-size:13px}
+  table.pt th{text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;padding:6px 8px;border-bottom:1px solid var(--line)}
+  table.pt td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
+  .cl-name{font-weight:800}
+  .chip{display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:12px;background:var(--panel2);color:var(--muted);margin:2px 3px 0 0}
+  .share{font-weight:800;color:var(--accent-d)}
+  .prod{font-size:12px;color:var(--muted)}
+  .gap-hot{background:rgba(255,102,0,.09);border:1px dashed var(--accent);border-radius:10px;padding:12px 14px;margin-top:10px}
+  .etb-hit{background:var(--good-bg);border:1px solid var(--good);border-radius:10px;padding:10px 13px;margin-bottom:12px;font-size:13px}
+  .clgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:680px){.clgrid{grid-template-columns:1fr}}
+  .clcard{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px}
+  .clhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+  .chips{margin-bottom:6px}
+  .plist{margin:0;padding-left:20px;font-size:12.5px}
+  .plist li{margin:4px 0}
+  .plist a{color:var(--ink);text-decoration:none}
+  .plist a:hover{color:var(--accent-d);text-decoration:underline}
+  .stars-big{display:flex;align-items:baseline;gap:10px;margin:4px 0 10px}
+  .stars-big .n{font-size:28px;font-weight:800;color:var(--accent-d)}
+  .rbar{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);margin:2px 0}
+  .rbar .track{flex:1;height:7px;background:#2b2b31;border-radius:4px;overflow:hidden}
+  .rbar .fill{height:100%;background:var(--accent)}
+  .rev{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px}
+  @media(max-width:680px){.rev{grid-template-columns:1fr}}
+  .rev-card{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px}
+  .rev-card .pn{font-weight:700;font-size:12.5px;margin-bottom:6px}
+  .quote{font-size:12px;color:#e6a3a3;font-style:italic;margin:3px 0}
+  .opp{font-size:12px;color:var(--good);font-weight:600;margin-top:6px}
+  .up{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .up:last-child{border-bottom:none}
+  .up .cost{flex-shrink:0;font-size:10px;font-weight:800;padding:3px 8px;border-radius:12px;height:fit-content}
+  .cost-lo{background:var(--good-bg);color:var(--good)} .cost-mid{background:var(--mid-bg);color:var(--mid)}
+  a.btn{display:inline-flex;align-items:center;gap:6px;background:var(--accent);color:#1b1205;border-radius:9px;padding:9px 15px;font-weight:700;font-size:13px;text-decoration:none;margin-top:4px}
+  .legend{font-size:11px;color:var(--faint);margin-top:26px;border-top:1px solid var(--line);padding-top:14px;line-height:1.7}
+  .real{color:var(--good);font-weight:700} .illus{color:var(--mid);font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="demo-banner">
+    🧪 <b>Prototipo local de P2</b> — no está en la app, es solo para revisar cómo quedaría.
+    Estacionalidad, cuota y tendencia son <span class="real">datos reales</span> de tu serie de 36 meses ·
+    Top 19 productos y reseñas son <span class="real">reales</span> (best-sellers + reviews de ML vía ProfitGuard) ·
+    Solo los pesos exactos por cluster son <span class="illus">proxy</span> (se afinan con Nubimetrics).
+  </div>
+
+  <div class="head">
+    <div>
+      <div class="brk">Computación › Monitores y Accesorios › Monitores</div>
+      <h1>Análisis de categoría · Monitores</h1>
+    </div>
+    <div class="small muted">MLC21069 · datos a jun-2026</div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="l">Venta mercado</div><div class="v">$1.056 M<span class="small muted">/mes</span></div></div>
+    <div class="kpi"><div class="l">Ticket medio</div><div class="v">$127.250</div></div>
+    <div class="kpi"><div class="l">Competidores</div><div class="v">99 <span class="small muted">platinum</span></div></div>
+    <div class="kpi"><div class="l">Cuota x vendedor</div><div class="v" style="color:var(--good)">$11 M</div></div>
+  </div>
+
+  <!-- 1. ESTACIONALIDAD -->
+  <div class="sec">
+    <div class="sec-h"><div class="ic">📅</div><h2>Estacionalidad</h2><span class="verdict v-mid">Marcada</span></div>
+    <div class="bars">
+      <div class="bar low"><div class="idx">98</div><div class="col" style="height:73%"></div><div class="mo">Ene</div></div>
+      <div class="bar low"><div class="idx">92</div><div class="col" style="height:69%"></div><div class="mo">Feb</div></div>
+      <div class="bar peak"><div class="idx">117</div><div class="col" style="height:88%"></div><div class="mo">Mar</div></div>
+      <div class="bar"><div class="idx">107</div><div class="col" style="height:80%"></div><div class="mo">Abr</div></div>
+      <div class="bar low"><div class="idx">90</div><div class="col" style="height:68%"></div><div class="mo">May</div></div>
+      <div class="bar peak"><div class="idx">133</div><div class="col" style="height:100%"></div><div class="mo">Jun</div></div>
+      <div class="bar low"><div class="idx">79</div><div class="col" style="height:59%"></div><div class="mo">Jul</div></div>
+      <div class="bar low"><div class="idx">86</div><div class="col" style="height:65%"></div><div class="mo">Ago</div></div>
+      <div class="bar low"><div class="idx">74</div><div class="col" style="height:56%"></div><div class="mo">Sep</div></div>
+      <div class="bar"><div class="idx">103</div><div class="col" style="height:77%"></div><div class="mo">Oct</div></div>
+      <div class="bar low"><div class="idx">89</div><div class="col" style="height:67%"></div><div class="mo">Nov</div></div>
+      <div class="bar peak"><div class="idx">133</div><div class="col" style="height:100%"></div><div class="mo">Dic</div></div>
+    </div>
+    <div class="small muted">Índice 100 = venta promedio del mes. Promedio de los últimos 3 años.</div>
+    <div class="ai">
+      <span class="tag">🤖 Lectura IA</span>
+      Categoría con <b>estacionalidad marcada</b>. Tres picos claros: <b>junio (+33%)</b> — CyberDay + Día del Padre,
+      <b>diciembre (+33%)</b> — Navidad, y <b>marzo (+17%)</b> — vuelta a clases/universidad. El valle es <b>septiembre (−26%)</b>,
+      seguido de julio y agosto. <b>Recomendación:</b> tener stock e inversión en ads cargados hacia <b>fin de mayo</b> (para pescar el CyberDay de junio)
+      y <b>noviembre</b> (para diciembre y aprovechar que la oferta baja en el valle previo).
+    </div>
+    <div class="feedback"><button class="fb-btn">👍 Útil</button><button class="fb-btn">👎 No</button><button class="fb-btn">✏️ Corregir</button><span class="fb-lbl">Tu feedback afina el análisis de la próxima categoría</span></div>
+  </div>
+
+  <!-- 2. CUOTA -->
+  <div class="sec">
+    <div class="sec-h"><div class="ic">💰</div><h2>Cuota por vendedor</h2><span class="verdict v-hot">ALTA</span></div>
+    <p style="margin:4px 0">Cada vendedor profesional se lleva en promedio <b style="color:var(--good)">$11 millones/mes</b> — Monitores está en el <b>percentil 99</b> del universo de categorías. Torta grande, repartida entre relativamente pocos competidores (99).</p>
+    <div class="ai">
+      <span class="tag">🤖 Lectura IA</span>
+      Cuota <b>muy atractiva</b>: alto GMV con competencia acotada. Es de las categorías donde entrar mueve la aguja.
+      El riesgo no es el tamaño del mercado sino <b>diferenciarse</b> (ver secciones de abajo) para no competir solo por precio contra marcas grandes (LG, MSI, ASUS).
+    </div>
+    <div class="feedback"><button class="fb-btn">👍 Útil</button><button class="fb-btn">👎 No</button><button class="fb-btn">✏️ Corregir</button><span class="fb-lbl">Clasificación: bajo &lt; p33 · medio &lt; p90 · alto ≥ p90</span></div>
+  </div>
+
+  <!-- 3. TENDENCIA -->
+  <div class="sec">
+    <div class="sec-h"><div class="ic">📈</div><h2>Tendencia de venta</h2><span class="verdict v-good">EN ALZA</span></div>
+    <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
+      <div><div class="v" style="font-size:26px;font-weight:800;color:var(--good)">+30,2%</div><div class="small muted">últimos 12m vs 12m previos</div></div>
+      <svg viewBox="0 0 460 70" width="320" style="max-width:100%">
+        <polyline fill="none" stroke="var(--accent)" stroke-width="2"
+          points="0,55 13,44 26,50 39,32 52,42 65,20 78,30 91,34 104,30 117,29 130,40 143,20 156,34 169,40 182,26 195,28 208,20 221,37 234,26 247,28 260,17 273,20 286,32 299,3 312,14 325,17 338,40 351,15 364,21 377,-8 390,12 403,16 416,-3 429,10 442,22 455,-12"/>
+      </svg>
+    </div>
+    <div class="ai">
+      <span class="tag">🤖 Lectura IA</span>
+      Tendencia <b>claramente al alza</b>: el mercado creció <b>+30%</b> interanual y los últimos meses marcan máximos históricos
+      (jun-2026 fue el mejor mes de la serie). Es una categoría <b>en expansión</b>, no madura — buen momento para entrar.
+    </div>
+    <div class="feedback"><button class="fb-btn">👍 Útil</button><button class="fb-btn">👎 No</button><button class="fb-btn">✏️ Corregir</button></div>
+  </div>
+
+  <!-- 4. TOP VENDEDORES -->
+  <div class="sec">
+    <div class="sec-h"><div class="ic">🏆</div><h2>Top vendedores</h2></div>
+    <p class="muted" style="margin:4px 0">El ranking de vendedores de esta categoría (quién domina, con qué participación) se ve mejor en Nubimetrics, actualizado a diario.</p>
+    <a class="btn" href="https://app.nubimetrics.com/market/sellerranking#?category=MLC1648-MLC1655-MLC21069&range=2026-07-15" target="_blank" rel="noopener">🏆 Ver ranking de vendedores ↗</a>
+  </div>
+
+  <!-- 5. TOP PRODUCTOS / SUBCATEGORÍAS -->
+  <div class="sec">
+    <div class="sec-h"><div class="ic">🧩</div><h2>Top productos por subcategoría</h2><span class="verdict v-good">Top 19 real · con links</span></div>
+    <p class="small muted" style="margin:2px 0 10px">Best-sellers <span class="real">reales</span> de ML (<code>/highlights</code> vía ProfitGuard), agrupados por la IA según especificación principal. <b>Cada producto es un link a su publicación.</b> Con Nubimetrics sumaríamos las <b>unidades/venta exactas</b> por publicación para ponderar los clusters con precisión (hoy el peso es proxy por ranking).</p>
+
+    <div class="etb-hit">🏷️ <b>Ya vendemos aquí:</b> el <b>#12 best-seller es el "Monitor Gamer Curvo 27\" Hosser"</b> — marca propia de ET Brands. Es canibalización directa y una base real para diferenciar.</div>
+
+    <div class="clgrid">
+      <div class="clcard">
+        <div class="clhead"><span class="cl-name">Gamer plano alta tasa</span><span class="share">8/19</span></div>
+        <div class="chips"><span class="chip">FHD</span><span class="chip">24–27"</span><span class="chip">100–240Hz</span></div>
+        <ol class="plist">
+          <li><a href="https://www.mercadolibre.cl/p/MLC53403311" target="_blank" rel="noopener">#2 MSI MAG 255F 25" 200Hz</a></li>
+          <li><a href="https://www.mercadolibre.cl/p/MLC65555300" target="_blank" rel="noopener">#3 Gigabyte GS24F 24" 144Hz</a></li>
+          <li><a href="https://www.mercadolibre.cl/p/MLC64250586" target="_blank" rel="noopener">#5 ASUS VY249HGR 24" 120Hz</a></li>
+          <li><a href="https://www.mercadolibre.cl/p/MLC45886284" target="_blank" rel="noopener">#7 Samsung Odyssey G3 24" 180Hz</a></li>
+          <li><a href="https://www.mercadolibre.cl/p/MLC62091365" target="_blank" rel="noopener">#11 Gigabyte GS25F2A 25" 240Hz</a></li>
+          <li><a href="https://www.mercadolibre.cl/p/MLC64248896" target="_blank" rel="noopener">#17 ASUS TUF VG279 27" 200Hz</a></li>
+          <li><a href="https://www.mercadolibre.cl/p/MLC41152595" target="_blank" rel="noopener">#18 Master-G MG2440 24" 180Hz pivote</a></li>
+          <li><a href="https://www.mercadolibre.cl/p/MLC41274305" target="_blank" rel="noopener">#19 AOC 22B30HM2 22" 100Hz</a></li>
+        </ol>
+      </div>
+      <div class="clcard">
+        <div class="clhead"><span class="cl-name">Portátil 15.6"–16"</span><span class="share">5/19</span></div>
+        <div class="chips"><span class="chip">Portátil</span><span class="chip">USB-C</span><span class="chip">60Hz</span></div>
+        <ol class="plist">
+          <li><a href="https://www.mercadolibre.cl/p/MLC53155059" target="_blank" rel="noopener"><b style="color:var(--accent-d)">#1</b> Bitbyte 15.6" FHD IPS c/parlante ⭐</a></li>
+          <li><a href="https://www.mercadolibre.cl/p/MLC43960179" target="_blank" rel="noopener">#9 Arzopa A1 Gamut 15.6"</a></li>
+          <li><a href="https://www.mercadolibre.cl/p/MLC45801077" target="_blank" rel="noopener">#13 Arzopa S1 15.6"</a></li>
+          <li><a href="https://www.mercadolibre.cl/p/MLC53295946" target="_blank" rel="noopener">#14 ASUS ZenScreen 16" (funda+soporte)</a></li>
+          <li><a href="https://www.mercadolibre.cl/p/MLC35468830" target="_blank" rel="noopener">#15 Arzopa A1 15.6"</a></li>
+        </ol>
+      </div>
+      <div class="clcard">
+        <div class="clhead"><span class="cl-name">Oficina básico</span><span class="share">4/19</span></div>
+        <div class="chips"><span class="chip">21–24"</span><span class="chip">60–100Hz</span><span class="chip">FHD</span></div>
+        <ol class="plist">
+          <li><a href="https://www.mercadolibre.cl/p/MLC43961707" target="_blank" rel="noopener">#6 HP M22f 21.5" 75Hz</a></li>
+          <li><a href="https://www.mercadolibre.cl/p/MLC28432321" target="_blank" rel="noopener">#8 Caixun C24X3F 24" 100Hz</a></li>
+          <li><a href="https://www.mercadolibre.cl/p/MLC28615819" target="_blank" rel="noopener">#10 Caixun C22X3F 22" 75Hz</a></li>
+          <li><a href="https://www.mercadolibre.cl/p/MLC50450889" target="_blank" rel="noopener">#16 Samsung Essential S30GD 22" 100Hz</a></li>
+        </ol>
+      </div>
+      <div class="clcard">
+        <div class="clhead"><span class="cl-name">Curvo grande</span><span class="share">2/19</span></div>
+        <div class="chips"><span class="chip">Curvo</span><span class="chip">27–32"</span></div>
+        <ol class="plist">
+          <li><a href="https://www.mercadolibre.cl/p/MLC46530945" target="_blank" rel="noopener">#4 LG 32GS60QC 32" QHD curvo 180Hz</a></li>
+          <li><a href="https://www.mercadolibre.cl/p/MLC39291891" target="_blank" rel="noopener">#12 Hosser Curvo 27" 100Hz 🏷️ ET Brands</a></li>
+        </ol>
+      </div>
+    </div>
+    <div class="small muted" style="margin-top:8px">Precio real por publicación disponible en <code>/products/{id}/items</code> (ej: el portátil #1 se vende $79.990 tienda oficial / $99.990).</div>
+    <div class="feedback"><button class="fb-btn">👍 Buen clustering</button><button class="fb-btn">✏️ Reagrupar</button></div>
+  </div>
+
+  <!-- 6. GAP OFERTA / DEMANDA -->
+  <div class="sec">
+    <div class="sec-h"><div class="ic">🎯</div><h2>Gap oferta / demanda</h2><span class="verdict v-hot">Oportunidad</span></div>
+    <div class="gap-hot">
+      <b>📌 Monitores portátiles 15.6"–16":</b> el <b>#1 más vendido</b> de toda la categoría es un portátil, y hay <b>5 en el top 19</b> — demanda muy alta.
+      Pero la oferta es de <b>marcas chicas</b> (Bitbyte, Arzopa) sin las grandes (LG, Samsung, MSI casi no juegan portátil). <b>Demanda alta + poca marca fuerte = hueco premium claro para entrar.</b>
+    </div>
+    <div class="ai">
+      <span class="tag">🤖 Lectura IA</span>
+      Segundo hueco potencial: <b>oficina con upgrade barato</b> (100Hz + USB-C single-cable) — el top de oficina es un 75Hz básico sin diferenciación.
+      <br><span class="small muted">Nota de precisión: la "demanda" acá usa el ranking de best-sellers de ML como proxy. Las <b>unidades exactas por cluster</b> las daría Nubimetrics.</span>
+    </div>
+    <div class="feedback"><button class="fb-btn">👍 Útil</button><button class="fb-btn">👎 No</button></div>
+  </div>
+
+  <!-- 7. DIFERENCIACIÓN POR RESEÑAS -->
+  <div class="sec">
+    <div class="sec-h"><div class="ic">⭐</div><h2>Diferenciación por reseñas</h2><span class="verdict v-good">Reseñas reales</span></div>
+    <p class="small muted" style="margin:2px 0 8px">Reseñas <span class="real">reales</span> del portátil #1 (Bitbyte), traídas vía <code>/reviews/item/{id}</code> por ProfitGuard. En el build real se recorren los top productos y la IA sintetiza las quejas recurrentes.</p>
+    <div class="stars-big"><span class="n">4.8★</span><span class="muted">216 reseñas · 142 con comentario · publicación #1</span></div>
+    <div class="rbar"><span>5★</span><div class="track"><div class="fill" style="width:86%"></div></div><span>186</span></div>
+    <div class="rbar"><span>4★</span><div class="track"><div class="fill" style="width:8%"></div></div><span>18</span></div>
+    <div class="rbar"><span>3★</span><div class="track"><div class="fill" style="width:2.3%"></div></div><span>5</span></div>
+    <div class="rbar"><span>2★</span><div class="track"><div class="fill" style="width:1%"></div></div><span>2</span></div>
+    <div class="rbar"><span>1★</span><div class="track"><div class="fill" style="width:2.3%"></div></div><span>5</span></div>
+    <div class="rev" style="margin-top:12px">
+      <div class="rev-card">
+        <div class="pn">✅ Lo que valoran (5★ reales)</div>
+        <div class="quote" style="color:#a7d8a7">"Viene junto a una funda de protección… buen brillo, sencillo de conectar."</div>
+        <div class="quote" style="color:#a7d8a7">"Lo probé en mi SteamDeck, Galaxy S24, PC y notebook y funciona perfecto."</div>
+        <div class="opp">→ Compatibilidad multi-dispositivo + funda ya son ganchos de venta que debemos igualar.</div>
+      </div>
+      <div class="rev-card">
+        <div class="pn">🔎 A minar (7 reseñas de 1–2★)</div>
+        <div class="quote">Hay 5 reseñas de 1★ + 2 de 2★ en esta sola publicación con las quejas concretas.</div>
+        <div class="quote small muted">En el build real se ordenan por rating y la IA extrae el patrón (ej. brillo/color, firmeza del soporte, compatibilidad USB-C).</div>
+        <div class="opp">→ Esas quejas = el brief exacto de qué mejorar (ver Upgrades).</div>
+      </div>
+    </div>
+    <div class="feedback"><button class="fb-btn">👍 Útil</button><button class="fb-btn">👎 No</button></div>
+  </div>
+
+  <!-- 8. DIFERENCIACIÓN UPGRADES -->
+  <div class="sec">
+    <div class="sec-h"><div class="ic">⚡</div><h2>Diferenciación por upgrades</h2></div>
+    <p class="small muted" style="margin:2px 0 8px">Mejoras que <b>cuestan poco de fabricar</b> pero suben mucho el valor percibido (y habilitan un ticket más alto).</p>
+    <div class="up"><span class="cost cost-lo">costo BAJO</span><div><b>Portátil:</b> subir el panel de 45% a <b>100% sRGB</b> y a 300–400 nits. Delta de costo bajo, salta de "se ve lavado" a "colores vivos" en las reseñas.</div></div>
+    <div class="up"><span class="cost cost-lo">costo BAJO</span><div><b>Portátil:</b> funda-soporte <b>magnética tipo origami</b> que quede firme (resuelve la queja #1) + <b>USB-C con PD passthrough</b> para que cargue el notebook con un cable.</div></div>
+    <div class="up"><span class="cost cost-mid">costo MEDIO</span><div><b>Gamer FHD:</b> incluir <b>soporte ergonómico</b> con altura/inclinación/pivote (casi ninguno del top lo trae) + <b>parlantes integrados</b>. Alto valor percibido, delta acotado.</div></div>
+    <div class="up"><span class="cost cost-lo">costo BAJO</span><div><b>Oficina:</b> pasar de 75Hz a <b>100Hz</b> y sumar <b>USB-C de un solo cable</b> (video+datos+carga). Diferenciación real sobre el HP básico con costo marginal.</div></div>
+    <div class="feedback"><button class="fb-btn">👍 Útil</button><button class="fb-btn">👎 No</button><button class="fb-btn">✏️ Corregir</button></div>
+  </div>
+
+  <!-- 9. DIFERENCIACIÓN BUNDLE -->
+  <div class="sec">
+    <div class="sec-h"><div class="ic">📦</div><h2>Diferenciación por bundle / set</h2></div>
+    <ul>
+      <li><b>Kit home-office pro:</b> monitor + <b>brazo/soporte ajustable</b> + hub USB-C + organizador de cables. Sube ticket y resuelve el dolor de ergonomía que aparece en reseñas.</li>
+      <li><b>Set monitor portátil "listo para viajar":</b> portátil + <b>funda-soporte magnética</b> + cable USB-C trenzado + paño microfibra, en <b>color box de regalo</b>.</li>
+      <li><b>Setup gamer:</b> monitor + <b>bias lighting LED USB</b> (tira trasera) + mousepad XL. Percepción premium con componentes baratos.</li>
+    </ul>
+    <div class="ai"><span class="tag">🤖 Lectura IA</span> Los bundles suben ticket medio (hoy $127.250) y esquivan la guerra de precio contra LG/MSI, que venden el monitor "pelado".</div>
+    <div class="feedback"><button class="fb-btn">👍 Útil</button><button class="fb-btn">👎 No</button></div>
+  </div>
+
+  <div class="legend">
+    <b>Fuentes de este prototipo:</b><br>
+    <span class="real">● Reales</span> — Estacionalidad, cuota (percentil 99), tendencia (+30,2% YoY) y KPIs: de tu snapshot de 36 meses (Nubimetrics, ya importado, 0 requests nuevos).
+    Top productos y sus specs: <b>best-sellers reales de Mercado Libre</b> traídos ahora vía ProfitGuard passthrough (<code>/highlights/MLC/category/MLC21069</code> + <code>/products/{id}</code>).<br>
+    <span class="illus">● Ilustrativo</span> — Reseñas y los pesos exactos de cada cluster: son ejemplo. En el build real se traen (a) reseñas por publicación vía ProfitGuard, y (b) las unidades/venta exactas por producto desde Nubimetrics para ponderar clusters y el gap oferta/demanda.<br>
+    <b>Arquitectura:</b> botón "Hacer análisis" → Function <code>/api/p2</code> que lee la serie guardada + llama a ML (passthrough) + Claude, cachea el resultado por categoría. Nubimetrics queda como link (top vendedores/ranking).
+  </div>
+
+</div>
+</body>
+</html>

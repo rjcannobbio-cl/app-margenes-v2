@@ -71,6 +71,7 @@ export async function onRequest({ request, env }) {
           const j = await r.json();
           for (const it of (j.items || [])) {
             if (String(it.category || '').toLowerCase() !== 'd') continue;   // solo clase D (guard defensivo)
+            if (it.kit) continue;                                            // excluir KITS (deben ser NO kit)
             items.push({
               id: it.id, sku: it.sku, name: (it.name || '').slice(0, 90), kit: !!it.kit, category: it.category || '',
               avgWeekly: it.averageWeeklySales != null ? it.averageWeeklySales : null,

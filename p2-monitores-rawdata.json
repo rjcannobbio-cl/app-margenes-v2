@@ -1,0 +1,80 @@
+{
+  "_meta": {
+    "descripcion": "Datos crudos de Mercado Libre para P2 · categoria Monitores (MLC21069). Traidos via ProfitGuard passthrough (integration_id=1, cuenta ML propia ET Brands). NO es Nubimetrics.",
+    "fecha": "2026-07-15",
+    "endpoints_usados": {
+      "top_sellers": "GET /highlights/MLC/category/MLC21069  -> ranking BEST_SELLER (20 productos de catalogo)",
+      "ficha_specs": "GET /products/{catalog_product_id}  -> nombre, marca, atributos completos, descripcion",
+      "publicaciones": "GET /products/{catalog_product_id}/items  -> publicaciones reales con precio, vendedor, envio, tienda oficial",
+      "resenas": "GET /reviews/item/{item_id}  -> resenas reales (estrellas, texto, likes, fotos). OJO: el id debe ser el de la PUBLICACION (item), no el del producto de catalogo.",
+      "pdp_link": "https://www.mercadolibre.cl/p/{catalog_product_id}  -> pagina del producto en ML"
+    },
+    "notas": [
+      "El ranking /highlights es el 'best seller' de ML (orden real). ML NO entrega unidades vendidas exactas por producto: eso lo da Nubimetrics.",
+      "El precio esta en /items (por publicacion), no en /products.",
+      "El #12 (MLC39291891, Hosser Curvo 27) es marca propia de ET Brands -> ya vendemos aqui (canibalizacion)."
+    ]
+  },
+
+  "raw_highlights": {
+    "query_data": { "highlight_type": "BEST_SELLER", "criteria": "CATEGORY", "id": "MLC21069" },
+    "content": [
+      { "id": "MLC53155059", "position": 1 }, { "id": "MLC53403311", "position": 2 },
+      { "id": "MLC65555300", "position": 3 }, { "id": "MLC46530945", "position": 4 },
+      { "id": "MLC64250586", "position": 5 }, { "id": "MLC43961707", "position": 6 },
+      { "id": "MLC45886284", "position": 7 }, { "id": "MLC28432321", "position": 8 },
+      { "id": "MLC43960179", "position": 9 }, { "id": "MLC28615819", "position": 10 },
+      { "id": "MLC62091365", "position": 11 }, { "id": "MLC39291891", "position": 12 },
+      { "id": "MLC45801077", "position": 13 }, { "id": "MLC53295946", "position": 14 },
+      { "id": "MLC35468830", "position": 15 }, { "id": "MLC50450889", "position": 16 },
+      { "id": "MLC64248896", "position": 17 }, { "id": "MLC41152595", "position": 18 },
+      { "id": "MLC41274305", "position": 19 }, { "id": "MLC66363640", "position": 20 }
+    ]
+  },
+
+  "top_sellers_digest": [
+    { "pos": 1,  "id": "MLC53155059", "name": "Monitor Portatil Bitbyte 15.6 Full HD IPS con parlante", "marca": "Bitbyte", "pulgadas": "15.6", "resolucion": "Full HD", "panel": "IPS", "hz": 60, "portatil": true, "curvo": false, "gamer": true, "parlantes": true, "cluster": "Portatil", "pdp": "https://www.mercadolibre.cl/p/MLC53155059" },
+    { "pos": 2,  "id": "MLC53403311", "name": "Monitor Gamer MSI MAG 255F E20 25 Full HD 200Hz", "marca": "MSI", "pulgadas": "25", "resolucion": "Full HD", "panel": "IPS", "hz": 200, "portatil": false, "curvo": false, "gamer": true, "parlantes": false, "cluster": "Gamer plano alta tasa", "pdp": "https://www.mercadolibre.cl/p/MLC53403311" },
+    { "pos": 3,  "id": "MLC65555300", "name": "Monitor Gamer Gigabyte GS24F14 23.8 IPS Full HD 144Hz", "marca": "Gigabyte", "pulgadas": "24", "resolucion": "Full HD", "panel": "IPS", "hz": 144, "portatil": false, "curvo": false, "gamer": true, "parlantes": false, "cluster": "Gamer plano alta tasa", "pdp": "https://www.mercadolibre.cl/p/MLC65555300" },
+    { "pos": 4,  "id": "MLC46530945", "name": "Monitor Gamer LG 32GS60QC 32 curvo QHD 180Hz", "marca": "LG", "pulgadas": "32", "resolucion": "2K/QHD", "panel": "VA", "hz": 180, "portatil": false, "curvo": true, "gamer": true, "parlantes": false, "cluster": "Curvo grande", "pdp": "https://www.mercadolibre.cl/p/MLC46530945" },
+    { "pos": 5,  "id": "MLC64250586", "name": "Monitor Gamer Asus VY249HGR 24 FHD 120Hz IPS 1ms EyeCare", "marca": "ASUS", "pulgadas": "23.8", "resolucion": "Full HD", "panel": "IPS", "hz": 120, "portatil": false, "curvo": false, "gamer": true, "parlantes": false, "cluster": "Gamer plano alta tasa", "pdp": "https://www.mercadolibre.cl/p/MLC64250586" },
+    { "pos": 6,  "id": "MLC43961707", "name": "Monitor HP M22f 21.5 Full HD IPS 75Hz", "marca": "HP", "pulgadas": "21.5", "resolucion": "Full HD", "panel": "IPS", "hz": 75, "portatil": false, "curvo": false, "gamer": false, "parlantes": false, "cluster": "Oficina basico", "pdp": "https://www.mercadolibre.cl/p/MLC43961707" },
+    { "pos": 7,  "id": "MLC45886284", "name": "Monitor Gamer Samsung Odyssey G3 24 180Hz 1ms VA", "marca": "Samsung", "pulgadas": "24", "resolucion": "Full HD", "panel": "VA", "hz": 180, "portatil": false, "curvo": false, "gamer": true, "parlantes": false, "cluster": "Gamer plano alta tasa", "pdp": "https://www.mercadolibre.cl/p/MLC45886284" },
+    { "pos": 8,  "id": "MLC28432321", "name": "Monitor Oficina Caixun 24 FHD IPS 100Hz HDR10 C24X3F", "marca": "Caixun", "pulgadas": "24", "resolucion": "Full HD", "panel": "IPS", "hz": 100, "portatil": false, "curvo": false, "gamer": false, "parlantes": false, "cluster": "Oficina basico", "pdp": "https://www.mercadolibre.cl/p/MLC28432321" },
+    { "pos": 9,  "id": "MLC43960179", "name": "Monitor Gamer Arzopa A1 Gamut 15.6 60Hz Full HD", "marca": "Arzopa", "pulgadas": "15.6", "resolucion": "Full HD", "panel": "IPS", "hz": 60, "portatil": true, "curvo": false, "gamer": true, "parlantes": true, "cluster": "Portatil", "pdp": "https://www.mercadolibre.cl/p/MLC43960179" },
+    { "pos": 10, "id": "MLC28615819", "name": "Monitor Caixun 22 75Hz FHD IPS C22X3F", "marca": "Caixun", "pulgadas": "22", "resolucion": "Full HD", "panel": "IPS", "hz": 75, "portatil": false, "curvo": false, "gamer": false, "parlantes": false, "cluster": "Oficina basico", "pdp": "https://www.mercadolibre.cl/p/MLC28615819" },
+    { "pos": 11, "id": "MLC62091365", "name": "Monitor Gigabyte GS25F2A 25 Full HD 240Hz 2xHDMI DP", "marca": "Gigabyte", "pulgadas": "25", "resolucion": "Full HD", "panel": "IPS", "hz": 240, "portatil": false, "curvo": false, "gamer": true, "parlantes": true, "cluster": "Gamer plano alta tasa", "pdp": "https://www.mercadolibre.cl/p/MLC62091365" },
+    { "pos": 12, "id": "MLC39291891", "name": "Monitor Gamer Curvo 27 Hosser 100Hz FHD  [MARCA PROPIA ET BRANDS]", "marca": "Hosser", "pulgadas": "27", "resolucion": "Full HD", "panel": "IPS", "hz": 100, "portatil": false, "curvo": true, "gamer": true, "parlantes": false, "cluster": "Curvo grande", "es_et_brands": true, "pdp": "https://www.mercadolibre.cl/p/MLC39291891" },
+    { "pos": 13, "id": "MLC45801077", "name": "Monitor Arzopa Portatil S1 15.6 con parlante 1080p", "marca": "Arzopa", "pulgadas": "15.6", "resolucion": "Full HD", "panel": "IPS", "hz": 60, "portatil": true, "curvo": false, "gamer": true, "parlantes": true, "cluster": "Portatil", "pdp": "https://www.mercadolibre.cl/p/MLC45801077" },
+    { "pos": 14, "id": "MLC53295946", "name": "Monitor Portatil Asus ZenScreen 16 MB169CK", "marca": "Asus", "pulgadas": "16", "resolucion": "Full HD", "panel": "IPS", "hz": 60, "portatil": true, "curvo": false, "gamer": false, "parlantes": false, "cluster": "Portatil", "accesorios": "Funda + Soporte ajustable incluidos", "pdp": "https://www.mercadolibre.cl/p/MLC53295946" },
+    { "pos": 15, "id": "MLC35468830", "name": "Arzopa Monitor Portatil 15.6 Full HD IPS Gamer A1 60Hz", "marca": "Arzopa", "pulgadas": "15.6", "resolucion": "Full HD", "panel": "IPS", "hz": 60, "portatil": true, "curvo": false, "gamer": true, "parlantes": true, "cluster": "Portatil", "pdp": "https://www.mercadolibre.cl/p/MLC35468830" },
+    { "pos": 16, "id": "MLC50450889", "name": "Monitor Samsung Essential S30GD 22 100Hz Plano FHD", "marca": "Samsung", "pulgadas": "22", "resolucion": "Full HD", "panel": "IPS", "hz": 100, "portatil": false, "curvo": false, "gamer": false, "parlantes": false, "cluster": "Oficina basico", "pdp": "https://www.mercadolibre.cl/p/MLC50450889" },
+    { "pos": 17, "id": "MLC64248896", "name": "Monitor Gamer Asus TUF VG279Q5A 27 FHD IPS 200Hz 0.3ms", "marca": "ASUS", "pulgadas": "27", "resolucion": "Full HD", "panel": "IPS", "hz": 200, "portatil": false, "curvo": false, "gamer": true, "parlantes": true, "cluster": "Gamer plano alta tasa", "pdp": "https://www.mercadolibre.cl/p/MLC64248896" },
+    { "pos": 18, "id": "MLC41152595", "name": "Monitor Gamer 24 FHD IPS Pivote 90 180Hz Master-G MGMG2440", "marca": "MasterG", "pulgadas": "24", "resolucion": "Full HD", "panel": "IPS", "hz": 180, "portatil": false, "curvo": false, "gamer": true, "parlantes": false, "cluster": "Gamer plano alta tasa", "pdp": "https://www.mercadolibre.cl/p/MLC41152595" },
+    { "pos": 19, "id": "MLC41274305", "name": "Monitor 22 AOC Full HD 100Hz VA 22B30HM2", "marca": "AOC", "pulgadas": "21.5", "resolucion": "Full HD", "panel": "VA", "hz": 100, "portatil": false, "curvo": false, "gamer": true, "parlantes": false, "cluster": "Oficina basico", "pdp": "https://www.mercadolibre.cl/p/MLC41274305" }
+  ],
+
+  "raw_items_muestra_producto_1": {
+    "_endpoint": "GET /products/MLC53155059/items",
+    "paging": { "total": 3 },
+    "results": [
+      { "item_id": "MLC1652509083", "price": 79990, "original_price": 149990, "seller_id": 732798289, "official_store_id": 58731, "listing_type_id": "gold_special", "shipping": { "free_shipping": true, "logistic_type": "fulfillment" }, "permalink_item": "https://articulo.mercadolibre.cl/MLC-1652509083" },
+      { "item_id": "MLC3964956150", "price": 99990, "seller_id": 1941538946, "listing_type_id": "gold_pro", "shipping": { "free_shipping": true, "logistic_type": "xd_drop_off" } },
+      { "item_id": "MLC3977605862", "price": 99990, "seller_id": 679462338, "listing_type_id": "gold_pro", "shipping": { "free_shipping": true, "logistic_type": "xd_drop_off" } }
+    ]
+  },
+
+  "raw_resenas_muestra_producto_1": {
+    "_endpoint": "GET /reviews/item/MLC1652509083",
+    "rating_average": 4.8,
+    "total": 216,
+    "reviews_con_comentario": 142,
+    "rating_levels": { "5_estrellas": 186, "4_estrellas": 18, "3_estrellas": 5, "2_estrellas": 2, "1_estrella": 5 },
+    "muestra_positivas": [
+      { "rate": 5, "title": "Excelente", "content": "Pantalla de buen tamano para trabajar, viene junto a una funda de proteccion. Tiene un buen brillo, sensillo de conectar y de alta resolucion. Muy recomendado.", "likes": 4, "con_foto": true },
+      { "rate": 5, "title": "Excelente", "content": "En relacion precio calidad esta muy bien este monitor portatil, lo probe en mi steamdeck, galaxy s24 ultra, pc y notebook y funciona perfecto.", "likes": 2, "con_foto": true },
+      { "rate": 5, "title": "Excelente", "content": "Funciona bien, se activa y conecta de inmediato al computador. Probado con windows 11.", "likes": 3 }
+    ],
+    "nota": "El filtro por estrellas (rate=1) no lo respeta este endpoint; para las negativas hay que paginar/ordenar. Hay 7 resenas de 1-2 estrellas disponibles para mineria de quejas."
+  }
+}
