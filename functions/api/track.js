@@ -89,14 +89,6 @@ export async function onRequest({ request, env }) {
         return json({ ok: true, count: items.length, ts: out.ts });
       }
 
-      if (action === 'debugRaw') {   // TEMPORAL: inspeccionar el JSON crudo del detalle REST
-        const id = parseInt(body.id) || 0;
-        const today = new Date().toISOString().slice(0, 10);
-        const r = await fetch(`${PG}/sales_speed/products/${id}?group_by=week&from=2024-06-01&to=${today}`, { headers });
-        const txt = await r.text();
-        return json({ status: r.status, len: txt.length, head: txt.slice(0, 1200), tail: txt.slice(-800) });
-      }
-
       if (action === 'refreshMetrics') {
         if (!token) return json({ error: 'Falta el secret de ProfitGuard' }, 501);
         const prod = JSON.parse((await kv.get('track_products')) || 'null');
@@ -118,7 +110,8 @@ export async function onRequest({ request, env }) {
             let r = await fetch(`${PG}/sales_speed/products/${it.id}?group_by=week&from=${FROM}&to=${today}`, { headers });
             if (r.status === 429) { await sleep(3000); r = await fetch(`${PG}/sales_speed/products/${it.id}?group_by=week&from=${FROM}&to=${today}`, { headers }); }   // reintento en rate limit
             if (!r.ok) { store.m[it.sku] = { error: `PG ${r.status}` }; continue; }
-            const j = await r.json();
+            const jr = await r.json();
+            const j = jr.data || jr;   // el detalle REST envuelve en {data:{...}} (la lista no)
             const series = (j.chart && j.chart.series) || [];
             const cents = o => (o && o.cents != null) ? o.cents / 100 : null;
             // "units" = ventas TOTALES (con kits) = totalUnits (no ownUnits, que es solo el listado propio).
