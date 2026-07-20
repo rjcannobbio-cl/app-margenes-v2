@@ -113,7 +113,8 @@ export async function onRequest({ request, env }) {
             const jr = await r.json();
             const j = jr.data || jr;   // el detalle REST envuelve en {data:{...}} (la lista no)
             const series = (j.chart && j.chart.series) || [];
-            const cents = o => (o && o.cents != null) ? o.cents / 100 : null;
+            // OJO: en este endpoint el campo `cents` ya viene en PESOS (formattedValue "$15.955" = 15955), NO dividir por 100.
+            const cents = o => (o && o.cents != null) ? o.cents : null;
             // "units" = ventas TOTALES (con kits) = totalUnits (no ownUnits, que es solo el listado propio).
             const weeks = series.map(w => ({
               bucket: w.bucket, label: w.label, units: w.totalUnits || 0,
