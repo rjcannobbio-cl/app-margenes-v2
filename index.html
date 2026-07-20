@@ -37,6 +37,11 @@
   /* Header de 2 filas (Seguimiento): la 2ª fila se pega debajo de la 1ª, no encima */
   #trackDbWrap .dbtab thead th{box-sizing:border-box;height:30px}
   #trackDbWrap .dbtab thead tr:nth-child(2) th{top:30px}
+  /* Tabla de métricas semanales bajo el gráfico del popup de producto */
+  .trk-wtab{border-collapse:collapse;font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .trk-wtab th,.trk-wtab td{padding:4px 8px;border-bottom:1px solid var(--line);text-align:right}
+  .trk-wtab thead th{color:var(--muted);font-weight:700}
+  .trk-wtab th:first-child,.trk-wtab td:first-child{text-align:left;position:sticky;left:0;background:var(--panel);z-index:1;font-weight:700}
   .dbtab td:first-child{max-width:280px;overflow:hidden;text-overflow:ellipsis;position:sticky;left:0;z-index:1;background:var(--panel)}
   .histtab tbody tr:nth-child(even) td:first-child{background:#1d1d22}
   .histtab tbody tr:hover td:first-child{background:#241a10}
@@ -583,6 +588,7 @@
     <div id="trackRangeSel" class="rd-metrics" style="margin-bottom:8px;gap:6px"></div>
     <div id="trackChart" class="rd-chart" style="position:relative"></div>
     <p class="hint" id="trackChartHint" style="margin-top:6px"></p>
+    <div id="trackTable" style="overflow-x:auto;margin-top:8px"></div>
   </div>
 </div>
 
@@ -634,6 +640,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=262200"></script>
+<script src="src/ui.js?v=262260"></script>
 </body>
 </html>

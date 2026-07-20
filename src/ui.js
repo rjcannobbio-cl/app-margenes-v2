@@ -962,7 +962,18 @@ function paintTrackChart() {
   $('trackChart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block">${grid}${guide}${lines}${xLabels}</svg><div class="trk-tip" style="position:absolute;display:none;background:#0b0b0e;border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:11px;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.5);z-index:5;white-space:nowrap"></div>`;
   const rangeTxt = _trackWeeksRange ? `últimas ${_trackWeeksRange} semanas` : 'desde la 1ª venta';
   $('trackChartHint').innerHTML = draw.map(a => `<span style="color:${a.s.color}">■</span> ${escapeHtml(a.s.label)}`).join(' &nbsp; ') + ` — semanal, ${rangeTxt}.` + (leftS ? ` Eje Y izq: ${escapeHtml(leftS.s.label)}` + (rightS ? `; der: ${escapeHtml(rightS.s.label)}` : '') + '.' : '');
+  paintTrackTable(wd);
   wireTrackHover();
+}
+// Tabla de métricas semanales bajo el gráfico (semanas en columnas, métricas en filas; mismo rango que el gráfico).
+function paintTrackTable(wd) {
+  const el = $('trackTable'); if (!el) return;
+  if (!wd || !wd.length) { el.innerHTML = ''; return; }
+  const rows = TRACK_SERIES.filter(s => wd.some(w => w[s.key] != null));   // solo métricas con datos
+  if (!rows.length) { el.innerHTML = ''; return; }
+  const head = '<th>Semana</th>' + wd.map(w => `<th>${escapeHtml(w.label || '')}</th>`).join('');
+  const body = rows.map(s => `<tr><td style="color:${s.color}">${escapeHtml(s.label)}</td>${wd.map(w => `<td>${trackFmt(s.unit, w[s.key])}</td>`).join('')}</tr>`).join('');
+  el.innerHTML = `<table class="trk-wtab"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
 }
 function wireTrackHover() {
   const host = $('trackChart'); const svg = host && host.querySelector('svg'); if (!svg || !_trackGeo) return;
