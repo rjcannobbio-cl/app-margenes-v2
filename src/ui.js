@@ -690,19 +690,26 @@ const TRACK_GROUPS = [['ventas', 'Ventas'], ['margen', 'Margen'], ['tacos', 'TAC
 let _trackCollapsed = new Set(TRACK_GROUPS.map(g => g[0]));   // todos colapsados por defecto
 const WK_MS = 7 * 864e5;
 function trackStatus(msg, err) { const el = $('trackStatus'); if (!el) return; el.textContent = msg || ''; el.style.color = err ? 'var(--bad)' : 'var(--muted)'; }
-async function trackLoad() { try { const j = await (await fetch(api('/api/track'))).json(); _trackData = (j && !j.error) ? j : { products: null, meta: {} }; } catch (e) { _trackData = { products: null, meta: {} }; } }
-async function renderTrack() { if (!_trackData) { $('trackDbWrap').innerHTML = '<p class="muted" style="padding:16px">Cargando…</p>'; await trackLoad(); } paintTrack(); }
+let _trackMetricsTs = 0;
+async function trackLoad() { try { const j = await (await fetch(api('/api/track'))).json(); _trackData = (j && !j.error) ? j : { products: null, meta: {} }; _trackMetrics = (j && j.metrics && j.metrics.m) || {}; _trackMetricsTs = (j && j.metrics && j.metrics.ts) || 0; } catch (e) { _trackData = { products: null, meta: {} }; } }
+async function renderTrack() {
+  if (!_trackData) { $('trackDbWrap').innerHTML = '<p class="muted" style="padding:16px">Cargando…</p>'; await trackLoad(); }
+  paintTrack();
+  // Refresco de métricas en segundo plano si están vencidas (>20h) y hay productos.
+  const hasProds = _trackData && _trackData.products && (_trackData.products.items || []).some(it => !it.kit);
+  if (hasProds && (Date.now() - _trackMetricsTs > 20 * 3600e3) && !_trackMetricsBusy) { trackRefreshMetrics(true); }
+}
 // Maduro (12 sem desde 1ª venta) + Cumple velocidad (ventana móvil 5 sem ≥ vel madura en las primeras 12 sem).
 function trackDerived(it, m) {
   m = m || {};
-  const firstSale = m.firstSale || '';
+  const mx = _trackMetrics[it.sku];
+  const firstSale = (mx && mx.firstSale) || m.firstSale || '';   // 1ª venta: PG manda, Excel es fallback
   const velMadura = (m.velMadura != null && m.velMadura !== '') ? +m.velMadura : null;
   const maduro = firstSale ? (Date.now() - Date.parse(firstSale + 'T00:00:00')) >= 12 * WK_MS : false;
   const wk = (it.weeks || []).filter(w => w.s && w.s >= firstSale).slice(0, 12).map(w => w.u || 0);
   const roll = (vals, win, thr) => { if (vals.length < win) return null; let best = -Infinity; for (let i = 0; i + win <= vals.length; i++) { const s = vals.slice(i, i + win).reduce((a, b) => a + b, 0) / win; if (s > best) best = s; } return best >= thr; };
   const cumpleVel = (maduro && velMadura) ? roll(wk, 5, velMadura) : null;
-  // Cumple margen: necesita margen semanal (Fase 2). Placeholder por ahora.
-  const mx = _trackMetrics[it.sku];
+  // Cumple margen: margen semanal ≥30% en alguna ventana móvil de 5 sem de las primeras 12 (Fase 2).
   const mgWeeks = (mx && mx.weeks) ? mx.weeks.filter(w => w.bucket >= firstSale).slice(0, 12).map(w => w.marginPct || 0) : null;
   const cumpleMargen = (maduro && mgWeeks) ? roll(mgWeeks, 5, 30) : null;
   return { firstSale, velMadura, maduro, cumpleVel, cumpleMargen, velReal: it.avgWeekly };
@@ -771,6 +778,26 @@ async function trackRefreshProducts() {
   try { const j = await (await fetch(api('/api/track'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'refreshProducts' }) })).json();
     if (j.error) { trackStatus('Error: ' + j.error, true); return; } trackStatus('✓ ' + j.count + ' productos D.'); await trackLoad(); paintTrack();
   } catch (e) { trackStatus('Error de red: ' + e.message, true); }
+}
+// Fase 2: trae ventas/margen/TACOS + serie semanal desde PG (get_sales_speed_product) por lotes.
+let _trackMetricsBusy = false;
+async function trackRefreshMetrics(silent) {
+  if (_trackMetricsBusy) return; _trackMetricsBusy = true;
+  if (!silent) trackStatus('Trayendo ventas/margen/TACOS de ProfitGuard…');
+  let offset = 0, total = null, done = 0;
+  try {
+    while (true) {
+      const j = await (await fetch(api('/api/track'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'refreshMetrics', offset, limit: 20 }) })).json();
+      if (j.error) { if (!silent) trackStatus('Error: ' + j.error, true); return; }
+      total = j.total; done += j.processed;
+      if (!silent) trackStatus(`Métricas… ${done}/${total}`);
+      if (j.next == null) break; offset = j.next;
+    }
+    await trackLoad(); paintTrack();   // recarga y pinta una sola vez al terminar
+    if (!silent) trackStatus(`✓ Métricas actualizadas (${total} productos) · ${new Date().toLocaleString('es-CL')}`);
+    else trackStatus('');
+  } catch (e) { if (!silent) trackStatus('Error de red: ' + e.message, true); }
+  finally { _trackMetricsBusy = false; }
 }
 // Import Excel: columnas SKU · Vel madura · 1a venta (Fecha 1ra venta.xlsx).
 async function trackImportFile(file) {
@@ -2559,7 +2586,7 @@ function init() {
   { const b = $('btnTrackImport'); if (b) b.onclick = () => $('trackFile').click(); }
   { const f = $('trackFile'); if (f) f.addEventListener('change', e => { const file = e.target.files[0]; if (file) trackImportFile(file); e.target.value = ''; }); }
   { const b = $('btnTrackRefreshProducts'); if (b) b.onclick = trackRefreshProducts; }
-  { const b = $('btnTrackRefreshMetrics'); if (b) b.onclick = () => trackStatus('Las métricas financieras/visitas se activan en la próxima fase.'); }
+  { const b = $('btnTrackRefreshMetrics'); if (b) b.onclick = () => trackRefreshMetrics(false); }
   { const el = $('trackFilter'); if (el) el.addEventListener('input', debounce(paintTrack, 200)); }
   { const el = $('trackOnlyIncomplete'); if (el) el.addEventListener('change', paintTrack); }
   { const b = $('trackClose'); if (b) b.onclick = () => $('trackOverlay').classList.add('hidden'); }
