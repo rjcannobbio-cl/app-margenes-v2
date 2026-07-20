@@ -148,7 +148,14 @@ export async function onRequest({ request, env }) {
               velReal
             };
             const prev = store.m[it.sku] || {};
-            store.m[it.sku] = { firstSale, summary, last, weeks: wkArr, mlIds: prev.mlIds };   // conserva caché de item ids ML
+            // Conserva visitas/conversión (Fase 3) y el caché de item ids, para no destruirlos al recomputar métricas.
+            if (prev.summary) { summary.visits = prev.summary.visits; summary.conv = prev.summary.conv; }
+            if (prev.last && last) { last.visits = prev.last.visits; last.conv = prev.last.conv; }
+            if (prev.weeks && prev.weeks.length) {
+              const pv = {}; for (const pw of prev.weeks) { if (pw.visits != null || pw.conv != null) pv[pw.bucket] = pw; }
+              for (const w of wkArr) { const p = pv[w.bucket]; if (p) { if (p.visits != null) w.visits = p.visits; if (p.conv != null) w.conv = p.conv; } }
+            }
+            store.m[it.sku] = { firstSale, summary, last, weeks: wkArr, mlIds: prev.mlIds };
           } catch (e) { store.m[it.sku] = { error: String((e && e.message) || e) }; }
         }
         store.ts = Date.now();
