@@ -100,9 +100,14 @@ export async function onRequest({ request, env }) {
         const FROM = '2024-06-01';   // los productos D se crearon ~2024-11; margen suficiente para captar la 1ª venta
         const today = new Date().toISOString().slice(0, 10);
         const todayMs = Date.parse(today + 'T00:00:00');
+        const sleep = ms => new Promise(res => setTimeout(res, ms));
+        let first = true;
         for (const it of slice) {
           try {
-            const r = await fetch(`${PG}/sales_speed/products/${it.id}?group_by=week&from=${FROM}&to=${today}`, { headers });
+            if (!first) await sleep(600);   // ~<120 req/min (límite PG)
+            first = false;
+            let r = await fetch(`${PG}/sales_speed/products/${it.id}?group_by=week&from=${FROM}&to=${today}`, { headers });
+            if (r.status === 429) { await sleep(3000); r = await fetch(`${PG}/sales_speed/products/${it.id}?group_by=week&from=${FROM}&to=${today}`, { headers }); }   // reintento en rate limit
             if (!r.ok) { store.m[it.sku] = { error: `PG ${r.status}` }; continue; }
             const j = await r.json();
             const series = (j.chart && j.chart.series) || [];
