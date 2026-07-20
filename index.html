@@ -450,7 +450,7 @@
       <button class="btn" id="btnTrackImport" type="button" title="Importar Excel con SKU, Vel madura y Fecha 1ª venta">⬆ Importar Excel</button>
       <input type="file" id="trackFile" accept=".xlsx,.xls" style="display:none">
       <button class="btn ghost" id="btnTrackRefreshProducts" type="button" title="Re-lee los productos categoría D desde ProfitGuard (semanal)">↻ Actualizar productos D</button>
-      <button class="btn ghost" id="btnTrackRefreshMetrics" type="button" title="Actualiza ventas/margen/TACOS/visitas (segundo plano)">↻ Actualizar métricas</button>
+      <button class="btn ghost" id="btnTrackRefreshMetrics" type="button" title="Ventas/margen/TACOS (PG) + visitas/conversión (ML). Las visitas tardan por el rate limit de ML.">↻ Actualizar métricas y visitas</button>
       <label class="check" style="margin:0"><input type="checkbox" id="trackOnlyIncomplete"> <span class="muted">Solo velocidad madura incompleta</span></label>
       <span class="muted" id="trackCount"></span>
       <span class="muted" id="trackStatus" style="flex-basis:100%;margin-top:4px"></span>
@@ -629,6 +629,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=261410"></script>
+<script src="src/ui.js?v=261500"></script>
 </body>
 </html>

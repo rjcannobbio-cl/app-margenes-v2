@@ -700,7 +700,7 @@ async function renderTrack() {
   paintTrack();
   // Refresco de métricas en segundo plano si están vencidas (>20h) y hay productos.
   const hasProds = _trackData && _trackData.products && (_trackData.products.items || []).some(it => !it.kit);
-  if (hasProds && (Date.now() - _trackMetricsTs > 20 * 3600e3) && !_trackMetricsBusy) { trackRefreshMetrics(true); }
+  if (hasProds && (Date.now() - _trackMetricsTs > 20 * 3600e3) && !_trackMetricsBusy && !_trackVisitsBusy) { trackRefreshAll(true); }
 }
 // Maduro (12 sem desde 1ª venta) + Cumple velocidad (ventana móvil 5 sem ≥ vel madura en las primeras 12 sem).
 function trackDerived(it, m) {
@@ -815,6 +815,28 @@ async function trackRefreshMetrics(silent) {
   } catch (e) { if (!silent) trackStatus('Error de red: ' + e.message, true); }
   finally { _trackMetricsBusy = false; }
 }
+// Fase 3: visitas + conversión de Mercado Libre (lento por rate limit de ML; lotes chicos).
+let _trackVisitsBusy = false;
+async function trackRefreshVisits(silent) {
+  if (_trackVisitsBusy) return; _trackVisitsBusy = true;
+  if (!silent) trackStatus('Trayendo visitas/conversión de Mercado Libre… (puede tardar)');
+  let offset = 0, total = null, done = 0;
+  try {
+    while (true) {
+      const j = await (await fetch(api('/api/track'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'refreshVisits', offset, limit: 10 }) })).json();
+      if (j.error) { if (!silent) trackStatus('Error visitas: ' + j.error, true); return; }
+      total = j.total; done += j.processed;
+      if (!silent) trackStatus(`Visitas ML… ${done}/${total}`);
+      if (j.next == null) break; offset = j.next;
+    }
+    await trackLoad(); paintTrack();
+    if (!silent) trackStatus(`✓ Visitas/conversión actualizadas (${total}) · ${new Date().toLocaleString('es-CL')}`);
+    else trackStatus('');
+  } catch (e) { if (!silent) trackStatus('Error de red (visitas): ' + e.message, true); }
+  finally { _trackVisitsBusy = false; }
+}
+// Métricas + visitas encadenadas (lo que dispara el botón / el refresco en 2º plano).
+async function trackRefreshAll(silent) { await trackRefreshMetrics(silent); await trackRefreshVisits(silent); }
 // Import Excel: columnas SKU · Vel madura · 1a venta (Fecha 1ra venta.xlsx).
 async function trackImportFile(file) {
   try {
@@ -2620,7 +2642,7 @@ function init() {
   { const b = $('btnTrackImport'); if (b) b.onclick = () => $('trackFile').click(); }
   { const f = $('trackFile'); if (f) f.addEventListener('change', e => { const file = e.target.files[0]; if (file) trackImportFile(file); e.target.value = ''; }); }
   { const b = $('btnTrackRefreshProducts'); if (b) b.onclick = trackRefreshProducts; }
-  { const b = $('btnTrackRefreshMetrics'); if (b) b.onclick = () => trackRefreshMetrics(false); }
+  { const b = $('btnTrackRefreshMetrics'); if (b) b.onclick = () => trackRefreshAll(false); }
   { const el = $('trackFilter'); if (el) el.addEventListener('input', debounce(paintTrack, 200)); }
   { const el = $('trackOnlyIncomplete'); if (el) el.addEventListener('change', paintTrack); }
   { const b = $('trackClose'); if (b) b.onclick = () => $('trackOverlay').classList.add('hidden'); }

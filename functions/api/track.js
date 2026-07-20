@@ -11,6 +11,7 @@
      GET  /api/track                      → { products:{ts,items}, meta, metrics }
      POST /api/track {action:'refreshProducts'}   → re-lee los productos D de PG (excluye kits)
      POST /api/track {action:'refreshMetrics', offset, limit}  → Fase 2: financieros por lote (get_sales_speed_product)
+     POST /api/track {action:'refreshVisits', offset, limit}   → Fase 3: visitas+conversión ML por lote (passthrough PG)
      POST /api/track {action:'meta', sku, patch}  → edita meta de un SKU
      POST /api/track {action:'import', rows}       → carga meta masiva (Excel)
 
@@ -146,8 +147,75 @@ export async function onRequest({ request, env }) {
               ticket: cents(j.averageIncome),
               velReal
             };
-            store.m[it.sku] = { firstSale, summary, last, weeks: wkArr };
+            const prev = store.m[it.sku] || {};
+            store.m[it.sku] = { firstSale, summary, last, weeks: wkArr, mlIds: prev.mlIds };   // conserva caché de item ids ML
           } catch (e) { store.m[it.sku] = { error: String((e && e.message) || e) }; }
+        }
+        store.ts = Date.now();
+        await kv.put('track_metrics', JSON.stringify(store));
+        const next = (offset + limit < list.length) ? (offset + limit) : null;
+        return json({ ok: true, processed: slice.length, offset, next, total: list.length, ts: store.ts });
+      }
+
+      if (action === 'refreshVisits') {   // Fase 3: visitas + conversión de Mercado Libre (passthrough PG)
+        if (!token) return json({ error: 'Falta el secret de ProfitGuard' }, 501);
+        const SELLER = '613899966';   // ML User ID CL (ET Brands)
+        const prod = JSON.parse((await kv.get('track_products')) || 'null');
+        const list = ((prod && prod.items) || []).filter(it => !it.kit && it.sku);
+        const offset = Math.max(parseInt(body.offset) || 0, 0);
+        const limit = Math.min(Math.max(parseInt(body.limit) || 10, 1), 20);
+        const slice = list.slice(offset, offset + limit);
+        const store = JSON.parse((await kv.get('track_metrics')) || 'null') || { ts: Date.now(), m: {} };
+        store.m = store.m || {};
+        const today = new Date().toISOString().slice(0, 10);
+        const todayMs = Date.parse(today + 'T00:00:00');
+        const sleep = ms => new Promise(res => setTimeout(res, ms));
+        const round1 = v => Math.round(v * 10) / 10;
+        const mondayOf = s => { const d = new Date(s.slice(0, 10) + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); return d.toISOString().slice(0, 10); };
+        // GET a ML por el passthrough de PG; null si falla o rate-limit (reintento simple).
+        const mlGet = async (path, query) => {
+          for (let attempt = 0; attempt < 2; attempt++) {
+            const r = await fetch(`${PG}/integrations/1/passthrough`, { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ method: 'GET', path, query: query || {} }) });
+            const j = await r.json().catch(() => null);
+            const b = j && (j.body != null ? j.body : null);
+            const rl = b && (b.error === 'Rate limit exceeded' || (b.message && /rate limit/i.test(b.message)));
+            if (rl && attempt === 0) { await sleep(4000); continue; }
+            if (!r.ok || (j && j.status && j.status >= 400)) return null;
+            return b;
+          }
+          return null;
+        };
+        let firstCall = true;
+        for (const it of slice) {
+          try {
+            const m = store.m[it.sku] || { firstSale: null, summary: {}, last: null, weeks: [] };
+            // 1) item ids de ML (cacheados en m.mlIds para no re-resolver)
+            let ids = m.mlIds;
+            if (!Array.isArray(ids)) {
+              if (!firstCall) await sleep(500); firstCall = false;
+              const s = await mlGet(`/users/${SELLER}/items/search`, { seller_sku: it.sku });
+              ids = (s && Array.isArray(s.results)) ? s.results : [];
+              m.mlIds = ids;
+            }
+            // 2) visitas por item → agregado semanal (bucket = lunes ISO) + total
+            const wk = {}; let total = 0;
+            for (const id of ids.slice(0, 3)) {
+              if (!firstCall) await sleep(500); firstCall = false;
+              const v = await mlGet(`/items/${id}/visits/time_window`, { last: '150', unit: 'day' });
+              if (!v) continue;
+              total += v.total_visits || 0;
+              for (const rr of (v.results || [])) { const wkb = mondayOf(rr.date); wk[wkb] = (wk[wkb] || 0) + (rr.total || 0); }
+            }
+            // 3) fusiona en las semanas de métricas: visitas + conversión (unidades/visitas)
+            let sumU = 0, sumV = 0;
+            (m.weeks || []).forEach(w => { const vv = wk[w.bucket]; if (vv != null) { w.visits = vv; w.conv = vv > 0 ? round1((w.units || 0) / vv * 100) : null; sumU += (w.units || 0); sumV += vv; } });
+            m.summary = m.summary || {};
+            m.summary.visits = total;
+            m.summary.conv = sumV > 0 ? round1(sumU / sumV * 100) : null;
+            // última semana cerrada: copia sus visitas/conv al bloque last
+            if (m.last) { for (let i = (m.weeks || []).length - 1; i >= 0; i--) { const w = m.weeks[i]; if ((Date.parse(w.bucket + 'T00:00:00') + 6 * 864e5) < todayMs) { m.last.visits = w.visits != null ? w.visits : null; m.last.conv = w.conv != null ? w.conv : null; break; } } }
+            store.m[it.sku] = m;
+          } catch (e) { /* deja el producto sin visitas si falla */ }
         }
         store.ts = Date.now();
         await kv.put('track_metrics', JSON.stringify(store));
