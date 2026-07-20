@@ -89,6 +89,14 @@ export async function onRequest({ request, env }) {
         return json({ ok: true, count: items.length, ts: out.ts });
       }
 
+      if (action === 'debugRaw') {   // TEMPORAL: inspeccionar el JSON crudo del detalle REST
+        const id = parseInt(body.id) || 0;
+        const today = new Date().toISOString().slice(0, 10);
+        const r = await fetch(`${PG}/sales_speed/products/${id}?group_by=week&from=2024-06-01&to=${today}`, { headers });
+        const txt = await r.text();
+        return json({ status: r.status, len: txt.length, head: txt.slice(0, 1200), tail: txt.slice(-800) });
+      }
+
       if (action === 'refreshMetrics') {
         if (!token) return json({ error: 'Falta el secret de ProfitGuard' }, 501);
         const prod = JSON.parse((await kv.get('track_products')) || 'null');
