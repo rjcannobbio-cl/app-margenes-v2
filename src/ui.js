@@ -899,30 +899,47 @@ function paintTrackCards(mx) {
     card('Conversión', s && s.conv != null ? pct(s.conv) : '–')
   ].join('');
 }
+let _trackWeeksRange = null;   // null = todas (desde 1ª venta) | 5 | 10 | 20
 function paintTrackChart() {
   const it = ((_trackData && _trackData.products && _trackData.products.items) || []).find(x => x.sku === _trackChartSku); if (!it) return;
-  const wd = trackWeeksData(it, _trackMetrics[_trackChartSku]);
-  // chips (multi-select)
+  let wd = trackWeeksData(it, _trackMetrics[_trackChartSku]);
+  if (_trackWeeksRange && wd.length > _trackWeeksRange) wd = wd.slice(-_trackWeeksRange);
+  // chips de series (multi-select)
   $('trackSeriesChips').innerHTML = TRACK_SERIES.map(s => { const on = _trackSeriesOn.has(s.key); const has = wd.some(w => w[s.key] != null); return `<button class="rd-mbtn" data-s="${s.key}" ${has ? '' : 'disabled title="Se activa al actualizar métricas"'} style="${on ? 'border-color:' + s.color + ';color:' + s.color + ';font-weight:700' : ''}${has ? '' : ';opacity:.45'}">${on ? '● ' : ''}${s.label}</button>`; }).join('');
   $('trackSeriesChips').querySelectorAll('button').forEach(b => b.onclick = () => { if (b.disabled) return; const k = b.dataset.s; if (_trackSeriesOn.has(k)) { if (_trackSeriesOn.size > 1) _trackSeriesOn.delete(k); } else _trackSeriesOn.add(k); paintTrackChart(); });
-  // svg multi-serie (cada serie escalada a su propio rango)
-  const W = 760, H = 260, padL = 12, padR = 12, padT = 14, padB = 28, iw = W - padL - padR, ih = H - padT - padB, n = wd.length;
+  // selector de rango de semanas
+  const RANGES = [[5, 'Últimas 5 sem'], [10, 'Últimas 10 sem'], [20, 'Últimas 20 sem'], ['', 'Todo (desde 1ª venta)']];
+  $('trackRangeSel').innerHTML = RANGES.map(([v, l]) => { const on = (_trackWeeksRange || '') === v; return `<button class="rd-mbtn" data-r="${v}" style="${on ? 'border-color:#9aa4ff;color:#9aa4ff;font-weight:700' : ''}">${l}</button>`; }).join('');
+  $('trackRangeSel').querySelectorAll('button').forEach(b => b.onclick = () => { _trackWeeksRange = b.dataset.r ? +b.dataset.r : null; paintTrackChart(); });
+  // svg multi-serie (cada serie escalada a su propio rango, con base en 0)
+  const W = 760, H = 262, padL = 50, padR = 50, padT = 14, padB = 28, iw = W - padL - padR, ih = H - padT - padB, n = wd.length;
   if (!n) { $('trackChart').innerHTML = '<p class="muted" style="padding:24px;text-align:center">Sin serie semanal.</p>'; $('trackChartHint').textContent = ''; return; }
   const X = i => padL + (n <= 1 ? iw / 2 : i * iw / (n - 1));
   const active = TRACK_SERIES.filter(s => _trackSeriesOn.has(s.key) && wd.some(w => w[s.key] != null));
   const draw = active.map(s => {
-    const nn = wd.map(w => w[s.key]).filter(v => v != null && !isNaN(v));
-    const mn = Math.min(...nn, s.unit === '%' ? 0 : nn[0]), mx2 = Math.max(...nn, 1), rng = (mx2 - mn) || 1;
+    const vals = wd.map(w => w[s.key]).filter(v => v != null && !isNaN(v));
+    const dMin = vals.length ? Math.min(...vals) : 0, dMax = vals.length ? Math.max(...vals) : 1;
+    const mn = Math.min(0, dMin), mx2 = Math.max(dMax, mn + 1), rng = (mx2 - mn) || 1;   // base en 0 para línea continua
     const Y = v => padT + ih - ((v - mn) / rng) * ih;
-    let d = '', started = false; const ys = wd.map((w, i) => { const v = w[s.key]; if (v == null || isNaN(v)) { started = false; return null; } const y = Y(v); d += (started ? 'L' : 'M') + X(i).toFixed(1) + ',' + y.toFixed(1) + ' '; started = true; return y; });
-    return { s, d, ys };
+    let d = ''; const ys = wd.map((w, i) => { const raw = w[s.key]; const v = (raw == null || isNaN(raw)) ? 0 : raw; const y = Y(v); d += (i === 0 ? 'M' : 'L') + X(i).toFixed(1) + ',' + y.toFixed(1) + ' '; return y; });   // null/0 baja a la base (no corta)
+    return { s, d, ys, mn, mx: mx2 };
   });
+  // gridlines + ejes Y: izquierdo = 1ª serie activa, derecho = 2ª (como PG). El resto, en el tooltip.
+  const leftS = draw[0], rightS = draw[1], levels = [0, 0.25, 0.5, 0.75, 1];
+  let grid = '';
+  for (const f of levels) {
+    const y = (padT + ih - f * ih);
+    grid += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" stroke="var(--line)" stroke-width="1" opacity=".45"/>`;
+    if (leftS) grid += `<text x="${padL - 5}" y="${(y + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="${leftS.s.color}">${escapeHtml(trackFmt(leftS.s.unit, leftS.mn + f * (leftS.mx - leftS.mn)))}</text>`;
+    if (rightS) grid += `<text x="${W - padR + 5}" y="${(y + 3).toFixed(1)}" text-anchor="start" font-size="9" fill="${rightS.s.color}">${escapeHtml(trackFmt(rightS.s.unit, rightS.mn + f * (rightS.mx - rightS.mn)))}</text>`;
+  }
   const guide = `<line class="trk-guide" x1="0" y1="${padT}" x2="0" y2="${padT + ih}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3" style="display:none"/>`;
   const lines = draw.map(a => `<path d="${a.d}" fill="none" stroke="${a.s.color}" stroke-width="2"/>`).join('');
   const xLabels = [...new Set([0, Math.floor(n / 2), n - 1])].filter(i => i >= 0 && i < n).map(i => `<text x="${X(i).toFixed(1)}" y="${H - 8}" text-anchor="middle" font-size="10" fill="var(--muted)">${escapeHtml(wd[i].label || '')}</text>`).join('');
   _trackGeo = { xs: wd.map((w, i) => X(i)), wd, active: draw, W, H };
-  $('trackChart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block">${guide}${lines}${xLabels}</svg><div class="trk-tip" style="position:absolute;display:none;background:#0b0b0e;border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:11px;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.5);z-index:5;white-space:nowrap"></div>`;
-  $('trackChartHint').innerHTML = active.map(a => `<span style="color:${a.color}">■</span> ${escapeHtml(a.label)}`).join(' &nbsp; ') + ' — semanal desde la 1ª venta.';
+  $('trackChart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block">${grid}${guide}${lines}${xLabels}</svg><div class="trk-tip" style="position:absolute;display:none;background:#0b0b0e;border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:11px;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.5);z-index:5;white-space:nowrap"></div>`;
+  const rangeTxt = _trackWeeksRange ? `últimas ${_trackWeeksRange} semanas` : 'desde la 1ª venta';
+  $('trackChartHint').innerHTML = draw.map(a => `<span style="color:${a.s.color}">■</span> ${escapeHtml(a.s.label)}`).join(' &nbsp; ') + ` — semanal, ${rangeTxt}.` + (leftS ? ` Eje Y izq: ${escapeHtml(leftS.s.label)}` + (rightS ? `; der: ${escapeHtml(rightS.s.label)}` : '') + '.' : '');
   wireTrackHover();
 }
 function wireTrackHover() {

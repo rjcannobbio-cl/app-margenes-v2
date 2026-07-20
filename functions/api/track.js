@@ -189,17 +189,23 @@ export async function onRequest({ request, env }) {
         for (const it of slice) {
           try {
             const m = store.m[it.sku] || { firstSale: null, summary: {}, last: null, weeks: [] };
-            // 1) item ids de ML (cacheados en m.mlIds para no re-resolver)
+            // 1) TODAS las publicaciones ML del SKU (tradicional + catálogo + variantes), paginando; cacheadas en m.mlIds
             let ids = m.mlIds;
             if (!Array.isArray(ids)) {
-              if (!firstCall) await sleep(500); firstCall = false;
-              const s = await mlGet(`/users/${SELLER}/items/search`, { seller_sku: it.sku });
-              ids = (s && Array.isArray(s.results)) ? s.results : [];
+              ids = [];
+              for (let pg = 0; pg < 6; pg++) {
+                if (!firstCall) await sleep(500); firstCall = false;
+                const s = await mlGet(`/users/${SELLER}/items/search`, { seller_sku: it.sku, limit: '50', offset: String(pg * 50) });
+                const res = (s && Array.isArray(s.results)) ? s.results : [];
+                ids.push(...res);
+                const tot = (s && s.paging && s.paging.total != null) ? s.paging.total : res.length;
+                if (!res.length || (pg + 1) * 50 >= tot) break;
+              }
               m.mlIds = ids;
             }
-            // 2) visitas por item → agregado semanal (bucket = lunes ISO) + total
+            // 2) visitas SUMADAS de todas las publicaciones → agregado semanal (bucket = lunes ISO) + total
             const wk = {}; let total = 0;
-            for (const id of ids.slice(0, 3)) {
+            for (const id of ids.slice(0, 30)) {
               if (!firstCall) await sleep(500); firstCall = false;
               const v = await mlGet(`/items/${id}/visits/time_window`, { last: '150', unit: 'day' });
               if (!v) continue;
