@@ -720,7 +720,8 @@ function trackDerived(it, m) {
   const cumpleMargen = (maduro && mgWeeks) ? roll(mgWeeks, 5, 30) : null;
   const velReal = (mx && mx.summary && mx.summary.velReal != null) ? mx.summary.velReal : it.avgWeekly;
   const velApp = (it.velApp != null) ? it.velApp : (it.avgWeekly != null ? it.avgWeekly : null);   // velocidad que muestra PG
-  return { firstSale, velMadura, maduro, cumpleVel, cumpleMargen, velReal, velApp };
+  const diasDesde1a = firstSale ? Math.floor((Date.now() - Date.parse(firstSale + 'T00:00:00')) / 864e5) : null;
+  return { firstSale, diasDesde1a, velMadura, maduro, cumpleVel, cumpleMargen, velReal, velApp, stock: it.stock != null ? it.stock : null };
 }
 function paintTrack() {
   const d = _trackData || { products: null, meta: {} };
@@ -747,8 +748,9 @@ function paintTrack() {
     if (!o) return '–';
     switch (metric) { case 'ventas': return numFmt(o.units); case 'margen': return o.marginPct != null ? Math.round(o.marginPct) + '%' : '–'; case 'tacos': return o.tacos != null ? Math.round(o.tacos * 10) / 10 + '%' : '–'; case 'visitas': return numFmt(o.visits); case 'conv': return o.conv != null ? Math.round(o.conv * 10) / 10 + '%' : '–'; } };
   // Encabezado: 2 clusters por PERÍODO ("Desde 1ª venta" | "Última semana"), cada uno con las 5 métricas.
-  const fsArrow = _trackSort === 'fs-asc' ? ' ▲' : _trackSort === 'fs-desc' ? ' ▼' : ' ⇅';
-  let h1 = '<th rowspan="2">SKU</th><th rowspan="2" style="text-align:left">Título</th><th rowspan="2" title="Se define después">Vel. inicial</th><th rowspan="2" title="Velocidad de venta que muestra ProfitGuard">Vel. App</th><th rowspan="2" title="Editable">Vel. madura</th>' + `<th rowspan="2" id="trkSortFs" style="cursor:pointer" title="Ordenar por fecha de 1ª venta">1ª venta${fsArrow}</th>`;
+  // El arrow refleja el orden por DÍAS: fs-desc = 1ª venta reciente = menos días arriba = ▲.
+  const fsArrow = _trackSort === 'fs-desc' ? ' ▲' : _trackSort === 'fs-asc' ? ' ▼' : ' ⇅';
+  let h1 = '<th rowspan="2">SKU</th><th rowspan="2" style="text-align:left">Título</th><th rowspan="2" title="Se define después">Vel. inicial</th><th rowspan="2" title="Velocidad de venta que muestra ProfitGuard">Vel. App</th><th rowspan="2" title="Editable">Vel. madura</th>' + `<th rowspan="2" id="trkSortFs" style="cursor:pointer" title="Días transcurridos desde la 1ª venta (ordenable)">Días 1ª venta${fsArrow}</th>` + '<th rowspan="2" title="Stock total en ProfitGuard (todas las bodegas)">Stock</th>';
   let h2 = '';
   for (const [pk, pname] of TRACK_PERIODS) {
     if (_trackCollapsed.has(pk)) { h1 += `<th rowspan="2" class="trk-grp" data-g="${pk}" style="cursor:pointer" title="Expandir">▸ ${pname}</th>`; }
@@ -768,7 +770,8 @@ function paintTrack() {
       <td class="mcell muted">–</td>
       <td class="mcell">${der.velApp != null ? der.velApp : '–'}</td>
       <td><input type="number" class="trk-vm" data-sku="${esc(it.sku || '')}" value="${der.velMadura != null ? der.velMadura : ''}" placeholder="–" min="0" step="0.1" style="width:60px;text-align:right;font-size:12px"></td>
-      <td title="Obtenida de ProfitGuard (1ª venta real). '–' = aún sin ventas.">${der.firstSale ? esc(der.firstSale) : '<span class="muted">–</span>'}</td>
+      <td class="mcell" title="${der.firstSale ? '1ª venta: ' + esc(der.firstSale) : 'Aún sin ventas'}">${der.diasDesde1a != null ? der.diasDesde1a + ' d' : '<span class="muted">–</span>'}</td>
+      <td class="mcell">${der.stock != null ? numFmt(der.stock) : '<span class="muted">–</span>'}</td>
       ${tds}
       <td style="text-align:center">${yn(der.firstSale ? der.maduro : null)}</td>
       <td style="text-align:center">${yn(der.cumpleVel)}</td>

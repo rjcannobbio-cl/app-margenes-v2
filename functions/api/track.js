@@ -81,6 +81,7 @@ export async function onRequest({ request, env }) {
               id: it.id, sku: it.sku, name: (it.name || '').slice(0, 90), kit: !!it.kit, category: it.category || '',
               avgWeekly: it.averageWeeklySales != null ? it.averageWeeklySales : null,
               velApp: it.weeklySalesSpeed != null ? it.weeklySalesSpeed : null,   // "Vel. App" = velocidad que muestra PG
+              stock: it.totalStock != null ? it.totalStock : null,               // stock total (todas las bodegas)
 
               weeks: (it.weeklySales || []).map(w => ({ s: w.startDate, e: w.endDate, u: w.units || 0, n: w.number }))
             });
