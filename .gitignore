@@ -11,3 +11,8 @@
 # Excepción: el logo sí va al repo
 !assets/etbrands-logo.png
 !assets/etbrands-logo.jpg
+
+# scratch/preview P2
+p2-preview-*.html
+p2-*-rawdata.json
+_*.xlsx
