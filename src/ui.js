@@ -686,8 +686,10 @@ function showTab(name) {
 /* ================= Seguimiento de productos nuevos (categoría D) ================= */
 let _trackData = null;                     // { products:{ts,items}, meta:{sku:{firstSale,velMadura,velInicial}} }
 let _trackMetrics = {};                    // {sku:{summary, weeks, visitas, ...}} — Fase 2 (financieros/visitas)
-const TRACK_GROUPS = [['ventas', 'Ventas'], ['margen', 'Margen'], ['tacos', 'TACOS'], ['visitas', 'Visitas'], ['conv', 'Conversión']];
-let _trackCollapsed = new Set(TRACK_GROUPS.map(g => g[0]));   // todos colapsados por defecto
+// Clusters POR PERÍODO: cada uno con las 5 métricas. "Desde 1ª venta" abierto por defecto; "Última semana" colapsado.
+const TRACK_PERIODS = [['desde', 'Desde 1ª venta'], ['ult', 'Última semana']];
+const TRACK_METRIC_COLS = [['ventas', 'Ventas'], ['margen', 'Margen'], ['tacos', 'TACOS'], ['visitas', 'Visitas'], ['conv', 'Conversión']];
+let _trackCollapsed = new Set(['ult']);   // solo "Última semana" colapsado por defecto
 const WK_MS = 7 * 864e5;
 function trackStatus(msg, err) { const el = $('trackStatus'); if (!el) return; el.textContent = msg || ''; el.style.color = err ? 'var(--bad)' : 'var(--muted)'; }
 let _trackMetricsTs = 0;
@@ -733,23 +735,24 @@ function paintTrack() {
   const numFmt = v => (v == null || v === '' || isNaN(v)) ? '–' : Math.round(v).toLocaleString('es-CL');
   const yn = v => v == null ? '<span class="muted">—</span>' : (v ? '<span style="color:var(--good);font-weight:700">Sí</span>' : '<span style="color:var(--bad);font-weight:700">No</span>');
   const mv = _trackMetrics;
-  const cellFor = (sku, g, span) => { const x = mv[sku]; const s = x && x.summary, w = x && x.last;   // Fase 2: financieros/visitas
-    const val = (o) => { if (!o) return '–'; switch (g) { case 'ventas': return numFmt(o.units); case 'margen': return o.marginPct != null ? Math.round(o.marginPct) + '%' : '–'; case 'tacos': return o.tacos != null ? Math.round(o.tacos * 10) / 10 + '%' : '–'; case 'visitas': return numFmt(o.visits); case 'conv': return o.conv != null ? Math.round(o.conv * 10) / 10 + '%' : '–'; } };
-    return span === 'desde' ? val(s) : val(w); };
-  // Encabezado con grupos colapsables (2 sub-cols: desde 1ª venta | última sem).
+  // Valor de una métrica para un período ('desde' = resumen desde 1ª venta | 'ult' = última semana cerrada).
+  const cellFor = (sku, metric, period) => { const x = mv[sku]; const o = period === 'desde' ? (x && x.summary) : (x && x.last);
+    if (!o) return '–';
+    switch (metric) { case 'ventas': return numFmt(o.units); case 'margen': return o.marginPct != null ? Math.round(o.marginPct) + '%' : '–'; case 'tacos': return o.tacos != null ? Math.round(o.tacos * 10) / 10 + '%' : '–'; case 'visitas': return numFmt(o.visits); case 'conv': return o.conv != null ? Math.round(o.conv * 10) / 10 + '%' : '–'; } };
+  // Encabezado: 2 clusters por PERÍODO ("Desde 1ª venta" | "Última semana"), cada uno con las 5 métricas.
   let h1 = '<th rowspan="2">SKU</th><th rowspan="2" style="text-align:left">Título</th><th rowspan="2" title="Se define después">Vel. inicial</th><th rowspan="2" title="Velocidad real (prom. semanal)">Vel. real</th><th rowspan="2" title="Editable">Vel. madura</th><th rowspan="2">1ª venta</th>';
   let h2 = '';
-  for (const [k, name] of TRACK_GROUPS) {
-    if (_trackCollapsed.has(k)) { h1 += `<th rowspan="2" class="trk-grp" data-g="${k}" style="cursor:pointer" title="Expandir">▸ ${name}</th>`; }
-    else { h1 += `<th colspan="2" class="trk-grp" data-g="${k}" style="cursor:pointer" title="Colapsar">▾ ${name}</th>`; h2 += '<th title="Desde 1ª venta">desde 1ª v.</th><th title="Última semana cerrada">últ. sem</th>'; }
+  for (const [pk, pname] of TRACK_PERIODS) {
+    if (_trackCollapsed.has(pk)) { h1 += `<th rowspan="2" class="trk-grp" data-g="${pk}" style="cursor:pointer" title="Expandir">▸ ${pname}</th>`; }
+    else { h1 += `<th colspan="${TRACK_METRIC_COLS.length}" class="trk-grp" data-g="${pk}" style="cursor:pointer" title="Colapsar">▾ ${pname}</th>`; h2 += TRACK_METRIC_COLS.map(m => `<th>${m[1]}</th>`).join(''); }
   }
   h1 += '<th rowspan="2" title="12 semanas desde la 1ª venta">Maduro</th><th rowspan="2">Cumple vel.</th><th rowspan="2">Cumple margen</th>';
   const body = rows.map(it => {
     const der = trackDerived(it, meta[it.sku]);
     let tds = '';
-    for (const [k] of TRACK_GROUPS) {
-      if (_trackCollapsed.has(k)) tds += `<td class="mcell muted">–</td>`;
-      else tds += `<td class="mcell">${cellFor(it.sku, k, 'desde')}</td><td class="mcell">${cellFor(it.sku, k, 'ult')}</td>`;
+    for (const [pk] of TRACK_PERIODS) {
+      if (_trackCollapsed.has(pk)) tds += `<td class="mcell muted">–</td>`;
+      else tds += TRACK_METRIC_COLS.map(m => `<td class="mcell">${cellFor(it.sku, m[0], pk)}</td>`).join('');
     }
     return `<tr data-sku="${esc(it.sku || '')}">
       <td>${esc(it.sku || '')}</td>
@@ -828,7 +831,7 @@ const TRACK_SERIES = [
   { key: 'visitas', label: 'Visitas ML', color: '#a78bfa', unit: 'n' },
   { key: 'conv', label: 'Conversión %', color: '#f472b6', unit: '%' }
 ];
-let _trackChartSku = null, _trackSeriesOn = new Set(['ventas']), _trackGeo = null;
+let _trackChartSku = null, _trackSeriesOn = new Set(['ventas', 'margen', 'tacos', 'visitas', 'conv']), _trackGeo = null;
 function trackFmt(unit, v) { if (v == null || isNaN(v)) return '–'; if (unit === '%') return (Math.round(v * 10) / 10) + '%'; if (unit === '$') return '$' + Math.round(v).toLocaleString('es-CL'); return Math.round(v).toLocaleString('es-CL'); }
 function isoWeek(s) { const d = new Date(String(s) + 'T00:00:00'); if (isNaN(d)) return null; const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())); t.setUTCDate(t.getUTCDate() - ((t.getUTCDay() + 6) % 7) + 3); const first = new Date(Date.UTC(t.getUTCFullYear(), 0, 4)); return 1 + Math.round(((t - first) / 864e5 - 3 + ((first.getUTCDay() + 6) % 7)) / 7); }
 function wkLabel(w) { if (w.n != null) return 'W' + w.n; const iw = w.s ? isoWeek(w.s) : null; return iw != null ? 'W' + iw : (w.s || '').slice(5); }
