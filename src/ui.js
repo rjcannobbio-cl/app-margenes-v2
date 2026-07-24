@@ -1037,6 +1037,9 @@ function paintDb(mode) {
   // Datos del cierre (SKU + Mes), solo en Productos cerrados.
   const closedInfoHead = isClosed ? '<th>SKU cierre</th><th>Mes cierre</th><th>Año cierre</th>' : '';
   const closedInfoCells = x => isClosed ? `<td>${escapeHtml(x.skuCierre || '')}</td><td>${escapeHtml(x.mesCierre || '')}</td><td>${escapeHtml(x.anioCierre || '')}</td>` : '';
+  // Autorización de venta (última columna, solo Productos cerrados). El check exige la clave.
+  const authHead = isClosed ? '<th title="Solo el dueño con la clave puede autorizar">Autorizado a vender</th>' : '';
+  const authCell = x => { if (!isClosed) return ''; const on = !!(_sellAuth[x.id] && _sellAuth[x.id].ok); return `<td class="sell-auth-cell" style="text-align:center;white-space:nowrap"><input type="checkbox" class="sell-auth" data-id="${escapeHtml(x.id || '')}" ${on ? 'checked' : ''} title="Autorizar venta (requiere clave)"> <span style="font-size:11px;font-weight:700;color:${on ? 'var(--good)' : 'var(--muted)'}">${on ? 'Autorizado' : '—'}</span></td>`; };
 
   const packHead = packExpanded
     ? `<th class="pack-toggle" title="Agrupar packaging">📦 ◂ Alto</th><th>Largo</th><th>Ancho</th><th>Peso</th>`
@@ -1068,18 +1071,19 @@ function paintDb(mode) {
       ${hprice(x, 'precioDOD')}${hmarg('dod', histMlMarginPct(x, x.precioDOD))}
       ${varCells(x)}
       ${actionCell(x)}
+      ${authCell(x)}
     </tr>`; }).join('');
   wrap.innerHTML = `<table class="histtab dbtab"><thead><tr>
     <th>Nombre</th><th>SKU</th>${closedInfoHead}<th>Proveedor</th><th>N° Cotización</th>
     ${packHead}<th>Costo FOB</th><th>Landed COGS</th>
     <th>Súper</th><th>Categoría ML</th><th class="co-only">HS</th><th class="co-only">Arancel %</th><th>Precio Meli</th><th>Margen Meli</th><th class="fbla-col">Precio Fala</th><th class="fbla-col">Margen Fala</th>
-    <th>Precio Full</th><th>Margen Full</th><th>Precio AON</th><th>Margen AON</th><th>Precio DOD</th><th>Margen DOD</th>${varHead}<th></th>
+    <th>Precio Full</th><th>Margen Full</th><th>Precio AON</th><th>Margen AON</th><th>Precio DOD</th><th>Margen DOD</th>${varHead}<th></th>${authHead}
   </tr></thead><tbody>${rows}</tbody></table>`;
 
   const toggle = wrap.querySelector('.pack-toggle');
   if (toggle) toggle.onclick = (e) => { e.stopPropagation(); packExpanded = !packExpanded; rerender(); };
   wrap.querySelectorAll('tr[data-i]').forEach(tr => tr.onclick = (e) => {
-    if (e.target.closest('button') || e.target.closest('.pack-toggle') || e.target.closest('input')) return;
+    if (e.target.closest('button') || e.target.closest('.pack-toggle') || e.target.closest('input') || e.target.closest('.sell-auth-cell')) return;
     showTab('calc'); loadFromHist(filtered[parseInt(tr.dataset.i, 10)], mode);
   });
   // Precio Full / DOD editables → recalculan su margen (Meli) y persisten en la base del país.
@@ -1100,6 +1104,7 @@ function paintDb(mode) {
     item.arancelPct = inp.value === '' ? '' : (parseFloat(inp.value) || 0);
     save(item); paintDb(mode);   // el arancel cambia el COGS y los márgenes
   }));
+  wrap.querySelectorAll('input.sell-auth').forEach(cb => cb.onchange = onSellAuthToggle);
   wrap.querySelectorAll('button[data-close]').forEach(b => b.onclick = (e) => { e.stopPropagation(); closeProduct(all.find(x => x.id === b.dataset.close)); });
   wrap.querySelectorAll('button[data-reopen]').forEach(b => b.onclick = (e) => { e.stopPropagation(); reopenProduct(all.find(x => x.id === b.dataset.reopen)); });
   wrap.querySelectorAll('button[data-del]').forEach(b => b.onclick = async (e) => {
@@ -1134,8 +1139,26 @@ async function closedDel(id) {
 }
 const _closedSavers = {};
 function closedSaveDebounced(item) { clearTimeout(_closedSavers[item.id]); _closedSavers[item.id] = setTimeout(() => closedAdd(item), 600); }
+// Autorización de venta (solo el dueño con el PIN). Estado abierto para leer; escribir exige clave.
+let _sellAuth = {}, _sellPin = null;
+async function sellAuthLoad() { try { const j = await (await fetch(api('/api/sellauth'))).json(); _sellAuth = (j && j.auth) || {}; } catch (e) { _sellAuth = {}; } }
+async function onSellAuthToggle(e) {
+  const cb = e.target, id = cb.dataset.id, want = cb.checked;
+  if (!_sellPin) { const p = prompt('Clave para autorizar la venta (solo el dueño):'); if (p == null || p === '') { cb.checked = !want; return; } _sellPin = p; }
+  cb.disabled = true;
+  try {
+    const r = await fetch(api('/api/sellauth'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, ok: want, pin: _sellPin }) });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 403) { alert('Clave incorrecta.'); _sellPin = null; cb.checked = !want; }
+    else if (!r.ok) { alert('Error: ' + (j.error || r.status)); cb.checked = !want; }
+    else _sellAuth = j.auth || _sellAuth;
+  } catch (err) { alert('Error de red.'); cb.checked = !want; }
+  cb.disabled = false;
+  if (!$('tabClosed').classList.contains('hidden')) paintClosed();
+}
 async function renderClosed() {
   _closedAll = await closedLoad();
+  await sellAuthLoad();
   _closedSig = JSON.stringify(_closedAll);
   paintClosed();
 }
