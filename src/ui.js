@@ -190,6 +190,41 @@ function recompute() {
   state.lastResult = { nombre: $('inpNombre').value.trim(), ml: rML, fbla: rFB };
   renderCard('ml', rML);
   renderCard('fbla', rFB);
+  // Simulación de pack (mismo producto en pack de N unidades). Reusa la misma lógica reescalando entradas.
+  renderPackSim({ alto, ancho, largo, peso, costo, precioML, precioFB, isSuper, comML, comFB, unitMlPct: rML.valid ? rML.marginPct : null, unitFbPct: rFB.valid ? rFB.marginPct : null });
+}
+// Pack de N unidades: COGS/precio/peso ×N y una dimensión ×N, pero UN SOLO envío (ahí está la ganancia del pack).
+function renderPackSim(p) {
+  const out = $('packOut'); if (!out) return;
+  if (!($('inpPack') && $('inpPack').checked)) { out.innerHTML = ''; return; }
+  const n = Math.floor(num('inpPackU'));
+  if (!(n >= 2)) { out.innerHTML = '<div class="hint" style="margin-top:8px">Ingresa las <b>unidades por pack</b> (entero ≥ 2).</div>'; return; }
+  const wPack = billableWeight(p.peso * n, p.alto * n, p.ancho, p.largo, VOL_DIVISOR);   // peso ×N + una dimensión (alto) ×N
+  const costoPack = p.costo * n;   // COGS ×N
+  const pML = p.precioML ? computeChannel('ml', p.precioML * n, costoPack, p.comML || 0, wPack, p.isSuper, cfg) : null;
+  const pFB = p.precioFB ? computeChannel('fbla', p.precioFB * n, costoPack, p.comFB || 0, wPack, false, cfg) : null;
+  const block = (head, r, unitPct, hide) => {
+    if (!r || !r.valid) return '';
+    const cmp = (unitPct != null) ? `<div class="hint" style="margin-top:3px">Unidad suelta ${fmtPct(unitPct)} → <b style="color:var(--ink)">pack ${fmtPct(r.marginPct)}</b></div>` : '';
+    return `<div class="${hide ? 'fbla-col' : ''}" style="margin-top:10px">
+      <div style="font-weight:700;font-size:12px;margin-bottom:3px">${head}</div>
+      <table class="restab">
+        ${line('Precio pack (' + n + 'u)', fmtCLP(r.price), '100%', 'neutral')}
+        ${line('COGS pack (×' + n + ')', '− ' + fmtCLP(r.cogs), fmtPct(r.cogsPct), 'cost')}
+        ${line('Comisión', '− ' + fmtCLP(r.com), fmtPct(r.comPctOfPrice), 'cost')}
+        ${line('Envío (1 despacho)', '− ' + fmtCLP(r.ship), fmtPct(r.shipPct), 'cost')}
+      </table>
+      <div class="margin-row ${marginClass(r.marginPct)}"><span>Margen pack</span><span class="margin-vals"><b>${fmtCLP(r.margin)}</b><small>${fmtPct(r.marginPct)}</small></span></div>
+      ${cmp}
+    </div>`;
+  };
+  out.innerHTML = `<div class="landed-out" style="display:block;margin-top:12px">
+    <div style="font-weight:700;color:var(--ink)">📦 Simulación de pack · ${n} unidades</div>
+    <div class="hint" style="margin:2px 0">COGS, precio y peso ×${n}; una dimensión del packaging ×${n}; <b>un solo envío</b> para las ${n} unidades.</div>
+    ${block('Mercado Libre', pML, p.unitMlPct, false)}
+    ${block('Falabella', pFB, p.unitFbPct, true)}
+    ${(!pML && !pFB) ? '<div class="hint">Ingresa un precio de venta para ver el pack.</div>' : ''}
+  </div>`;
 }
 
 function marginClass(pct) {
@@ -2697,6 +2732,8 @@ function init() {
   // recompute en cualquier cambio de input numérico
   ['inpAlto','inpAncho','inpLargo','inpPeso','inpFob','inpPrecioML','inpPrecioFB','inpArancel','inpHs'].forEach(id => $(id).addEventListener('input', recompute));
   $('inpSuper').addEventListener('change', recompute);
+  $('inpPack').addEventListener('change', () => { const on = $('inpPack').checked; $('inpPackU').style.display = on ? '' : 'none'; if (on && !(Math.floor(num('inpPackU')) >= 2)) $('inpPackU').value = 2; recompute(); });
+  $('inpPackU').addEventListener('input', recompute);
 
   // deducción 3 s después de que el usuario deja de escribir (la IA tarda y consume cuota)
   $('inpNombre').addEventListener('input', debounce(autoDeduce, 3000));
