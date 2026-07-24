@@ -15,7 +15,7 @@
 export async function onRequest({ request, env }) {
   const kv = env.MARGENES_KV;
   if (!kv) return json({ error: 'KV no configurado (binding MARGENES_KV)' }, 501);
-  const PIN = env['sell-auth-pin'] || env.sell_auth_pin || env.SELL_AUTH_PIN;
+  const PIN = '4747';   // clave fija por código (decisión del dueño; herramienta interna)
 
   try {
     if (request.method === 'GET') {
@@ -23,7 +23,7 @@ export async function onRequest({ request, env }) {
       return json({ auth, configured: !!PIN });
     }
     if (request.method === 'POST') {
-      if (!PIN) return json({ error: 'Falta configurar el secret sell-auth-pin en Cloudflare' }, 501);
+      if (!PIN) return json({ error: 'PIN no configurado' }, 501);
       const b = await request.json().catch(() => ({}));
       const id = b && b.id != null ? String(b.id) : '';
       if (!id) return json({ error: 'falta id' }, 400);
