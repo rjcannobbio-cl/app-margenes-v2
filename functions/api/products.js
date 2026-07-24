@@ -33,12 +33,15 @@ export async function onRequest({ request, env }) {
       return json(raw ? JSON.parse(raw) : []);
     }
     if (method === 'POST') {
-      const item = await request.json();
+      const body = await request.json();
+      const items = Array.isArray(body) ? body : [body];   // acepta 1 objeto o un array (bulk, 1 solo write → sin carreras KV)
       const list = JSON.parse((await kv.get(KEY)) || '[]');
-      const i = item && item.id ? list.findIndex(x => x.id === item.id) : -1;
-      if (i >= 0) list[i] = item; else list.push(item);   // upsert por id
+      for (const item of items) {
+        const i = item && item.id ? list.findIndex(x => x.id === item.id) : -1;
+        if (i >= 0) list[i] = item; else list.push(item);   // upsert por id
+      }
       await kv.put(KEY, JSON.stringify(list));
-      return json({ ok: true, count: list.length });
+      return json({ ok: true, count: list.length, added: items.length });
     }
     if (method === 'DELETE') {
       if (url.searchParams.get('all')) { await kv.put(KEY, '[]'); return json({ ok: true }); }
