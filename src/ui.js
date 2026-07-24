@@ -1047,8 +1047,8 @@ function paintDb(mode) {
 
   const rows = filtered.map((x, i) => { const o = deriveOutputs(x); return `
     <tr data-i="${i}" title="Clic para cargar este producto en la calculadora">
-      <td>${escapeHtml(compositeId(x))}</td>
-      <td>${escapeHtml(x.nombre || '')}</td>
+      <td title="${escapeHtml(x.nombre || '')}">${escapeHtml((x.nombre || '').slice(0, 20))}${(x.nombre || '').length > 20 ? '…' : ''}</td>
+      <td title="SKU del proveedor">${escapeHtml(x.skuProveedor || '')}</td>
       ${closedInfoCells(x)}
       <td>${escapeHtml(x.proveedor || '')}</td>
       <td>${escapeHtml(x.cotizacion || '')}</td>
@@ -1070,7 +1070,7 @@ function paintDb(mode) {
       ${actionCell(x)}
     </tr>`; }).join('');
   wrap.innerHTML = `<table class="histtab dbtab"><thead><tr>
-    <th>ID</th><th>Nombre producto</th>${closedInfoHead}<th>Proveedor</th><th>N° Cotización</th>
+    <th>Nombre</th><th>SKU</th>${closedInfoHead}<th>Proveedor</th><th>N° Cotización</th>
     ${packHead}<th>Costo FOB</th><th>Landed COGS</th>
     <th>Súper</th><th>Categoría ML</th><th class="co-only">HS</th><th class="co-only">Arancel %</th><th>Precio Meli</th><th>Margen Meli</th><th class="fbla-col">Precio Fala</th><th class="fbla-col">Margen Fala</th>
     <th>Precio Full</th><th>Margen Full</th><th>Precio AON</th><th>Margen AON</th><th>Precio DOD</th><th>Margen DOD</th>${varHead}<th></th>
