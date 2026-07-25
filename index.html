@@ -347,6 +347,10 @@
         <input type="checkbox" id="inpPack"><label style="margin:0;color:var(--ink);font-weight:600">Simular pack</label>
         <input type="number" id="inpPackU" placeholder="u/pack" min="2" step="1" title="Unidades por pack (entero ≥ 2)" style="width:96px;margin-left:12px;display:none">
       </div>
+      <div id="packPriceRow" class="row2" style="display:none;margin-top:6px">
+        <div><input type="number" id="inpPackPrecioML" placeholder="Precio pack ML" min="0" step="1"><div class="hint">precio pack ML (vacío = unitario ×N)</div></div>
+        <div class="fbla-col"><input type="number" id="inpPackPrecioFB" placeholder="Precio pack Falabella" min="0" step="1"><div class="hint">precio pack Falabella (vacío = unitario ×N)</div></div>
+      </div>
       <div id="packOut"></div>
     </div>
 
@@ -646,6 +650,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=262500"></script>
+<script src="src/ui.js?v=262600"></script>
 </body>
 </html>

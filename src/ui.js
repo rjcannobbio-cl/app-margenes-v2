@@ -201,8 +201,14 @@ function renderPackSim(p) {
   if (!(n >= 2)) { out.innerHTML = '<div class="hint" style="margin-top:8px">Ingresa las <b>unidades por pack</b> (entero ≥ 2).</div>'; return; }
   const wPack = billableWeight(p.peso * n, p.alto * n, p.ancho, p.largo, VOL_DIVISOR);   // peso ×N + una dimensión (alto) ×N
   const costoPack = p.costo * n;   // COGS ×N
-  const pML = p.precioML ? computeChannel('ml', p.precioML * n, costoPack, p.comML || 0, wPack, p.isSuper, cfg) : null;
-  const pFB = p.precioFB ? computeChannel('fbla', p.precioFB * n, costoPack, p.comFB || 0, wPack, false, cfg) : null;
+  // Precio del pack: editable. Si el input está vacío, se usa el precio unitario ×N (sugerido en el placeholder).
+  const autoML = p.precioML * n, autoFB = p.precioFB * n;
+  if ($('inpPackPrecioML')) $('inpPackPrecioML').placeholder = autoML ? 'Precio pack ML: $' + Math.round(autoML).toLocaleString('es-CL') : 'Precio pack ML';
+  if ($('inpPackPrecioFB')) $('inpPackPrecioFB').placeholder = autoFB ? 'Precio pack Falabella: $' + Math.round(autoFB).toLocaleString('es-CL') : 'Precio pack Falabella';
+  const priceML = num('inpPackPrecioML') || autoML;
+  const priceFB = num('inpPackPrecioFB') || autoFB;
+  const pML = priceML ? computeChannel('ml', priceML, costoPack, p.comML || 0, wPack, p.isSuper, cfg) : null;
+  const pFB = priceFB ? computeChannel('fbla', priceFB, costoPack, p.comFB || 0, wPack, false, cfg) : null;
   const block = (head, r, unitPct, hide) => {
     if (!r || !r.valid) return '';
     const cmp = (unitPct != null) ? `<div class="hint" style="margin-top:3px">Unidad suelta ${fmtPct(unitPct)} → <b style="color:var(--ink)">pack ${fmtPct(r.marginPct)}</b></div>` : '';
@@ -2732,8 +2738,10 @@ function init() {
   // recompute en cualquier cambio de input numérico
   ['inpAlto','inpAncho','inpLargo','inpPeso','inpFob','inpPrecioML','inpPrecioFB','inpArancel','inpHs'].forEach(id => $(id).addEventListener('input', recompute));
   $('inpSuper').addEventListener('change', recompute);
-  $('inpPack').addEventListener('change', () => { const on = $('inpPack').checked; $('inpPackU').style.display = on ? '' : 'none'; if (on && !(Math.floor(num('inpPackU')) >= 2)) $('inpPackU').value = 2; recompute(); });
+  $('inpPack').addEventListener('change', () => { const on = $('inpPack').checked; $('inpPackU').style.display = on ? '' : 'none'; $('packPriceRow').style.display = on ? '' : 'none'; if (on && !(Math.floor(num('inpPackU')) >= 2)) $('inpPackU').value = 2; recompute(); });
   $('inpPackU').addEventListener('input', recompute);
+  $('inpPackPrecioML').addEventListener('input', recompute);
+  $('inpPackPrecioFB').addEventListener('input', recompute);
 
   // deducción 3 s después de que el usuario deja de escribir (la IA tarda y consume cuota)
   $('inpNombre').addEventListener('input', debounce(autoDeduce, 3000));
