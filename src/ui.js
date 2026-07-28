@@ -824,8 +824,8 @@ function paintTrack() {
       else tds += TRACK_METRIC_COLS.map(m => `<td class="mcell">${cellFor(it.sku, m[0], pk)}</td>`).join('');
     }
     return `<tr data-sku="${esc(it.sku || '')}">
-      <td>${esc(it.sku || '')}</td>
-      <td title="${esc(it.name || '')}" style="max-width:220px;overflow:hidden;text-overflow:ellipsis">${esc(it.name || '')}${it.kit ? ' <span class="muted" title="Kit/pack">·kit</span>' : ''}</td>
+      <td class="trk-linkcell" data-id="${esc(it.id != null ? String(it.id) : '')}" data-sku="${esc(it.sku || '')}" data-name="${esc(it.name || '')}" style="cursor:pointer;color:#7db0ff;text-decoration:underline;text-underline-offset:2px" title="Ver publicaciones por canal">${esc(it.sku || '')}</td>
+      <td class="trk-linkcell" data-id="${esc(it.id != null ? String(it.id) : '')}" data-sku="${esc(it.sku || '')}" data-name="${esc(it.name || '')}" title="${esc(it.name || '')} — clic para ver publicaciones" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;cursor:pointer">${esc(it.name || '')}${it.kit ? ' <span class="muted" title="Kit/pack">·kit</span>' : ''}</td>
       <td class="mcell muted">–</td>
       <td class="mcell">${der.velApp != null ? der.velApp : '–'}</td>
       <td><input type="number" class="trk-vm" data-sku="${esc(it.sku || '')}" value="${der.velMadura != null ? der.velMadura : ''}" placeholder="–" min="0" step="0.1" style="width:60px;text-align:right;font-size:12px"></td>
@@ -845,6 +845,7 @@ function paintTrack() {
   { const th = wrap.querySelector('#trkSortFs'); if (th) th.onclick = () => { _trackSort = _trackSort === 'fs-asc' ? 'fs-desc' : (_trackSort === 'fs-desc' ? null : 'fs-asc'); paintTrack(); }; }
   wrap.querySelectorAll('.trk-vm').forEach(inp => { inp.onclick = e => e.stopPropagation(); inp.onchange = () => trackSaveMeta(inp.dataset.sku, { velMadura: inp.value === '' ? null : parseFloat(inp.value) }); });
   wrap.querySelectorAll('tbody tr[data-sku]').forEach(tr => { tr.style.cursor = 'pointer'; tr.onclick = () => openTrackChart(tr.dataset.sku); });
+  wrap.querySelectorAll('.trk-linkcell').forEach(td => td.onclick = e => { e.stopPropagation(); openTrackLinks(td.dataset.id, td.dataset.sku, td.dataset.name); });
 }
 async function trackSaveMeta(sku, patch) {
   if (!_trackData) return; _trackData.meta = _trackData.meta || {}; _trackData.meta[sku] = Object.assign({}, _trackData.meta[sku], patch);
@@ -944,6 +945,30 @@ function openTrackChart(sku) {
   paintTrackCards(_trackMetrics[sku]);
   paintTrackChart();
   $('trackOverlay').classList.remove('hidden');
+}
+// Popup con las publicaciones del producto (y sus packs) en cada marketplace, con link directo.
+async function openTrackLinks(id, sku, name) {
+  $('tlName').textContent = name || sku || '';
+  $('tlSku').textContent = sku || '';
+  $('tlBody').innerHTML = '<p class="muted" style="padding:12px">Buscando publicaciones en todos los canales…</p>';
+  $('trackLinksOverlay').classList.remove('hidden');
+  let j;
+  try { j = await (await fetch(api('/api/track'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'links', id: parseInt(id) || 0, sku: sku || '' }) })).json(); } catch (e) { $('tlBody').innerHTML = '<p style="color:var(--bad);padding:12px">Error de red: ' + escapeHtml(e.message) + '</p>'; return; }
+  if (!j || j.error) { $('tlBody').innerHTML = '<p style="color:var(--bad);padding:12px">Error: ' + escapeHtml((j && j.error) || 'sin datos') + '</p>'; return; }
+  const esc = escapeHtml;
+  const rowsFor = (s, nm, pubs) => (pubs || []).map(p => `<tr>
+      <td>${esc(s || '')}</td>
+      <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis" title="${esc(nm || '')}">${esc(nm || '')}</td>
+      <td>${esc(p.canal || '')}${p.active === false ? ' <span class="muted" style="font-size:10px">(inactiva)</span>' : ''}</td>
+      <td>${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener" style="color:#7db0ff">Abrir ↗</a>` : '<span class="muted">sin link</span>'}</td>
+    </tr>`).join('');
+  let body = rowsFor(j.product.sku, name, j.product.pubs);
+  for (const k of (j.packs || [])) body += rowsFor(k.sku, (k.name || '') + (k.qty ? ' (×' + k.qty + ')' : ''), k.pubs);
+  const total = (j.product.pubs || []).length + (j.packs || []).reduce((a, k) => a + (k.pubs || []).length, 0);
+  $('tlBody').innerHTML = total
+    ? `<div style="overflow-x:auto"><table class="tl-tab"><thead><tr><th>SKU</th><th>Título</th><th>Canal</th><th>Link</th></tr></thead><tbody>${body}</tbody></table></div>`
+      + (j.packs && j.packs.length ? '' : '<p class="hint" style="margin-top:6px">Este producto no está en ningún pack.</p>')
+    : '<p class="muted" style="padding:12px">No se encontraron publicaciones.</p>';
 }
 // Cuadritos de métricas del producto (resumen desde 1ª venta), estilo ficha de PG.
 function paintTrackCards(mx) {
@@ -2815,6 +2840,8 @@ function init() {
   { const el = $('trackOnlyIncomplete'); if (el) el.addEventListener('change', paintTrack); }
   { const b = $('trackClose'); if (b) b.onclick = () => $('trackOverlay').classList.add('hidden'); }
   { const o = $('trackOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
+  { const b = $('tlClose'); if (b) b.onclick = () => $('trackLinksOverlay').classList.add('hidden'); }
+  { const o = $('trackLinksOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
   { const b = $('btnResearchFilter'); if (b) b.onclick = openResearchFilter; }
   { const b = $('btnResearchClear'); if (b) b.onclick = clearResearchFilter; }
   { const b = $('researchFilterClose'); if (b) b.onclick = () => $('researchFilterOverlay').classList.add('hidden'); }

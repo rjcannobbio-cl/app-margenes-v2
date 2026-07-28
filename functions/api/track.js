@@ -296,7 +296,9 @@ export async function onRequest({ request, env }) {
               }
             } catch (e) {}
           }
-          return out;
+          const seen = new Set(), dedup = [];   // evita duplicados (ej. Paris con variante -1 → misma URL)
+          for (const o of out) { const k = o.url || (o.canal + '|' + o.externalId); if (seen.has(k)) continue; seen.add(k); dedup.push(o); }
+          return dedup;
         };
         const productPubs = await pubsFor(pid, body.sku || '');
         // Packs que contienen el producto (kits desde sales_speed) + sus publicaciones.

@@ -42,6 +42,9 @@
   .trk-wtab th,.trk-wtab td{padding:4px 8px;border-bottom:1px solid var(--line);text-align:right}
   .trk-wtab thead th{color:var(--muted);font-weight:700}
   .trk-wtab th:first-child,.trk-wtab td:first-child{text-align:left;position:sticky;left:0;background:var(--panel);z-index:1;font-weight:700}
+  .tl-tab{border-collapse:collapse;width:100%;font-size:12px}
+  .tl-tab th{text-align:left;color:var(--muted);font-weight:700;padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+  .tl-tab td{padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top}
   .dbtab td:first-child{max-width:280px;overflow:hidden;text-overflow:ellipsis;position:sticky;left:0;z-index:1;background:var(--panel)}
   .histtab tbody tr:nth-child(even) td:first-child{background:#1d1d22}
   .histtab tbody tr:hover td:first-child{background:#241a10}
@@ -601,6 +604,18 @@
 </div>
 
 <!-- Modal: evolución de un producto en seguimiento -->
+<!-- Modal: publicaciones por canal de un producto (Seguimiento) -->
+<div id="trackLinksOverlay" class="modal-overlay hidden" style="z-index:201">
+  <div class="rdetail" style="max-width:820px">
+    <div class="rd-head">
+      <div><h2 id="tlName" style="font-size:18px;margin:0"></h2><div class="rd-l1 muted" id="tlSku" style="font-size:11px;margin-top:2px"></div></div>
+      <button class="mini" id="tlClose" type="button" title="Cerrar">✕</button>
+    </div>
+    <p class="hint" style="margin:0 0 8px">Publicaciones del producto en cada marketplace (incluye los packs que lo contienen). Clic en el link para ir a la ficha.</p>
+    <div id="tlBody"></div>
+  </div>
+</div>
+
 <div id="trackOverlay" class="modal-overlay hidden" style="z-index:200">
   <div class="rdetail" style="max-width:820px">
     <div class="rd-head">
@@ -668,6 +683,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=262700"></script>
+<script src="src/ui.js?v=262800"></script>
 </body>
 </html>
