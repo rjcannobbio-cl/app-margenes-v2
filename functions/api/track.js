@@ -251,6 +251,65 @@ export async function onRequest({ request, env }) {
         return json({ ok: true, processed: slice.length, offset, next, total: list.length, ts: store.ts });
       }
 
+      if (action === 'links') {   // publicaciones del producto + sus packs, por canal, con link directo a cada marketplace
+        if (!token) return json({ error: 'Falta el secret de ProfitGuard' }, 501);
+        const pid = parseInt(body.id) || 0;
+        if (!pid) return json({ error: 'falta id' }, 400);
+        const SELLER = '613899966';
+        const mlGet = async (path, query) => {
+          const r = await fetch(`${PG}/integrations/1/passthrough`, { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ method: 'GET', path, query: query || {} }) });
+          const j = await r.json().catch(() => null); const b = j && (j.body != null ? j.body : null);
+          if (!r.ok || (j && j.status && j.status >= 400)) return null; return b;
+        };
+        const shopifyHandle = async vid => {
+          try {
+            const r = await fetch(`${PG}/integrations/15/graphql_passthrough`, { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ query: `{ productVariant(id: "${vid}") { product { handle } } }` }) });
+            const j = await r.json().catch(() => null); const b = j && (j.body != null ? j.body : j);
+            const h = b && b.data && b.data.productVariant && b.data.productVariant.product && b.data.productVariant.product.handle;
+            return h || null;
+          } catch (e) { return null; }
+        };
+        // Publicaciones (por canal) de un producto PG dado.
+        const pubsFor = async (prodId, sku) => {
+          let pd = null;
+          try { const r = await fetch(`${PG}/products/${prodId}`, { headers }); if (r.ok) { const p = await r.json(); pd = p.data || p; } } catch (e) {}
+          const eps = (pd && pd.externalProducts) || [];
+          const out = [];
+          for (const e of eps) {
+            const type = ((e.integration || {}).type) || '', canal = ((e.integration || {}).name) || type, ext = e.externalId || '';
+            let url = null;
+            if (type === 'falabella/integration') url = 'https://www.falabella.com/falabella-cl/product/' + ext;
+            else if (type === 'cencosud/integration') url = 'https://www.paris.cl/' + ext.replace(/-\d+$/, '') + '.html';
+            else if (type === 'ripley/integration') url = 'https://simple.ripley.cl/' + ext.replace(/-\d+$/, '').toLowerCase();
+            else if (type === 'shopify/integration') { const h = await shopifyHandle(ext); if (h) url = 'https://etbrands.cl/products/' + h; }
+            else if (type === 'mercado_libre/integration' || type === 'multivende/integration' || type === 'walmart/integration') continue;   // ML se resuelve por permalink; multivende/walmart sin link directo confiable
+            out.push({ canal, externalId: ext, url, active: !!e.active });
+          }
+          // Mercado Libre: permalink real (por SKU → items → permalink)
+          if (sku) {
+            try {
+              const s = await mlGet(`/users/${SELLER}/items/search`, { seller_sku: sku });
+              const ids = (s && Array.isArray(s.results)) ? s.results : [];
+              for (const id of ids.slice(0, 5)) {
+                const it = await mlGet(`/items/${id}`, { attributes: 'permalink,status' });
+                if (it && it.permalink) out.push({ canal: 'Mercado Libre', externalId: id, url: it.permalink, active: it.status === 'active' });
+              }
+            } catch (e) {}
+          }
+          return out;
+        };
+        const productPubs = await pubsFor(pid, body.sku || '');
+        // Packs que contienen el producto (kits desde sales_speed) + sus publicaciones.
+        const packs = [];
+        try {
+          const sr = await fetch(`${PG}/sales_speed/products/${pid}?group_by=week`, { headers });
+          if (sr.ok) { const sj = await sr.json(); const sd = sj.data || sj; const kits = (sd.kits) || [];
+            for (const k of kits) { const kp = await pubsFor(k.id, k.sku); packs.push({ id: k.id, sku: k.sku, name: k.name, qty: k.quantity, pubs: kp }); }
+          }
+        } catch (e) {}
+        return json({ ok: true, product: { id: pid, sku: body.sku || '', pubs: productPubs }, packs });
+      }
+
       return json({ error: 'acción no soportada' }, 400);
     }
     return json({ error: 'método no soportado' }, 405);
