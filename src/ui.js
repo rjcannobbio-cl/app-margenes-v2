@@ -1878,14 +1878,16 @@ function paintResearch() {
   const yoyCell = x => { const y = yoy12(x.serie); if (y == null) return '<td class="mcell muted">–</td>'; const col = y >= 0 ? 'var(--good)' : 'var(--bad)'; return `<td class="mcell" style="color:${col};font-weight:600">${y >= 0 ? '+' : ''}${y.toFixed(1)}%</td>`; };
   const canibCell = x => (x.canibalizacion || _myCats.has(x.id)) ? '<td style="text-align:center"><span style="color:var(--accent);font-weight:700" title="Ya tenemos productos publicados en esta categoría">● Sí</span></td>' : '<td style="text-align:center" class="muted">–</td>';
   const p2Cell = x => _p2Index[x.id] ? '<td style="text-align:center"><span style="color:var(--good);font-weight:700" title="Ya tiene análisis P2 guardado">Sí</span></td>' : '<td style="text-align:center" class="muted">No</td>';
+  const prioCell = x => { const p = x.prioridad || ''; const col = p === 'alta' ? 'var(--accent)' : p === 'media' ? 'var(--mid)' : p === 'baja' ? 'var(--muted)' : ''; return `<td style="text-align:center" data-nosort><select class="research-prio" data-id="${escapeHtml(x.id || '')}" style="font-size:11px;padding:2px 4px;font-weight:700;${col ? 'color:' + col : ''}"><option value="">—</option><option value="alta"${p === 'alta' ? ' selected' : ''}>Alta</option><option value="media"${p === 'media' ? ' selected' : ''}>Media</option><option value="baja"${p === 'baja' ? ' selected' : ''}>Baja</option></select></td>`; };
   const ref = oppRef();
   const oppCell = x => { const s = oppScore(x, ref); if (s == null) return '<td style="text-align:center" class="muted" title="Sin P2: corre el análisis para obtener el score">–</td>'; const col = s >= 66 ? 'var(--good)' : s >= 40 ? 'var(--mid)' : 'var(--bad)'; return `<td style="text-align:center;font-weight:800;color:${col}" title="Opportunity Score 0-100">${s}</td>`; };
-  const sortVal = x => { switch (_researchSort.key) { case 'opp': { const s = oppScore(x, ref); return s == null ? -1 : s; } case 'yoy': { const y = yoy12(x.serie); return y == null ? -1e9 : y; } case 'ticket': return parseFloat(x.ticket) || 0; case 'comp': return parseFloat(x.competidores) || 0; case 'cuota': return researchCuota(x) || 0; default: return parseFloat(x.ventasGmv) || 0; } };
+  const sortVal = x => { switch (_researchSort.key) { case 'prio': return ({ alta: 3, media: 2, baja: 1 })[x.prioridad] || 0; case 'opp': { const s = oppScore(x, ref); return s == null ? -1 : s; } case 'yoy': { const y = yoy12(x.serie); return y == null ? -1e9 : y; } case 'ticket': return parseFloat(x.ticket) || 0; case 'comp': return parseFloat(x.competidores) || 0; case 'cuota': return researchCuota(x) || 0; default: return parseFloat(x.ventasGmv) || 0; } };
   const rows = filtered.slice().sort((a, b) => _researchSort.dir * (sortVal(a) - sortVal(b))).map(x => {
     const cuota = researchCuota(x);
     return `<tr data-id="${escapeHtml(x.id || '')}">
       <td>${escapeHtml(x.l1 || '')}</td>
       <td>${escapeHtml(x.leaf || '')}</td>
+      ${prioCell(x)}
       ${oppCell(x)}
       ${p2Cell(x)}
       ${canibCell(x)}
@@ -1897,11 +1899,14 @@ function paintResearch() {
     </tr>`; }).join('');
   const arrow = k => _researchSort.key === k ? `<span style="color:var(--accent)">${_researchSort.dir === -1 ? ' ▼' : ' ▲'}</span>` : ' <span style="opacity:.35;font-size:10px">⇅</span>';
   wrap.innerHTML = `<table class="histtab dbtab restab-compact" style="min-width:1020px"><thead><tr>
-    <th>Categoría L1</th><th>Categoría hoja</th><th data-sort="opp" style="cursor:pointer" title="Opportunity Score 0-100 (solo con P2): diferenciabilidad IA 35% + tamaño + competencia (menos vendedores) + crecimiento + ticket + estacionalidad. Clic para ordenar.">Opportunity${arrow('opp')}</th><th title="Categorías con análisis P2 guardado">P2</th><th title="Categorías donde ET Brands ya tiene productos publicados">Canibalización</th><th data-sort="gmv" style="cursor:pointer">Ventas prom (GMV, 12m)${arrow('gmv')}</th><th data-sort="yoy" style="cursor:pointer" title="Crecimiento del GMV: últimos 12 meses vs los 12 previos. Clic para ordenar.">Crec. YoY (12m)${arrow('yoy')}</th><th data-sort="ticket" style="cursor:pointer">Ticket medio (12m)${arrow('ticket')}</th><th data-sort="comp" style="cursor:pointer" title="Cantidad de vendedores profesionales (12m). Clic para ordenar.">Vendedores${arrow('comp')}</th><th data-sort="cuota" style="cursor:pointer">Cuota x seller${arrow('cuota')}</th>
+    <th>Categoría L1</th><th>Categoría hoja</th><th data-sort="prio" style="cursor:pointer" title="Prioridad de investigación que define el equipo (editable). Clic para ordenar (mayor a menor).">Prioridad${arrow('prio')}</th><th data-sort="opp" style="cursor:pointer" title="Opportunity Score 0-100 (solo con P2): diferenciabilidad IA 35% + tamaño + competencia (menos vendedores) + crecimiento + ticket + estacionalidad. Clic para ordenar.">Opportunity${arrow('opp')}</th><th title="Categorías con análisis P2 guardado">P2</th><th title="Categorías donde ET Brands ya tiene productos publicados">Canibalización</th><th data-sort="gmv" style="cursor:pointer">Ventas prom (GMV, 12m)${arrow('gmv')}</th><th data-sort="yoy" style="cursor:pointer" title="Crecimiento del GMV: últimos 12 meses vs los 12 previos. Clic para ordenar.">Crec. YoY (12m)${arrow('yoy')}</th><th data-sort="ticket" style="cursor:pointer">Ticket medio (12m)${arrow('ticket')}</th><th data-sort="comp" style="cursor:pointer" title="Cantidad de vendedores profesionales (12m). Clic para ordenar.">Vendedores${arrow('comp')}</th><th data-sort="cuota" style="cursor:pointer">Cuota x seller${arrow('cuota')}</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
   wrap.querySelectorAll('th[data-sort]').forEach(th => { th.onclick = () => { const k = th.dataset.sort; if (_researchSort.key === k) _researchSort.dir *= -1; else { _researchSort.key = k; _researchSort.dir = -1; } paintResearch(); }; });
+  wrap.querySelectorAll('select.research-prio').forEach(sel => { sel.onclick = e => e.stopPropagation(); sel.onchange = () => { const item = _researchAll.find(x => x.id === sel.dataset.id); if (item) { item.prioridad = sel.value; researchSavePrio(); paintResearch(); } }; });
   wrap.querySelectorAll('tbody tr[data-id]').forEach(tr => { tr.title = 'Clic para ver el reporte de la categoría'; tr.onclick = () => openResearchDetail(_researchAll.find(x => x.id === tr.dataset.id)); });
 }
+let _resPrioT = null;
+function researchSavePrio() { clearTimeout(_resPrioT); _resPrioT = setTimeout(() => { researchReplace(_researchAll).catch(() => {}); }, 600); }
 
 /* ---------------- Reporte de detalle de categoría ---------------- */
 let _rdItem = null, _rdMetric = 'gmv';
@@ -2772,15 +2777,19 @@ async function importResearchJSON(file) {
     let data; try { data = JSON.parse(await file.text()); } catch (e) { setResearchStatus('El archivo no es JSON válido.', true); return; }
     const arr = Array.isArray(data) ? data : (Array.isArray(data.items) ? data.items : null);
     if (!arr) { setResearchStatus('El JSON debe ser un array de categorías (o {items:[…]}).', true); return; }
-    const items = arr.map(x => ({
-      id: String(x.id || x.categoryId || x.path || ((x.l1 || '') + '|' + (x.leaf || ''))),
-      l1: x.l1 || x.l1Name || '', leaf: x.leaf || x.leafName || x.name || '', path: x.path || '',
-      ventasGmv: _num(x.ventasGmv != null ? x.ventasGmv : x.gmv),
-      ticket: _num(x.ticket),
-      competidores: _num(x.competidores != null ? x.competidores : x.sellersProfessional),
-      canibalizacion: !!x.canibalizacion,
-      serie: Array.isArray(x.serie) ? x.serie : []
-    }));
+    const prevPrio = {}; for (const o of (_researchAll || [])) if (o.prioridad) prevPrio[o.id] = o.prioridad;   // conserva prioridad al re-importar
+    const items = arr.map(x => {
+      const id = String(x.id || x.categoryId || x.path || ((x.l1 || '') + '|' + (x.leaf || '')));
+      return {
+        id, l1: x.l1 || x.l1Name || '', leaf: x.leaf || x.leafName || x.name || '', path: x.path || '',
+        ventasGmv: _num(x.ventasGmv != null ? x.ventasGmv : x.gmv),
+        ticket: _num(x.ticket),
+        competidores: _num(x.competidores != null ? x.competidores : x.sellersProfessional),
+        canibalizacion: !!x.canibalizacion,
+        serie: Array.isArray(x.serie) ? x.serie : [],
+        prioridad: prevPrio[id] || ''
+      };
+    });
     await researchReplace(items);
     _researchAll = items; _researchSig = JSON.stringify(items);
     paintResearch();
