@@ -1048,6 +1048,35 @@ async function renderHistorial() {
 }
 function paintHistorial() { paintDb('hist'); }
 function paintClosed() { paintDb('closed'); }
+// Comparar quotes: agrupa los productos del Historial por N° de cotización y los compara con IA.
+async function openCompareQuotes() {
+  if (!_histAll || !_histAll.length) { _histAll = await histLoad(); }
+  const codes = [...new Set((_histAll || []).map(x => (x.cotizacion || '').trim()).filter(Boolean))].sort();
+  const sel = $('cqSelect');
+  sel.innerHTML = codes.length
+    ? codes.map(c => { const n = (_histAll || []).filter(x => (x.cotizacion || '').trim() === c).length; return `<option value="${escapeHtml(c)}">${escapeHtml(c)} — ${n} producto${n === 1 ? '' : 's'}</option>`; }).join('')
+    : '<option value="">(no hay productos con N° de cotización)</option>';
+  $('cqResult').innerHTML = ''; $('cqStatus').textContent = '';
+  $('compareQuotesOverlay').classList.remove('hidden');
+}
+async function runCompareQuotes() {
+  const code = $('cqSelect').value;
+  if (!code) { $('cqStatus').textContent = 'No hay código para comparar.'; return; }
+  const items = (_histAll || []).filter(x => (x.cotizacion || '').trim() === code);
+  if (items.length < 2) { $('cqResult').innerHTML = `<div class="hint">Solo hay ${items.length} producto con la cotización "${escapeHtml(code)}". Necesitas al menos 2 (idealmente de distintos proveedores) para comparar.</div>`; return; }
+  $('cqStatus').textContent = 'Comparando con IA…';
+  const lines = items.map((x, i) => {
+    const o = deriveOutputs(x);
+    return `#${i + 1} · Proveedor: ${x.proveedor || '—'} | SKU prov: ${x.skuProveedor || '—'}\n  Producto: ${x.nombre || '—'}\n  FOB: US$${x.fob || '?'} | COGS landed: $${Math.round(o.cogs || 0).toLocaleString('es-CL')} CLP\n  Packaging: ${x.alto || '?'}×${x.ancho || '?'}×${x.largo || '?'} cm · ${x.peso || '?'} kg\n  Precio venta ref.: ML ${x.precioML ? '$' + x.precioML : '—'} · Falabella ${x.precioFB ? '$' + x.precioFB : '—'}`;
+  }).join('\n\n');
+  const prompt = 'Eres analista de sourcing de ET Brands (importa productos de China y vende en Chile). Compara estas cotizaciones que comparten el código "' + code + '" (ofertas de distintos proveedores para el/los mismo(s) producto(s)).\n\nCOTIZACIONES:\n' + lines +
+    '\n\nCompara en: (1) PRECIO/FOB — cuál conviene y el ahorro aproximado; (2) SPECS del producto inferidas del nombre — diferencias relevantes; (3) PACKAGING — dimensiones y peso (impacta el flete/COGS); (4) riesgos o datos faltantes. NOTA: no tengo imágenes de logos ni fotos de empaque, compara solo con los datos de texto (si el logo/packaging importa, dilo como pendiente de revisar).\n\nEntrega en español, conciso y accionable: primero un VEREDICTO de 1-2 frases (qué proveedor conviene y por qué), luego viñetas por cada criterio. NO uses tablas markdown.';
+  try {
+    const raw = await aiText(prompt, cfg, { maxTokens: 1100 });
+    $('cqResult').innerHTML = '<div class="p2ai" style="white-space:pre-wrap;margin-top:4px">' + mdBold(escapeHtml(raw || 'Sin respuesta.')) + '</div>';
+    $('cqStatus').textContent = '';
+  } catch (e) { $('cqStatus').textContent = 'Error IA: ' + (e && e.message || e); }
+}
 // Render genérico de la tabla base de datos: 'hist' (Historial) y 'closed' (Productos cerrados) comparten columnas.
 function paintDb(mode) {
   const isClosed = mode === 'closed';
@@ -2751,6 +2780,10 @@ function init() {
   { const f = $('quoteFile'); if (f) f.addEventListener('change', e => { const file = e.target.files[0]; if (file) importQuoteFile(file); e.target.value = ''; }); }
   { const b = $('quoteClose'); if (b) b.onclick = () => $('quoteOverlay').classList.add('hidden'); }
   { const o = $('quoteOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
+  { const b = $('btnCompareQuotes'); if (b) b.onclick = openCompareQuotes; }
+  { const b = $('cqClose'); if (b) b.onclick = () => $('compareQuotesOverlay').classList.add('hidden'); }
+  { const o = $('compareQuotesOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
+  { const b = $('cqRun'); if (b) b.onclick = runCompareQuotes; }
   { const b = $('quoteCommit'); if (b) b.onclick = commitQuote; }
 
   // selects de categoría (la categoría sugerida por IA queda seleccionada; se puede cambiar a mano)
