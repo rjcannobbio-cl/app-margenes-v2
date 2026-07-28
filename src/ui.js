@@ -160,6 +160,65 @@ async function suggestHS() {
   } catch (e) { if (badge) { badge.textContent = 'IA no disp.'; badge.className = 'badge badge-warn'; } }
 }
 
+/* ---------------- Ordenador genérico de tablas (clic en encabezado: mayor→menor) ---------------- */
+const _tableSort = {};   // { key: {col, dir} }  dir: 1 = descendente (mayor a menor), -1 = ascendente
+function _tsParseNum(s) {
+  s = String(s == null ? '' : s).replace(/[^\d.,\-]/g, '').trim();
+  if (!s || s === '-') return null;
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');           // es-CL: punto=miles, coma=decimal
+  else { const p = s.split('.'); if (p.length > 1 && p[p.length - 1].length === 3) s = s.replace(/\./g, ''); }  // "1.234" → miles
+  const n = parseFloat(s); return isNaN(n) ? null : n;
+}
+function _tsCellText(tr, col) { const c = tr.cells[col]; if (!c) return ''; const f = c.querySelector('input,select'); return (f ? f.value : c.textContent).trim(); }
+function _tsIsEmpty(v) { return v === '' || v === '–' || v === '—' || v === '-'; }
+// Mapa de cada TH a su índice de columna (respetando colspan/rowspan de encabezados de 2 filas).
+function _tsHeaderMap(table) {
+  const rows = [...(table.tHead ? table.tHead.rows : [])]; const occ = []; const map = [];
+  rows.forEach((r, ri) => {
+    let c = 0;
+    for (const th of r.cells) {
+      occ[ri] = occ[ri] || {}; while (occ[ri][c]) c++;
+      const cs = th.colSpan || 1, rs = th.rowSpan || 1;
+      map.push({ th, col: c, span: cs });
+      for (let rr = 0; rr < rs; rr++) { occ[ri + rr] = occ[ri + rr] || {}; for (let cc = 0; cc < cs; cc++) occ[ri + rr][c + cc] = 1; }
+      c += cs;
+    }
+  });
+  return map;
+}
+function _tsApply(table, col, dir) {
+  const tb = table.tBodies[0]; if (!tb) return;
+  const rows = [...tb.rows].filter(r => !r.dataset.nosort);
+  const vals = rows.map(r => _tsCellText(r, col));
+  const numeric = vals.every(v => _tsIsEmpty(v) || _tsParseNum(v) != null) && vals.some(v => _tsParseNum(v) != null);
+  rows.sort((a, b) => {
+    const va = _tsCellText(a, col), vb = _tsCellText(b, col), ea = _tsIsEmpty(va), eb = _tsIsEmpty(vb);
+    if (ea && eb) return 0; if (ea) return 1; if (eb) return -1;   // vacíos siempre al final
+    if (numeric) return dir * ((_tsParseNum(vb) || 0) - (_tsParseNum(va) || 0));
+    return dir * vb.localeCompare(va, 'es', { numeric: true });
+  });
+  rows.forEach(r => tb.appendChild(r));
+}
+// Hace ordenable una tabla; recuerda el orden por `key` y lo re-aplica al re-renderizar.
+function enableTableSort(table, key) {
+  if (!table || !table.tHead) return;
+  const map = _tsHeaderMap(table);
+  const st = _tableSort[key];
+  const repaint = { hist: paintHistorial, closed: paintClosed, track: paintTrack, cat: paintCatalogo }[key];
+  for (const m of map) {
+    if (m.span !== 1 || m.th.dataset.nosort != null) continue;   // no ordena grupos (colspan>1) ni columnas marcadas
+    m.th.style.cursor = 'pointer';
+    if (st && st.col === m.col) m.th.insertAdjacentHTML('beforeend', '<span style="opacity:.85"> ' + (st.dir === 1 ? '↓' : '↑') + '</span>');
+    m.th.onclick = () => {
+      const cur = _tableSort[key];
+      if (cur && cur.col === m.col) { if (cur.dir === 1) cur.dir = -1; else delete _tableSort[key]; }   // desc → asc → sin orden
+      else _tableSort[key] = { col: m.col, dir: 1 };   // primer clic = mayor a menor
+      if (key === 'track') _trackSort = null;   // Seguimiento: el orden genérico y el de "Días 1ª venta" son excluyentes
+      if (repaint) repaint(); else { const s = _tableSort[key]; if (s) _tsApply(table, s.col, s.dir); }
+    };
+  }
+  if (st) _tsApply(table, st.col, st.dir);
+}
 /* ---------------- Cálculo y render ---------------- */
 function recompute() {
   const alto = num('inpAlto'), ancho = num('inpAncho'), largo = num('inpLargo');
@@ -807,11 +866,11 @@ function paintTrack() {
   // Encabezado: 2 clusters por PERÍODO ("Desde 1ª venta" | "Última semana"), cada uno con las 5 métricas.
   // El arrow refleja el orden por DÍAS: fs-desc = 1ª venta reciente = menos días arriba = ▲.
   const fsArrow = _trackSort === 'fs-desc' ? ' ▲' : _trackSort === 'fs-asc' ? ' ▼' : ' ⇅';
-  let h1 = '<th rowspan="2">SKU</th><th rowspan="2" style="text-align:left">Título</th><th rowspan="2" title="Se define después">Vel. inicial</th><th rowspan="2" title="Velocidad de venta que muestra ProfitGuard">Vel. App</th><th rowspan="2" title="Editable">Vel. madura</th>' + `<th rowspan="2" id="trkSortFs" style="cursor:pointer" title="Días transcurridos desde la 1ª venta (ordenable)">Días 1ª venta${fsArrow}</th>` + '<th rowspan="2" title="Stock total en ProfitGuard (todas las bodegas)">Stock</th>';
+  let h1 = '<th rowspan="2">SKU</th><th rowspan="2" style="text-align:left">Título</th><th rowspan="2" title="Se define después">Vel. inicial</th><th rowspan="2" title="Velocidad de venta que muestra ProfitGuard">Vel. App</th><th rowspan="2" title="Editable">Vel. madura</th>' + `<th rowspan="2" id="trkSortFs" data-nosort style="cursor:pointer" title="Días transcurridos desde la 1ª venta (ordenable)">Días 1ª venta${fsArrow}</th>` + '<th rowspan="2" title="Stock total en ProfitGuard (todas las bodegas)">Stock</th>';
   let h2 = '';
   for (const [pk, pname] of TRACK_PERIODS) {
-    if (_trackCollapsed.has(pk)) { h1 += `<th rowspan="2" class="trk-grp" data-g="${pk}" style="cursor:pointer" title="Expandir">▸ ${pname}</th>`; }
-    else { h1 += `<th colspan="${TRACK_METRIC_COLS.length}" class="trk-grp" data-g="${pk}" style="cursor:pointer" title="Colapsar">▾ ${pname}</th>`; h2 += TRACK_METRIC_COLS.map(m => `<th>${m[1]}</th>`).join(''); }
+    if (_trackCollapsed.has(pk)) { h1 += `<th rowspan="2" class="trk-grp" data-nosort data-g="${pk}" style="cursor:pointer" title="Expandir">▸ ${pname}</th>`; }
+    else { h1 += `<th colspan="${TRACK_METRIC_COLS.length}" class="trk-grp" data-nosort data-g="${pk}" style="cursor:pointer" title="Colapsar">▾ ${pname}</th>`; h2 += TRACK_METRIC_COLS.map(m => `<th>${m[1]}</th>`).join(''); }
   }
   h1 += '<th rowspan="2" title="12 semanas desde la 1ª venta">Maduro</th>'
     + '<th rowspan="2" title="Sí = ya alcanzó la vel. madura en una ventana de 5 sem (✦ = aún antes de madurar) · En curso = joven, aún puede lograrlo · No = maduro y no lo logró">Cumple vel.</th>'
@@ -842,10 +901,11 @@ function paintTrack() {
   wrap.innerHTML = `<table class="histtab dbtab restab-compact" style="min-width:1200px"><thead><tr>${h1}</tr><tr>${h2}</tr></thead><tbody>${body}</tbody></table>`;
   // Interacciones: colapsar/expandir grupos, editar madura/1ª venta, click fila → gráfico.
   wrap.querySelectorAll('.trk-grp').forEach(th => th.onclick = () => { const k = th.dataset.g; if (_trackCollapsed.has(k)) _trackCollapsed.delete(k); else _trackCollapsed.add(k); paintTrack(); });
-  { const th = wrap.querySelector('#trkSortFs'); if (th) th.onclick = () => { _trackSort = _trackSort === 'fs-asc' ? 'fs-desc' : (_trackSort === 'fs-desc' ? null : 'fs-asc'); paintTrack(); }; }
+  { const th = wrap.querySelector('#trkSortFs'); if (th) th.onclick = () => { delete _tableSort.track; _trackSort = _trackSort === 'fs-asc' ? 'fs-desc' : (_trackSort === 'fs-desc' ? null : 'fs-asc'); paintTrack(); }; }
   wrap.querySelectorAll('.trk-vm').forEach(inp => { inp.onclick = e => e.stopPropagation(); inp.onchange = () => trackSaveMeta(inp.dataset.sku, { velMadura: inp.value === '' ? null : parseFloat(inp.value) }); });
   wrap.querySelectorAll('tbody tr[data-sku]').forEach(tr => { tr.style.cursor = 'pointer'; tr.onclick = () => openTrackChart(tr.dataset.sku); });
   wrap.querySelectorAll('.trk-linkcell').forEach(td => td.onclick = e => { e.stopPropagation(); openTrackLinks(td.dataset.id, td.dataset.sku, td.dataset.name); });
+  enableTableSort(wrap.querySelector('table'), 'track');   // ordenar por cualquier otra columna (mayor a menor)
 }
 async function trackSaveMeta(sku, patch) {
   if (!_trackData) return; _trackData.meta = _trackData.meta || {}; _trackData.meta[sku] = Object.assign({}, _trackData.meta[sku], patch);
@@ -1090,17 +1150,28 @@ async function runCompareQuotes() {
   const items = (_histAll || []).filter(x => (x.cotizacion || '').trim() === code);
   if (items.length < 2) { $('cqResult').innerHTML = `<div class="hint">Solo hay ${items.length} producto con la cotización "${escapeHtml(code)}". Necesitas al menos 2 (idealmente de distintos proveedores) para comparar.</div>`; return; }
   $('cqStatus').textContent = 'Comparando con IA…';
-  const lines = items.map((x, i) => {
-    const o = deriveOutputs(x);
-    return `#${i + 1} · Proveedor: ${x.proveedor || '—'} | SKU prov: ${x.skuProveedor || '—'}\n  Producto: ${x.nombre || '—'}\n  FOB: US$${x.fob || '?'} | COGS landed: $${Math.round(o.cogs || 0).toLocaleString('es-CL')} CLP\n  Packaging: ${x.alto || '?'}×${x.ancho || '?'}×${x.largo || '?'} cm · ${x.peso || '?'} kg\n  Precio venta ref.: ML ${x.precioML ? '$' + x.precioML : '—'} · Falabella ${x.precioFB ? '$' + x.precioFB : '—'}`;
-  }).join('\n\n');
-  const prompt = 'Eres analista de sourcing de ET Brands (importa productos de China y vende en Chile). Compara estas cotizaciones que comparten el código "' + code + '" (ofertas de distintos proveedores para el/los mismo(s) producto(s)).\n\nCOTIZACIONES:\n' + lines +
-    '\n\nCompara en: (1) PRECIO/FOB — cuál conviene y el ahorro aproximado; (2) SPECS del producto inferidas del nombre — diferencias relevantes; (3) PACKAGING — dimensiones y peso (impacta el flete/COGS); (4) riesgos o datos faltantes. NOTA: no tengo imágenes de logos ni fotos de empaque, compara solo con los datos de texto (si el logo/packaging importa, dilo como pendiente de revisar).\n\nEntrega en español, conciso y accionable: primero un VEREDICTO de 1-2 frases (qué proveedor conviene y por qué), luego viñetas por cada criterio. NO uses tablas markdown.';
-  try {
-    const raw = await aiText(prompt, cfg, { maxTokens: 1100 });
-    $('cqResult').innerHTML = '<div class="p2ai" style="white-space:pre-wrap;margin-top:4px">' + mdBold(escapeHtml(raw || 'Sin respuesta.')) + '</div>';
-    $('cqStatus').textContent = '';
-  } catch (e) { $('cqStatus').textContent = 'Error IA: ' + (e && e.message || e); }
+  const rows = items.map(x => ({ x, o: deriveOutputs(x) }));
+  const listTxt = rows.map((r, i) => `#${i + 1} · Proveedor: ${r.x.proveedor || '—'} | SKU prov: ${r.x.skuProveedor || '—'}\n  Nombre: ${r.x.nombre || '—'}\n  FOB: US$${r.x.fob || '?'} | Landed COGS: $${Math.round(r.o.cogs || 0).toLocaleString('es-CL')} CLP\n  Packaging: ${r.x.alto || '?'}×${r.x.ancho || '?'}×${r.x.largo || '?'} cm · ${r.x.peso || '?'} kg`).join('\n\n');
+  const prompt = 'Eres analista de sourcing de ET Brands (importa de China y vende en Chile). Compara estas cotizaciones que comparten el código "' + code + '" (ofertas para el/los mismo(s) producto(s)).\n\nCOTIZACIONES:\n' + listTxt +
+    '\n\nDevuelve SOLO un JSON válido con este formato exacto:\n{"resumenes":["título corto por specs del producto #1 (ej: \\"Nivel láser 12 líneas + trípode + maletín\\")","título #2","..."],"veredicto":"1-2 frases: qué proveedor/cotización conviene y por qué","analisis":"comparación en viñetas por PRECIO/FOB, SPECS, PACKAGING (dimensiones/peso→flete) y RIESGOS; sin tablas markdown"}\nEl array "resumenes" debe tener un título por cotización, EN EL MISMO ORDEN (#1, #2, …). NOTA: no tengo imágenes de logos ni fotos de empaque; compara solo con los datos de texto.';
+  let j = {};
+  try { j = parseJSONLoose(await aiText(prompt, cfg, { maxTokens: 1400 })) || {}; }
+  catch (e) { $('cqStatus').textContent = 'Error IA: ' + (e && e.message || e); return; }
+  const tit = Array.isArray(j.resumenes) ? j.resumenes : [];
+  const money = v => '$' + Math.round(v || 0).toLocaleString('es-CL');
+  const trs = rows.map((r, i) => `<tr>
+      <td>${escapeHtml(r.x.proveedor || '—')}</td>
+      <td style="max-width:260px">${escapeHtml(tit[i] || r.x.nombre || '—')}</td>
+      <td>US$${escapeHtml(String(r.x.fob || '—'))}</td>
+      <td>${escapeHtml((r.x.alto || '?') + '×' + (r.x.ancho || '?') + '×' + (r.x.largo || '?'))} cm</td>
+      <td>${escapeHtml(String(r.x.peso || '—'))} kg</td>
+      <td>${money(r.o.cogs)}</td>
+    </tr>`).join('');
+  const table = `<div style="overflow-x:auto"><table class="tl-tab"><thead><tr><th>Proveedor</th><th>Producto</th><th>Precio FOB</th><th>Dimensiones</th><th>Peso</th><th>Landed COGS</th></tr></thead><tbody>${trs}</tbody></table></div>`;
+  const ver = j.veredicto ? `<div class="p2ai" style="margin-top:10px"><b>🏆 Veredicto:</b> ${mdBold(escapeHtml(j.veredicto))}</div>` : '';
+  const ana = j.analisis ? `<div class="p2ai" style="white-space:pre-wrap;margin-top:8px">${mdBold(escapeHtml(j.analisis))}</div>` : '';
+  $('cqResult').innerHTML = table + ver + ana;
+  $('cqStatus').textContent = '';
 }
 // Render genérico de la tabla base de datos: 'hist' (Historial) y 'closed' (Productos cerrados) comparten columnas.
 function paintDb(mode) {
@@ -1133,12 +1204,12 @@ function paintDb(mode) {
   const closedInfoHead = isClosed ? '<th>SKU cierre</th><th>Mes cierre</th><th>Año cierre</th>' : '';
   const closedInfoCells = x => isClosed ? `<td>${escapeHtml(x.skuCierre || '')}</td><td>${escapeHtml(x.mesCierre || '')}</td><td>${escapeHtml(x.anioCierre || '')}</td>` : '';
   // Autorización de venta (última columna, solo Productos cerrados). El check exige la clave.
-  const authHead = isClosed ? '<th title="Solo el dueño con la clave puede autorizar">Autorizado a vender</th>' : '';
+  const authHead = isClosed ? '<th data-nosort title="Solo el dueño con la clave puede autorizar">Autorizado a vender</th>' : '';
   const authCell = x => { if (!isClosed) return ''; const on = !!(_sellAuth[x.id] && _sellAuth[x.id].ok); return `<td class="sell-auth-cell" style="text-align:center;white-space:nowrap"><input type="checkbox" class="sell-auth" data-id="${escapeHtml(x.id || '')}" ${on ? 'checked' : ''} title="Autorizar venta (requiere clave)"> <span style="font-size:11px;font-weight:700;color:${on ? 'var(--good)' : 'var(--muted)'}">${on ? 'Autorizado' : '—'}</span></td>`; };
 
   const packHead = packExpanded
-    ? `<th class="pack-toggle" title="Agrupar packaging">📦 ◂ Alto</th><th>Largo</th><th>Ancho</th><th>Peso</th>`
-    : `<th class="pack-toggle" title="Expandir packaging">📦 Packaging ▸</th>`;
+    ? `<th class="pack-toggle" data-nosort title="Agrupar packaging">📦 ◂ Alto</th><th>Largo</th><th>Ancho</th><th>Peso</th>`
+    : `<th class="pack-toggle" data-nosort title="Expandir packaging">📦 Packaging ▸</th>`;
   const packCells = x => packExpanded
     ? `<td>${cell(x.alto)}</td><td>${cell(x.largo)}</td><td>${cell(x.ancho)}</td><td>${cell(x.peso)}</td>`
     : `<td>${escapeHtml(packSummary(x))}</td>`;
@@ -1172,7 +1243,7 @@ function paintDb(mode) {
     <th>Nombre</th><th>SKU</th>${closedInfoHead}<th>Proveedor</th><th>N° Cotización</th>
     ${packHead}<th>Costo FOB</th><th>Landed COGS</th>
     <th>Súper</th><th>Categoría ML</th><th class="co-only">HS</th><th class="co-only">Arancel %</th><th>Precio Meli</th><th>Margen Meli</th><th class="fbla-col">Precio Fala</th><th class="fbla-col">Margen Fala</th>
-    <th>Precio Full</th><th>Margen Full</th><th>Precio AON</th><th>Margen AON</th><th>Precio DOD</th><th>Margen DOD</th>${varHead}<th></th>${authHead}
+    <th>Precio Full</th><th>Margen Full</th><th>Precio AON</th><th>Margen AON</th><th>Precio DOD</th><th>Margen DOD</th>${varHead}<th data-nosort></th>${authHead}
   </tr></thead><tbody>${rows}</tbody></table>`;
 
   const toggle = wrap.querySelector('.pack-toggle');
@@ -1207,6 +1278,7 @@ function paintDb(mode) {
     if (!confirm('¿Eliminar este producto ' + (isClosed ? 'de Productos cerrados' : 'del historial') + (_histBackend ? ' (para todo el equipo)' : '') + '?')) return;
     await (isClosed ? closedDel(b.dataset.del) : histDel(b.dataset.del)); rerender();
   });
+  enableTableSort(wrap.querySelector('table'), mode);   // ordenar por cualquier columna (mayor a menor)
 }
 
 /* ---------------- Productos cerrados (base de datos propia por país) ---------------- */
@@ -1588,6 +1660,7 @@ function paintCatalogo() {
     if (e.target.closest('input')) return;
     loadCatalogItem(_catAll.find(x => x.id === tr.dataset.id));
   });
+  enableTableSort(wrap.querySelector('table'), 'cat');   // ordenar por cualquier columna (mayor a menor)
 }
 function updateCatRow(tr, item) {
   const r = catMargins(item);
