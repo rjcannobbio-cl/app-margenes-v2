@@ -278,7 +278,7 @@ export async function onRequest({ request, env }) {
           for (const e of eps) {
             const type = ((e.integration || {}).type) || '', canal = ((e.integration || {}).name) || type, ext = e.externalId || '';
             let url = null;
-            if (type === 'falabella/integration') url = 'https://www.falabella.com/falabella-cl/product/' + ext;
+            if (type === 'falabella/integration') { const n = parseInt(ext, 10); url = isNaN(n) ? null : ('https://www.falabella.com/falabella-cl/product/' + (n - 1) + '/x/' + n); }   // PG guarda el variantId; el productId de la URL = variantId-1
             else if (type === 'cencosud/integration') url = 'https://www.paris.cl/' + ext.replace(/-\d+$/, '') + '.html';
             else if (type === 'ripley/integration') url = 'https://simple.ripley.cl/' + ext.replace(/-\d+$/, '').toLowerCase();
             else if (type === 'shopify/integration') { const h = await shopifyHandle(ext); if (h) url = 'https://etbrands.cl/products/' + h; }
