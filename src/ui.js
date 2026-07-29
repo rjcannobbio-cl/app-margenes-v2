@@ -1182,7 +1182,7 @@ function paintDb(mode) {
   const save = isClosed ? closedSaveDebounced : histSaveDebounced;
   const q = normalize(($(ids.filter) && $(ids.filter).value) || '');
   const filtered = q
-    ? all.filter(x => normalize([x.nombre, x.skuProveedor, x.skuCierre, x.sku, x.proveedor, x.cotizacion].join(' ')).includes(q))
+    ? all.filter(x => normalize([x.nombre, x.skuProveedor, x.skuCierre, x.sku, x.proveedor, x.cotizacion, x.mesCierre, x.anioCierre].join(' ')).includes(q))
     : all;
   $(ids.count).textContent = (q ? (filtered.length + '/' + all.length) : all.length) +
     ' producto' + ((q ? filtered.length : all.length) === 1 ? '' : 's') + (_histBackend ? ' · compartido' : ' · solo local');
