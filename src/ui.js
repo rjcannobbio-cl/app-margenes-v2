@@ -774,12 +774,14 @@ function showTab(name) {
   $('tabCat').classList.toggle('hidden', name !== 'cat');
   $('tabClosed').classList.toggle('hidden', name !== 'closed');
   $('tabResearch').classList.toggle('hidden', name !== 'research');
+  { const t = $('tabCotiz'); if (t) t.classList.toggle('hidden', name !== 'cotiz'); }
   { const t = $('tabTrack'); if (t) t.classList.toggle('hidden', name !== 'track'); }
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   if (name === 'hist') renderHistorial();
   if (name === 'cat') renderCatalogo();
   if (name === 'closed') renderClosed();
   if (name === 'research') renderResearch();
+  if (name === 'cotiz') renderCotiz();
   if (name === 'track') renderTrack();
 }
 
@@ -2935,6 +2937,15 @@ function init() {
   { const o = $('trackOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
   { const b = $('tlClose'); if (b) b.onclick = () => $('trackLinksOverlay').classList.add('hidden'); }
   { const o = $('trackLinksOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
+  // Cotizaciones (inquiries)
+  { const b = $('btnCotizNew'); if (b) b.onclick = () => openQuoteGen(null); }
+  { const el = $('cotizFilter'); if (el) el.addEventListener('input', debounce(paintCotiz, 200)); }
+  { const b = $('qgClose'); if (b) b.onclick = () => $('quoteGenOverlay').classList.add('hidden'); }
+  { const o = $('quoteGenOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
+  { const b = $('qgRead'); if (b) b.onclick = qgReadLinks; }
+  { const b = $('qgAddRow'); if (b) b.onclick = qgAddRow; }
+  { const b = $('qgExcel'); if (b) b.onclick = () => qgExcel(false); }
+  { const b = $('qgSave'); if (b) b.onclick = qgSave; }
   { const b = $('btnResearchFilter'); if (b) b.onclick = openResearchFilter; }
   { const b = $('btnResearchClear'); if (b) b.onclick = clearResearchFilter; }
   { const b = $('researchFilterClose'); if (b) b.onclick = () => $('researchFilterOverlay').classList.add('hidden'); }
@@ -3000,5 +3011,230 @@ function init() {
   window.addEventListener('focus', liveTick);
 }
 function debounce(fn, ms) { let t; return function () { clearTimeout(t); t = setTimeout(() => fn.apply(this, arguments), ms); }; }
+
+/* ================= Cotizaciones (inquiries a fábricas) ================= */
+let _cotizAll = [];
+let _cotizLoaded = false;
+let _qgRows = [];          // filas del editor en curso
+let _qgEditId = null;      // id si estamos editando una guardada
+
+// Columnas editables (fotos y la fila-borrar van aparte). Orden = template de inquiry.
+const QUOTE_FIELDS = [
+  { k: 'description', h: 'Descripción', t: 'ta', w: 230 },
+  { k: 'logo', h: 'Logo', t: 'ta', w: 120 },
+  { k: 'packaging', h: 'Packaging', t: 'ta', w: 130 },
+  { k: 'extras', h: 'Extras', t: 'ta', w: 130 },
+  { k: 'quantity', h: 'Cantidad', t: 'in', w: 72 },
+  { k: 'usdFob', h: 'USD FOB', t: 'in', w: 72 },
+  { k: 'yuanFob', h: 'Yuan FOB', t: 'in', w: 72 },
+  { k: 'boxH', h: 'Alto caja (cm)', t: 'in', w: 62 },
+  { k: 'boxL', h: 'Largo caja (cm)', t: 'in', w: 62 },
+  { k: 'boxW', h: 'Ancho caja (cm)', t: 'in', w: 62 },
+  { k: 'weight', h: 'Peso unit. (kg)', t: 'in', w: 64 }
+];
+function qgBlankRow() { return { photos: [], description: '', logo: '', packaging: '', extras: '', quantity: '', usdFob: '', yuanFob: '', boxH: '', boxL: '', boxW: '', weight: '' }; }
+
+async function renderCotiz() {
+  if (!_cotizLoaded) { $('cotizDbWrap').innerHTML = '<p class="muted" style="padding:16px">Cargando…</p>'; await cotizLoad(); _cotizLoaded = true; }
+  paintCotiz();
+}
+async function cotizLoad() { try { const j = await (await fetch(api('/api/quotes'))).json(); _cotizAll = Array.isArray(j) ? j : []; } catch (e) { _cotizAll = []; } }
+
+function paintCotiz() {
+  const q = normalize(($('cotizFilter') && $('cotizFilter').value) || '');
+  const all = _cotizAll.slice().sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  const filtered = q ? all.filter(x => normalize([x.name, x.links, (x.rows || []).map(r => r.description).join(' ')].join(' ')).includes(q)) : all;
+  $('cotizCount').textContent = (q ? filtered.length + '/' + all.length : all.length) + ' cotización' + ((q ? filtered.length : all.length) === 1 ? '' : 'es');
+  const wrap = $('cotizDbWrap');
+  if (!all.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Aún no hay cotizaciones. Crea una con “✨ Generar nueva cotización”.</p>'; return; }
+  if (!filtered.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Sin resultados para “' + escapeHtml($('cotizFilter').value) + '”.</p>'; return; }
+  const rows = filtered.map(c => {
+    const d = c.ts ? new Date(c.ts) : null;
+    const fecha = d ? (d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear()) : '—';
+    return `<tr>
+      <td>${escapeHtml(c.name || '—')}</td>
+      <td style="text-align:center">${(c.rows || []).length}</td>
+      <td style="white-space:nowrap">${fecha}</td>
+      <td style="white-space:nowrap">
+        <button class="btn ghost cotiz-open" data-id="${escapeHtml(c.id)}" type="button" style="padding:4px 10px;font-size:12px">✎ Abrir</button>
+        <button class="btn ghost cotiz-xls" data-id="${escapeHtml(c.id)}" type="button" style="padding:4px 10px;font-size:12px">📊 Excel</button>
+        <button class="btn ghost cotiz-del" data-id="${escapeHtml(c.id)}" type="button" style="padding:4px 10px;font-size:12px;border-color:var(--bad);color:var(--bad)">✕</button>
+      </td>
+    </tr>`;
+  }).join('');
+  wrap.innerHTML = `<table class="tl-tab dbtab"><thead><tr><th>Nombre</th><th># productos</th><th>Creada</th><th>Acciones</th></tr></thead><tbody>${rows}</tbody></table>`;
+  wrap.querySelectorAll('.cotiz-open').forEach(b => b.onclick = () => openQuoteGen(b.dataset.id));
+  wrap.querySelectorAll('.cotiz-xls').forEach(b => b.onclick = () => { const c = _cotizAll.find(x => x.id === b.dataset.id); if (c) { _qgRows = (c.rows || []).map(r => Object.assign(qgBlankRow(), r)); $('qgName').value = c.name || ''; qgExcel(true); } });
+  wrap.querySelectorAll('.cotiz-del').forEach(b => b.onclick = () => cotizDelete(b.dataset.id));
+}
+
+async function cotizDelete(id) {
+  const c = _cotizAll.find(x => x.id === id); if (!c) return;
+  if (!confirm('¿Eliminar la cotización "' + (c.name || id) + '"?')) return;
+  const base = api('/api/quotes'); const sep = base.includes('?') ? '&' : '?';
+  try { await fetch(base + sep + 'id=' + encodeURIComponent(id), { method: 'DELETE' }); } catch (e) {}
+  _cotizAll = _cotizAll.filter(x => x.id !== id); paintCotiz();
+}
+
+function openQuoteGen(id) {
+  _qgEditId = id || null;
+  const c = id ? _cotizAll.find(x => x.id === id) : null;
+  $('qgTitle').textContent = c ? ('✎ ' + (c.name || 'Cotización')) : '✨ Nueva cotización';
+  $('qgName').value = c ? (c.name || '') : '';
+  $('qgQty').value = c ? (c.qty || '') : '';
+  $('qgLinks').value = c ? (c.links || '') : '';
+  $('qgStatus').textContent = ''; $('qgStatus2').textContent = '';
+  _qgRows = c ? (c.rows || []).map(r => Object.assign(qgBlankRow(), r)) : [];
+  if (_qgRows.length) { $('qgStep2').classList.remove('hidden'); qgRenderTable(); }
+  else $('qgStep2').classList.add('hidden');
+  $('quoteGenOverlay').classList.remove('hidden');
+}
+
+async function qgReadLinks() {
+  const links = ($('qgLinks').value || '').split(/\n+/).map(s => s.trim()).filter(Boolean);
+  if (!links.length) { $('qgStatus').textContent = 'Pega al menos un link de referencia.'; return; }
+  $('qgStatus').textContent = 'Leyendo ' + links.length + ' link(s)…';
+  let refs = [];
+  try {
+    const j = await (await fetch(api('/api/quote-refs'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ links }) })).json();
+    if (j.error) throw new Error(j.error);
+    refs = j.refs || [];
+  } catch (e) { $('qgStatus').textContent = 'Error leyendo links: ' + (e.message || e); return; }
+  const rows = [];
+  for (let i = 0; i < refs.length; i++) {
+    const rf = refs[i];
+    $('qgStatus').textContent = 'Armando con IA ' + (i + 1) + '/' + refs.length + '…';
+    const row = qgBlankRow();
+    row.quantity = ($('qgQty').value || '').trim();
+    const imgs = (rf.images && rf.images.length) ? rf.images : (rf.image ? [rf.image] : []);
+    row.photos = imgs.slice(0, 4);
+    if (rf.error && !rf.title) { row.description = '[No se pudo leer automáticamente: ' + rf.link + ' — ' + rf.error + ']'; rows.push(row); continue; }
+    try {
+      const ai = await qgAiRow(rf);
+      row.description = ai.description || rf.title || '';
+      row.logo = ai.logo || '';
+      row.packaging = ai.packaging || '';
+      row.extras = ai.extras || '';
+    } catch (e) { row.description = rf.title || ''; }
+    rows.push(row);
+  }
+  _qgRows = rows;
+  $('qgStep2').classList.remove('hidden');
+  qgRenderTable();
+  $('qgStatus').textContent = 'Listo: ' + rows.length + ' producto(s). Edita lo que quieras y exporta.';
+}
+
+// IA: de una ficha de referencia → campos objetivos del inquiry (en inglés, para fábricas chinas).
+async function qgAiRow(rf) {
+  const facts = [];
+  if (rf.title) facts.push('Title: ' + rf.title);
+  if (rf.bullets && rf.bullets.length) facts.push('Bullets: ' + rf.bullets.join(' · '));
+  if (rf.specs && rf.specs.length) facts.push('Specs: ' + rf.specs.map(s => s.name + ': ' + s.value).join(' · '));
+  if (rf.attributes && rf.attributes.length) facts.push('Attributes: ' + rf.attributes.map(s => s.name + ': ' + s.value).join(' · '));
+  if (rf.weight) facts.push('Weight: ' + rf.weight);
+  const prompt = 'You are a sourcing analyst at ET Brands (imports from China, sells in Chile). From this reference listing data, write an OBJECTIVE INQUIRY to request a quote from a Chinese factory. Be concise and technical, in ENGLISH (suppliers are Chinese).\n\nREFERENCE DATA:\n' + facts.join('\n') +
+    '\n\nReturn ONLY this JSON: {"description":"objective product description with key specs (materials, size, function, what the set includes)","logo":"if applicable, how/where our logo would go (e.g. \\"silk-screen logo on body\\"); if not, empty string","packaging":"suggested packaging (e.g. color box, white box, blister)","extras":"accessories/extras to include (e.g. manual, pouch, charger)"}';
+  return parseJSONLoose(await aiText(prompt, cfg, { maxTokens: 500 })) || {};
+}
+
+function qgAddRow() { _qgRows.push(qgBlankRow()); $('qgStep2').classList.remove('hidden'); qgRenderTable(); }
+
+function qgRenderTable() {
+  const wrap = $('qgTableWrap');
+  if (!_qgRows.length) { wrap.innerHTML = '<p class="muted">Sin filas. Usa “Leer links y armar” o “+ Fila vacía”.</p>'; return; }
+  const th = '<th>Fotos</th>' + QUOTE_FIELDS.map(f => `<th>${f.h}</th>`).join('') + '<th></th>';
+  const trs = _qgRows.map((row, i) => {
+    const photos = `<div class="qg-photos" data-i="${i}">` +
+      (row.photos || []).map((u, pi) => `<div class="qg-ph"><img src="${escapeHtml(u)}" onerror="this.parentNode.style.opacity=.25" referrerpolicy="no-referrer"><span class="qg-x" data-i="${i}" data-p="${pi}" title="Quitar">✕</span></div>`).join('') +
+      `<div class="qg-add" data-i="${i}" title="Agregar foto por URL">＋</div></div>`;
+    const cells = QUOTE_FIELDS.map(f => {
+      const v = escapeHtml(row[f.k] || '');
+      const el = f.t === 'ta'
+        ? `<textarea rows="2" data-i="${i}" data-f="${f.k}" style="min-width:${f.w}px">${v}</textarea>`
+        : `<input type="text" data-i="${i}" data-f="${f.k}" style="width:${f.w}px" value="${v}">`;
+      return `<td>${el}</td>`;
+    }).join('');
+    return `<tr><td>${photos}</td>${cells}<td><span class="qg-rowdel" data-i="${i}" title="Eliminar fila">✕</span></td></tr>`;
+  }).join('');
+  wrap.innerHTML = `<table class="qg-tab"><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`;
+  // ediciones de texto: NO re-render (para no perder el foco)
+  wrap.querySelectorAll('textarea[data-f],input[data-f]').forEach(el => { el.oninput = () => { _qgRows[+el.dataset.i][el.dataset.f] = el.value; }; });
+  wrap.querySelectorAll('.qg-x').forEach(x => x.onclick = () => { _qgRows[+x.dataset.i].photos.splice(+x.dataset.p, 1); qgRenderTable(); });
+  wrap.querySelectorAll('.qg-add').forEach(a => a.onclick = () => { const u = prompt('URL de la foto:'); if (u && u.trim()) { _qgRows[+a.dataset.i].photos.push(u.trim()); qgRenderTable(); } });
+  wrap.querySelectorAll('.qg-rowdel').forEach(d => d.onclick = () => { _qgRows.splice(+d.dataset.i, 1); qgRenderTable(); });
+}
+
+// Carga ExcelJS bajo demanda (embebe las fotos dentro del .xlsx → no se rompen al descargar).
+function loadExcelJS() {
+  return new Promise((res, rej) => {
+    if (typeof ExcelJS !== 'undefined') return res();
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
+    s.onload = () => res(); s.onerror = () => rej(new Error('no se pudo cargar ExcelJS (revisa tu conexión)'));
+    document.head.appendChild(s);
+  });
+}
+
+async function qgExcel(fromList) {
+  const stat = fromList ? (m => { if ($('cotizCount')) $('cotizCount').textContent = m; }) : (m => { $('qgStatus2').textContent = m; });
+  if (!_qgRows.length) { stat('No hay filas para exportar.'); return; }
+  stat('Cargando generador…');
+  try { await loadExcelJS(); } catch (e) { stat(e.message || String(e)); return; }
+  stat('Generando Excel (embebiendo fotos)…');
+  try {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Inquiry');
+    const headers = ['Product Photos', 'Description', 'Logo in product', 'Packaging', 'Extras', 'Quantity', 'USD FOB', 'Yuan FOB', 'Box Height (cm)', 'Box Length (cm)', 'Box Width (cm)', 'Individual weight (kg)'];
+    ws.addRow(headers);
+    ws.getRow(1).font = { bold: true };
+    ws.getRow(1).alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    ws.columns = [{ width: 20 }, { width: 42 }, { width: 18 }, { width: 18 }, { width: 18 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 16 }];
+    for (let i = 0; i < _qgRows.length; i++) {
+      const row = _qgRows[i];
+      const er = ws.addRow(['', row.description, row.logo, row.packaging, row.extras, row.quantity, row.usdFob, row.yuanFob, row.boxH, row.boxL, row.boxW, row.weight]);
+      er.height = 95;
+      er.alignment = { vertical: 'middle', wrapText: true };
+      const url = (row.photos || [])[0];
+      if (url) {
+        try {
+          const base = api('/api/img'); const sep = base.includes('?') ? '&' : '?';
+          const resp = await fetch(base + sep + 'url=' + encodeURIComponent(url));
+          if (resp.ok) {
+            const ct = resp.headers.get('content-type') || '';
+            const buf = await resp.arrayBuffer();
+            const ext = /png/i.test(ct) ? 'png' : (/gif/i.test(ct) ? 'gif' : 'jpeg');
+            const imgId = wb.addImage({ buffer: buf, extension: ext });
+            ws.addImage(imgId, { tl: { col: 0.15, row: (er.number - 1) + 0.1 }, ext: { width: 118, height: 112 } });
+          } else { er.getCell(1).value = url; }
+        } catch (e) { er.getCell(1).value = url; }
+      }
+    }
+    const out = await wb.xlsx.writeBuffer();
+    const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const fname = 'Inquiry - ' + (($('qgName').value || 'cotizacion').replace(/[\\/:*?"<>|]+/g, ' ').trim()) + '.xlsx';
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = fname; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    stat('Excel generado ✔');
+  } catch (e) { stat('Error generando Excel: ' + (e.message || e)); }
+}
+
+async function qgSave() {
+  const name = ($('qgName').value || '').trim();
+  if (!name) { $('qgStatus2').textContent = 'Ponle un nombre a la cotización.'; return; }
+  if (!_qgRows.length) { $('qgStatus2').textContent = 'No hay filas para guardar.'; return; }
+  const prev = _qgEditId ? _cotizAll.find(x => x.id === _qgEditId) : null;
+  const rec = {
+    id: _qgEditId || ('q' + Date.now() + Math.floor(Math.random() * 1000)),
+    name, qty: ($('qgQty').value || '').trim(), links: ($('qgLinks').value || '').trim(),
+    rows: _qgRows, ts: (prev && prev.ts) || Date.now()
+  };
+  _qgEditId = rec.id;
+  $('qgStatus2').textContent = 'Guardando…';
+  try { const r = await fetch(api('/api/quotes'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(rec) }); if (!r.ok) throw new Error('HTTP ' + r.status); }
+  catch (e) { $('qgStatus2').textContent = 'Error guardando: ' + (e.message || e); return; }
+  const idx = _cotizAll.findIndex(x => x.id === rec.id); if (idx >= 0) _cotizAll[idx] = rec; else _cotizAll.push(rec);
+  $('qgStatus2').textContent = 'Guardada ✔';
+  if (!$('tabCotiz').classList.contains('hidden')) paintCotiz();
+}
 
 document.addEventListener('DOMContentLoaded', init);

@@ -55,6 +55,18 @@
   .tl-tab{border-collapse:collapse;width:100%;font-size:12px}
   .tl-tab th{text-align:left;color:var(--muted);font-weight:700;padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
   .tl-tab td{padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  /* Editor de cotización */
+  .qg-tab{border-collapse:collapse;width:100%;font-size:12px}
+  .qg-tab th{text-align:left;color:var(--muted);font-weight:700;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap;background:var(--panel2)}
+  .qg-tab td{padding:5px 6px;border-bottom:1px solid var(--line);border-right:1px solid var(--line);vertical-align:top}
+  .qg-tab textarea,.qg-tab input{width:100%;min-width:70px;background:var(--input);border:1px solid var(--line);border-radius:6px;color:var(--ink);font:inherit;font-size:12px;padding:5px 6px;resize:vertical}
+  .qg-tab textarea:focus,.qg-tab input:focus{background:var(--input-focus);border-color:var(--accent);outline:none}
+  .qg-photos{display:flex;flex-wrap:wrap;gap:4px;max-width:150px}
+  .qg-photos .qg-ph{position:relative;width:44px;height:44px;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--panel2)}
+  .qg-photos .qg-ph img{width:100%;height:100%;object-fit:cover}
+  .qg-photos .qg-ph .qg-x{position:absolute;top:0;right:0;background:rgba(0,0,0,.6);color:#fff;font-size:11px;line-height:1;padding:1px 3px;cursor:pointer;border-bottom-left-radius:5px}
+  .qg-photos .qg-add{width:44px;height:44px;border:1px dashed var(--line);border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--muted);font-size:18px}
+  .qg-rowdel{cursor:pointer;color:var(--bad);font-weight:700;padding:2px 6px}
   .dbtab td:first-child{max-width:280px;overflow:hidden;text-overflow:ellipsis;position:sticky;left:0;z-index:1;background:var(--panel)}
   .histtab tbody tr:nth-child(even) td:first-child{background:var(--panel2)}
   .histtab tbody tr:hover td:first-child{background:var(--row-hover)}
@@ -287,6 +299,7 @@
     <button class="tab" data-tab="cat" type="button">Catálogo</button>
     <button class="tab" data-tab="closed" type="button">Productos cerrados</button>
     <button class="tab" data-tab="research" type="button">Investigación</button>
+    <button class="tab" data-tab="cotiz" type="button">Cotizaciones</button>
     <button class="tab cl-only" data-tab="track" type="button">Seguimiento</button>
   </div>
 
@@ -479,6 +492,16 @@
     <div id="researchDbWrap" class="db-wrap"></div>
   </div>
 
+  <div id="tabCotiz" class="hidden">
+    <div class="hist-actions">
+      <input type="text" id="cotizFilter" class="hist-filter" placeholder="Filtrar: producto, proveedor, código…">
+      <button class="btn" id="btnCotizNew" type="button" title="Arma un inquiry objetivo a partir de links de referencia (Amazon / Mercado Libre)">✨ Generar nueva cotización</button>
+      <span class="muted" id="cotizCount"></span>
+    </div>
+    <div class="hint" style="margin-bottom:10px">Arma <b>inquiries objetivos</b> para las fábricas a partir de links de referencia (Amazon / Mercado Libre). La IA lee las fichas y llena la tabla; el equipo la edita y exporta el Excel <b>con las fotos embebidas</b> (no se rompen al descargar). Las cotizaciones quedan guardadas y compartidas.</div>
+    <div id="cotizDbWrap" class="db-wrap"></div>
+  </div>
+
   <div id="tabTrack" class="hidden">
     <div class="hist-actions">
       <input type="text" id="trackFilter" class="hist-filter" placeholder="Filtrar: SKU o título…">
@@ -596,6 +619,37 @@
   </div>
 </div>
 
+<!-- Modal: generar / editar una cotización (inquiry) -->
+<div id="quoteGenOverlay" class="modal-overlay hidden" style="z-index:200">
+  <div class="rdetail" style="max-width:1220px">
+    <div class="rd-head">
+      <div><h2 id="qgTitle" style="font-size:18px;margin:0">✨ Nueva cotización</h2><div class="rd-l1 muted" style="font-size:11px;margin-top:2px">Pega links de referencia (Amazon / Mercado Libre). La IA arma el inquiry objetivo; el equipo lo edita y exporta el Excel con fotos embebidas.</div></div>
+      <button class="mini" id="qgClose" type="button" title="Cerrar">✕</button>
+    </div>
+
+    <div class="row2" style="margin-bottom:8px">
+      <div><label>Nombre del inquiry / producto</label><input type="text" id="qgName" placeholder="Ej: Nivel láser 12 líneas"></div>
+      <div><label>Cantidad objetivo (opcional)</label><input type="text" id="qgQty" placeholder="Ej: 1000"></div>
+    </div>
+    <label>Links de referencia (uno por línea)</label>
+    <textarea id="qgLinks" rows="3" placeholder="https://www.amazon.com/dp/B0XXXXXXX&#10;https://www.mercadolibre.cl/p/MLC..."></textarea>
+    <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="btn" id="qgRead" type="button">🔎 Leer links y armar con IA</button>
+      <button class="btn ghost" id="qgAddRow" type="button">+ Fila vacía</button>
+      <span class="ai-status" id="qgStatus"></span>
+    </div>
+
+    <div id="qgStep2" class="hidden">
+      <div id="qgTableWrap" style="overflow-x:auto;margin-top:12px"></div>
+      <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="btn" id="qgExcel" type="button">📊 Generar Excel</button>
+        <button class="btn ghost" id="qgSave" type="button">💾 Guardar cotización</button>
+        <span class="ai-status" id="qgStatus2"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: revisar quote importada antes de llevar al Historial -->
 <div id="quoteOverlay" class="modal-overlay hidden" style="z-index:200">
   <div class="rdetail" style="max-width:1040px">
@@ -696,6 +750,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=263200"></script>
+<script src="src/ui.js?v=263300"></script>
 </body>
 </html>
