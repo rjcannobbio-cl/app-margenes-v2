@@ -1036,7 +1036,7 @@ function paintTrackCards(mx) {
   const money = v => (v == null || isNaN(v)) ? '–' : '$' + Math.round(v).toLocaleString('es-CL');
   const pct = v => (v == null || isNaN(v)) ? '–' : (Math.round(v * 10) / 10) + '%';
   const num = v => (v == null || isNaN(v)) ? '–' : Math.round(v).toLocaleString('es-CL');
-  const card = (label, val, color) => `<div style="background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:10px;padding:9px 11px"><div class="muted" style="font-size:10.5px;text-transform:uppercase;letter-spacing:.3px">${label}</div><div style="font-size:17px;font-weight:800;margin-top:2px${color ? ';color:' + color : ''}">${val}</div></div>`;
+  const card = (label, val, color) => `<div style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 11px"><div class="muted" style="font-size:10.5px;text-transform:uppercase;letter-spacing:.3px">${label}</div><div style="font-size:17px;font-weight:800;margin-top:2px${color ? ';color:' + color : ''}">${val}</div></div>`;
   const mg = s ? s.marginPct : null, tacos = s ? s.tacos : null;
   $('trackCards').innerHTML = [
     card('Ventas (con kits)', s ? num(s.units) : '–'),
@@ -1085,7 +1085,7 @@ function paintTrackChart() {
   const lines = draw.map(a => `<path d="${a.d}" fill="none" stroke="${a.s.color}" stroke-width="2"/>`).join('');
   const xLabels = [...new Set([0, Math.floor(n / 2), n - 1])].filter(i => i >= 0 && i < n).map(i => `<text x="${X(i).toFixed(1)}" y="${H - 8}" text-anchor="middle" font-size="10" fill="var(--muted)">${escapeHtml(wd[i].label || '')}</text>`).join('');
   _trackGeo = { xs: wd.map((w, i) => X(i)), wd, active: draw, W, H };
-  $('trackChart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block">${grid}${guide}${lines}${xLabels}</svg><div class="trk-tip" style="position:absolute;display:none;background:#0b0b0e;border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:11px;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.5);z-index:5;white-space:nowrap"></div>`;
+  $('trackChart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block">${grid}${guide}${lines}${xLabels}</svg><div class="trk-tip" style="position:absolute;display:none;background:var(--tip);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:11px;pointer-events:none;box-shadow:0 6px 20px var(--shadow);z-index:5;white-space:nowrap"></div>`;
   const rangeTxt = _trackWeeksRange ? `últimas ${_trackWeeksRange} semanas` : 'desde la 1ª venta';
   $('trackChartHint').innerHTML = draw.map(a => `<span style="color:${a.s.color}">■</span> ${escapeHtml(a.s.label)}`).join(' &nbsp; ') + ` — semanal, ${rangeTxt}.` + (leftS ? ` Eje Y izq: ${escapeHtml(leftS.s.label)}` + (rightS ? `; der: ${escapeHtml(rightS.s.label)}` : '') + '.' : '');
   paintTrackTable(wd);
@@ -1982,7 +1982,7 @@ function rdChartSVG(points, metric) {
   const xLabels = idxs.map(i => `<text x="${xs[i].toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="10" fill="var(--muted)">${points[i].m}</text>`).join('');
   const dots = points.map((p, i) => `<circle cx="${xs[i].toFixed(1)}" cy="${ys[i].toFixed(1)}" r="2.6" fill="var(--accent)"/>`).join('');
   const guide = `<line class="rd-guide" x1="0" y1="${padT}" x2="0" y2="${padT + ih}" stroke="var(--accent)" stroke-width="1" stroke-dasharray="3 3" style="display:none"/>`;
-  const active = `<circle class="rd-active" r="5" fill="var(--accent)" stroke="#121215" stroke-width="2" style="display:none"/>`;
+  const active = `<circle class="rd-active" r="5" fill="var(--accent)" stroke="var(--panel)" stroke-width="2" style="display:none"/>`;
   const metricName = metric === 'gmv' ? 'Ventas en $' : metric === 'prof' ? 'Vendedores' : metric === 'unidades' ? 'Unidades' : 'Ticket medio';
   _rdGeo = { xs, ys, vals, labels: points.map(p => rdMonthLabel(p.m)), W, H, fmt: fmtFull, metricName };
   const tip = `<div class="rd-tip"><div class="tm"></div><div class="tv"><span class="dot"></span><span class="tl"></span> : <b></b></div></div>`;
@@ -2281,7 +2281,7 @@ async function amazonVerify(desc, query, key, precioCLP, candidates) {
 }
 function amzCard(c) {
   const esc = escapeHtml;
-  return `<a href="${esc(c.link)}" target="_blank" rel="noopener" style="display:flex;gap:8px;align-items:center;background:#121215;border:1px solid var(--line);border-radius:8px;padding:6px;margin:4px 0;text-decoration:none;color:var(--ink)">` +
+  return `<a href="${esc(c.link)}" target="_blank" rel="noopener" style="display:flex;gap:8px;align-items:center;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px;margin:4px 0;text-decoration:none;color:var(--ink)">` +
     (c.image ? `<img src="${esc(c.image)}" alt="" style="width:46px;height:46px;object-fit:contain;background:#fff;border-radius:4px;flex:none">` : '') +
     `<div style="flex:1;min-width:0"><div style="font-size:11px;line-height:1.3;max-height:2.6em;overflow:hidden">${esc(c.title)}</div>` +
     `<div style="font-size:11px;color:var(--muted);margin-top:2px">${c.price ? '<b style="color:var(--ink)">' + esc(String(c.price)) + '</b>' : ''}${c.rating ? ' · ⭐' + Number(c.rating) + (c.reviews ? ' (' + Number(c.reviews).toLocaleString('es-CL') + ')' : '') : ''} · <span style="color:var(--good)" title="Verificado por IA (parecido en specs)">✓ ${(c.v && c.v.score != null) ? Number(c.v.score) + '% · ' : ''}${esc((c.v && c.v.razon) || 'verificado')}</span></div></div></a>`;
@@ -2522,7 +2522,7 @@ function renderP2(report, item, ts) {
   const revBlock = revs.length ? (() => {
     const r = revs[0];
     const lv = r.levels || {}; const tot = r.total || 1;
-    const bar = (n, c) => `<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin:1px 0"><span>${n}★</span><div style="flex:1;height:6px;background:#2b2b31;border-radius:3px;overflow:hidden"><div style="height:100%;background:var(--accent);width:${Math.round((c || 0) / tot * 100)}%"></div></div><span>${c || 0}</span></div>`;
+    const bar = (n, c) => `<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin:1px 0"><span>${n}★</span><div style="flex:1;height:6px;background:var(--line);border-radius:3px;overflow:hidden"><div style="height:100%;background:var(--accent);width:${Math.round((c || 0) / tot * 100)}%"></div></div><span>${c || 0}</span></div>`;
     const samples = (r.samples || []).map(x => `<div style="font-size:12px;margin:3px 0;color:${x.rate >= 4 ? '#a7d8a7' : '#e6a3a3'}">${x.rate}★ "${esc(x.content)}"</div>`).join('');
     return `<div style="font-size:13px;margin-bottom:6px"><b style="color:var(--accent-d);font-size:20px">${r.avg || '?'}★</b> · ${r.total || 0} reseñas · ${esc(r.name)} ${r.price ? '($' + Math.round(r.price).toLocaleString('es-CL') + ')' : ''}</div>${bar(5, lv.five_star)}${bar(1, lv.one_star)}<div style="margin-top:6px">${samples}</div>`;
   })() : '<span class="muted small">Sin reseñas disponibles para el top.</span>';
@@ -2667,7 +2667,7 @@ function renderP2Deep(deep) {
   const esc = escapeHtml, ai = deep.ai || {};
   const comPct = p2CatCommission(_p2Report, _p2Item);
   const per = deep.period ? ((RD_MESES[deep.period.month - 1] || '') + ' ' + deep.period.year) : '';
-  const kpi = (l, v) => `<div style="flex:1;min-width:88px;background:#121215;border:1px solid var(--line);border-radius:8px;padding:8px 10px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px">${l}</div><div style="font-size:17px;font-weight:800">${v}</div></div>`;
+  const kpi = (l, v) => `<div style="flex:1;min-width:88px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 10px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px">${l}</div><div style="font-size:17px;font-weight:800">${v}</div></div>`;
   const clusters = (ai.clusters || []).slice().sort((a, b) => (b.unidades || 0) - (a.unidades || 0));
   const cmax = clusters.reduce((m, c) => Math.max(m, c.unidades || 0), 0);
   const clBars = clusters.map(c => {
@@ -2808,11 +2808,20 @@ function exportResearchCSV() {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'investigacion_categorias.csv'; a.click();
 }
 
+/* ---------------- Tema (claro / oscuro) ---------------- */
+function applyTheme(light) {
+  if (light) document.documentElement.setAttribute('data-theme', 'light');
+  else document.documentElement.removeAttribute('data-theme');
+  try { localStorage.setItem('mp_theme', light ? 'light' : 'dark'); } catch (e) {}
+  const ic = $('themeIcon'), lb = $('themeLabel');
+  if (ic) ic.textContent = light ? '☀️' : '🌙';
+  if (lb) lb.textContent = light ? 'Claro' : 'Oscuro';
+}
 /* ---------------- País (Chile / Colombia) ---------------- */
 // Aplica al DOM el país activo: bandera activa, oculta Falabella en Colombia, ajusta etiquetas de moneda.
 function applyCountryUI() {
   document.body.classList.toggle('co', country === 'co');
-  document.querySelectorAll('.flag-btn').forEach(b => b.classList.toggle('active', b.dataset.country === country));
+  document.querySelectorAll('.flag-btn[data-country]').forEach(b => b.classList.toggle('active', b.dataset.country === country));
   const cur = country === 'co' ? 'COP' : 'CLP';
   const lblP = $('lblPrecio'); if (lblP) lblP.textContent = country === 'co' ? 'Precio de venta ML (COP, con IVA)' : 'Precio de venta (CLP, con IVA)';
   const lblD = $('lblDolar'); if (lblD) lblD.textContent = 'Dólar (' + cur + '/USD)';
@@ -2901,7 +2910,9 @@ function init() {
   $('fblaCatFilter').addEventListener('input', debounce(() => buildCatOptions('fbla', $('fblaCatFilter').value), 150));
 
   // selector de país (banderas)
-  document.querySelectorAll('.flag-btn').forEach(b => b.onclick = () => switchCountry(b.dataset.country));
+  document.querySelectorAll('.flag-btn[data-country]').forEach(b => b.onclick = () => switchCountry(b.dataset.country));
+  // Tema claro/oscuro
+  { const b = $('themeToggle'); if (b) { applyTheme(document.documentElement.getAttribute('data-theme') === 'light'); b.onclick = () => applyTheme(document.documentElement.getAttribute('data-theme') !== 'light'); } }
 
   // pestañas + historial
   document.querySelectorAll('.tab').forEach(t => t.onclick = () => showTab(t.dataset.tab));
