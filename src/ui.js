@@ -888,7 +888,7 @@ function paintTrack() {
     }
     return `<tr data-sku="${esc(it.sku || '')}">
       <td class="trk-linkcell" data-id="${esc(it.id != null ? String(it.id) : '')}" data-sku="${esc(it.sku || '')}" data-name="${esc(it.name || '')}" style="cursor:pointer;color:#7db0ff;text-decoration:underline;text-underline-offset:2px" title="Ver publicaciones por canal">${esc(it.sku || '')}</td>
-      <td class="trk-linkcell" data-id="${esc(it.id != null ? String(it.id) : '')}" data-sku="${esc(it.sku || '')}" data-name="${esc(it.name || '')}" title="${esc(it.name || '')} — clic para ver publicaciones" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;cursor:pointer">${esc(it.name || '')}${it.kit ? ' <span class="muted" title="Kit/pack">·kit</span>' : ''}</td>
+      <td title="${esc(it.name || '')}" style="max-width:220px;overflow:hidden;text-overflow:ellipsis">${esc(it.name || '')}${it.kit ? ' <span class="muted" title="Kit/pack">·kit</span>' : ''}</td>
       <td class="mcell muted">–</td>
       <td class="mcell">${der.velApp != null ? der.velApp : '–'}</td>
       <td><input type="number" class="trk-vm" data-sku="${esc(it.sku || '')}" value="${der.velMadura != null ? der.velMadura : ''}" placeholder="–" min="0" step="0.1" style="width:60px;text-align:right;font-size:12px"></td>
@@ -1079,21 +1079,18 @@ function paintTrackActions(sku) {
   const list = (_trackActions[sku] || []).slice().sort((a, b) => (b.created || 0) - (a.created || 0));
   if (!list.length) { el.innerHTML = '<p class="muted" style="font-size:12px">Sin acciones registradas todavía.</p>'; return; }
   const fmt = ts => { if (!ts) return '–'; const d = new Date(ts); return d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear(); };
-  el.innerHTML = list.map(a => {
+  const rows = list.map(a => {
     const done = a.status === 'done';
-    return `<div class="trk-act${done ? ' done' : ''}">
-      <div class="trk-act-h">
-        <span class="trk-act-type">${escapeHtml(a.type || '')}</span>
-        <span class="trk-badge ${done ? 'ok' : 'wait'}">${done ? 'Completado' : 'En espera'}</span>
-        <span class="trk-act-del" data-id="${escapeHtml(a.id)}" title="Eliminar">✕</span>
-      </div>
-      ${a.desc ? `<div class="trk-act-desc">${escapeHtml(a.desc)}</div>` : ''}
-      <div class="trk-act-foot">
-        <span class="muted">Creada ${fmt(a.created)}</span>
-        ${done ? `<span class="good">· Ejecutada ${fmt(a.doneDate)}</span>` : `<button class="btn ghost trk-act-done" data-id="${escapeHtml(a.id)}" type="button" style="padding:3px 11px;font-size:11px;margin-left:auto">✓ Marcar como hecho</button>`}
-      </div>
-    </div>`;
+    return `<tr>
+      <td style="white-space:nowrap">${escapeHtml(a.type || '')}</td>
+      <td style="max-width:340px;white-space:pre-wrap">${escapeHtml(a.desc || '')}</td>
+      <td style="white-space:nowrap">${done ? 'Completado' : 'En espera'}</td>
+      <td style="white-space:nowrap">${fmt(a.created)}</td>
+      <td style="white-space:nowrap">${done ? fmt(a.doneDate) : '–'}</td>
+      <td style="white-space:nowrap">${done ? '<span class="muted">—</span>' : `<button class="btn ghost trk-act-done" data-id="${escapeHtml(a.id)}" type="button" style="padding:3px 10px;font-size:11px">Marcar como hecho</button>`}<span class="trk-act-del" data-id="${escapeHtml(a.id)}" title="Eliminar" style="cursor:pointer;color:var(--faint);margin-left:8px">✕</span></td>
+    </tr>`;
   }).join('');
+  el.innerHTML = `<div style="overflow-x:auto"><table class="tl-tab"><thead><tr><th>Acción</th><th>Descripción</th><th>Estado</th><th>Fecha creación</th><th>Fecha ejecución</th><th>Marcar como hecho</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   el.querySelectorAll('.trk-act-done').forEach(b => b.onclick = () => trackActionDone(sku, b.dataset.id));
   el.querySelectorAll('.trk-act-del').forEach(b => b.onclick = () => trackActionDelete(sku, b.dataset.id));
 }
