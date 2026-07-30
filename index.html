@@ -715,7 +715,7 @@
     <div id="trackActionsBox" style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <h3 style="font-size:14px;margin:0">🎯 Acciones para madurez / margen</h3>
-        <button class="btn" id="trkActNew" type="button" style="padding:5px 14px;font-size:12px;margin-left:auto">➕ Nueva acción</button>
+        <button class="btn ghost" id="trkActNew" type="button" style="padding:5px 14px;font-size:12px;margin-left:auto">➕ Nueva acción</button>
       </div>
       <p class="hint" style="margin:4px 0 10px">Registra las acciones para mejorar velocidad y margen. Marca “hecho” cuando se ejecute; queda la fecha y el estado.</p>
       <div id="trkActList"></div>
@@ -733,7 +733,7 @@
     <label style="font-weight:600;font-size:12px;display:block;margin-bottom:6px">Tipo de acción</label>
     <div id="trkActChips" class="rd-metrics" style="flex-wrap:wrap;gap:6px;margin-bottom:16px"></div>
     <label style="font-weight:600;font-size:12px;display:block;margin-bottom:6px">¿Qué cambio se hará?</label>
-    <textarea id="trkActDesc" rows="5" placeholder="Describe el cambio (ej: subir presupuesto ADS a $8.000/día en las 3 publicaciones top y activar Product Ads en Falabella)…"></textarea>
+    <textarea id="trkActDesc" rows="5" placeholder="Describe el cambio" style="width:100%;box-sizing:border-box"></textarea>
     <div style="margin-top:16px;display:flex;gap:8px;align-items:center">
       <button class="btn" id="trkActAdd" type="button">Añadir acción</button>
       <button class="btn ghost" id="trkActCancel" type="button">Cancelar</button>
@@ -790,6 +790,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=263700"></script>
+<script src="src/ui.js?v=263800"></script>
 </body>
 </html>
