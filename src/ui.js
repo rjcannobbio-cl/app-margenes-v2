@@ -3191,11 +3191,12 @@ async function qgReadLinks() {
     if (rf.error && !rf.title) { row.description = '[No se pudo leer automáticamente: ' + rf.link + ' — ' + rf.error + ']'; rows.push(row); continue; }
     try {
       const ai = await qgAiRow(rf);
+      const capFirst = s => { s = (s || '').trim(); return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; };
       row.description = ai.description || rf.title || '';
       row.descripcionEs = ai.descripcionEs || '';
-      row.logo = ai.logo || '';
-      row.packaging = ai.packaging || '';
-      row.extras = ai.extras || '';
+      row.logo = capFirst(ai.logo);
+      row.packaging = capFirst(ai.packaging);
+      row.extras = capFirst(ai.extras);
     } catch (e) { row.description = rf.title || ''; }
     rows.push(row);
   }
@@ -3223,20 +3224,22 @@ async function qgAiRow(rf) {
     '  • Line 1 = concise product name.\n' +
     '  • Then ONLY the technical attributes that matter to quote THIS specific product type. Do NOT use a fixed template — pick the attributes that fit the product. Examples: a guitar → body/neck wood, pickups, bridge/hardware, frets, scale length, finish, dimensions, weight, color; a bottle → material, capacity, dimensions; apparel → fabric, GSM, sizes, color. NEVER add an attribute that is irrelevant to the product (e.g. NEVER put "Capacity" on a guitar).\n' +
     '  • Use ONLY objective facts from the reference. No marketing/subjective words. Keep it concise: the essential attributes only (about 6-9 lines), short values.\n' +
+    '  • UNITS (mandatory): always give dimensions/measurements in centimeters (cm) and weights in kilograms (kg). If the reference uses inches/feet/lb/oz, CONVERT (1 in = 2.54 cm, 1 ft = 30.48 cm, 1 lb = 0.45 kg, 1 oz = 0.028 kg) and round to 1 decimal. Never leave inches or pounds.\n' +
+    '  • Start EVERY value with a capital letter.\n' +
     '  • MISSING SPEC rule (be conservative): only if an attribute that is ESSENTIAL to quote THIS product is truly not stated in the reference, add its line ending EXACTLY with " (' + QG_FALTA + ')". If in doubt, omit it. Never invent irrelevant attributes just to flag them.\n\n' +
-    'LOGO — choose the branding method that physically fits the product material (return exactly one):\n' +
-    '  • laser logo → metal, wood, glass, hard plastic, leather (engraving). ← e.g. a guitar\n' +
-    '  • printing logo → plastic, painted/coated surfaces, general hard goods (pad/silkscreen print).\n' +
-    '  • embroided logo → textile/fabric (apparel, caps, bags).\n' +
-    '  • label logo → sewn/woven labels or hangtags (mainly apparel/soft goods).\n\n' +
-    'PACKAGING — choose exactly one: PP bag + color card | custom color box | custom kraft box.\n' +
+    'LOGO — choose the branding method that physically fits the product material (return exactly one, capitalized):\n' +
+    '  • Laser logo → metal, wood, glass, hard plastic, leather (engraving). ← e.g. a guitar\n' +
+    '  • Printing logo → plastic, painted/coated surfaces, general hard goods (pad/silkscreen print).\n' +
+    '  • Embroided logo → textile/fabric (apparel, caps, bags).\n' +
+    '  • Label logo → sewn/woven labels or hangtags (mainly apparel/soft goods).\n\n' +
+    'PACKAGING — choose exactly one: PP bag + color card | Custom color box | Custom kraft box.\n' +
     'EXTRAS — Manual and/or accessories if the product needs them, else "No".\n\n' +
     'REFERENCE DATA:\n' + facts.join('\n') +
-    '\n\nReturn ONLY this JSON:\n' +
+    '\n\nReturn ONLY this JSON (every value capitalized; cm and kg only):\n' +
     '{"description":"English spec sheet, lines separated by \\n",' +
     '"descripcionEs":"the SAME spec sheet in Spanish, lines separated by \\n (keep \\"(' + QG_FALTA + ')\\" on the same missing lines)",' +
-    '"logo":"one of: laser logo | printing logo | embroided logo | label logo",' +
-    '"packaging":"one of: PP bag + color card | custom color box | custom kraft box",' +
+    '"logo":"one of: Laser logo | Printing logo | Embroided logo | Label logo",' +
+    '"packaging":"one of: PP bag + color card | Custom color box | Custom kraft box",' +
     '"extras":"Manual and/or accessories if it applies (e.g. \\"Manual\\", \\"Manual, pouch\\"); else No"}';
   return parseJSONLoose(await aiText(prompt, cfg, { maxTokens: 1600 })) || {};
 }
