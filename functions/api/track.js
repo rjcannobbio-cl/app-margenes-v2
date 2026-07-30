@@ -37,7 +37,8 @@ export async function onRequest({ request, env }) {
       const products = JSON.parse((await kv.get('track_products')) || 'null');
       const meta = JSON.parse((await kv.get('track_meta')) || '{}');
       const metrics = JSON.parse((await kv.get('track_metrics')) || 'null');
-      return json({ products, meta, metrics });
+      const actions = JSON.parse((await kv.get('track_actions')) || '{}');
+      return json({ products, meta, metrics, actions });
     }
     if (request.method === 'POST') {
       const body = await request.json().catch(() => ({}));
@@ -310,6 +311,39 @@ export async function onRequest({ request, env }) {
           }
         } catch (e) {}
         return json({ ok: true, product: { id: pid, sku: body.sku || '', pubs: productPubs }, packs });
+      }
+
+      // ---- Accionables (sugerencias/seguimiento de acciones para madurez/margen) ----
+      if (action === 'actionAdd') {
+        if (!body.sku || !body.type) return json({ error: 'falta sku/type' }, 400);
+        const store = JSON.parse((await kv.get('track_actions')) || '{}');
+        const list = store[body.sku] || [];
+        const item = {
+          id: 'a' + Date.now() + Math.floor(Math.random() * 1000),
+          type: String(body.type).slice(0, 60),
+          desc: String(body.desc || '').slice(0, 3000),
+          created: Date.now(), status: 'pending', doneDate: null
+        };
+        list.push(item); store[body.sku] = list;
+        await kv.put('track_actions', JSON.stringify(store));
+        return json({ ok: true, list });
+      }
+      if (action === 'actionDone') {
+        if (!body.sku || !body.id) return json({ error: 'falta sku/id' }, 400);
+        const store = JSON.parse((await kv.get('track_actions')) || '{}');
+        const list = store[body.sku] || [];
+        const it = list.find(x => x.id === body.id);
+        if (it) { it.status = 'done'; it.doneDate = Date.now(); }
+        store[body.sku] = list;
+        await kv.put('track_actions', JSON.stringify(store));
+        return json({ ok: true, list });
+      }
+      if (action === 'actionDelete') {
+        if (!body.sku || !body.id) return json({ error: 'falta sku/id' }, 400);
+        const store = JSON.parse((await kv.get('track_actions')) || '{}');
+        store[body.sku] = (store[body.sku] || []).filter(x => x.id !== body.id);
+        await kv.put('track_actions', JSON.stringify(store));
+        return json({ ok: true, list: store[body.sku] });
       }
 
       return json({ error: 'acción no soportada' }, 400);

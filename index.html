@@ -67,6 +67,18 @@
   .qg-photos .qg-ph .qg-x{position:absolute;top:0;right:0;background:rgba(0,0,0,.6);color:#fff;font-size:11px;line-height:1;padding:1px 3px;cursor:pointer;border-bottom-left-radius:5px}
   .qg-photos .qg-add{width:44px;height:44px;border:1px dashed var(--line);border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--muted);font-size:18px}
   .qg-rowdel{cursor:pointer;color:var(--bad);font-weight:700;padding:2px 6px}
+  /* Accionables (Seguimiento) */
+  .trk-act{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin-bottom:8px}
+  .trk-act.done{opacity:.72}
+  .trk-act-h{display:flex;align-items:center;gap:8px}
+  .trk-act-type{font-weight:800;font-size:12px;background:var(--accent);color:#fff;border-radius:6px;padding:2px 9px;letter-spacing:.2px}
+  .trk-badge{font-size:10.5px;font-weight:700;border-radius:20px;padding:2px 9px;text-transform:uppercase;letter-spacing:.3px}
+  .trk-badge.wait{background:rgba(210,150,20,.16);color:#d6a020;border:1px solid rgba(210,150,20,.4)}
+  .trk-badge.ok{background:rgba(22,163,74,.16);color:var(--good);border:1px solid rgba(22,163,74,.4)}
+  .trk-act-del{margin-left:auto;cursor:pointer;color:var(--faint);font-weight:700;font-size:13px;line-height:1}
+  .trk-act-del:hover{color:var(--bad)}
+  .trk-act-desc{font-size:12.5px;margin:7px 0 8px;white-space:pre-wrap;line-height:1.4}
+  .trk-act-foot{display:flex;align-items:center;gap:8px;font-size:11px}
   .dbtab td:first-child{max-width:280px;overflow:hidden;text-overflow:ellipsis;position:sticky;left:0;z-index:1;background:var(--panel)}
   .histtab tbody tr:nth-child(even) td:first-child{background:var(--panel2)}
   .histtab tbody tr:hover td:first-child{background:var(--row-hover)}
@@ -699,6 +711,23 @@
     <div id="trackChart" class="rd-chart" style="position:relative"></div>
     <p class="hint" id="trackChartHint" style="margin-top:6px"></p>
     <div id="trackTable" style="overflow-x:auto;margin-top:8px"></div>
+
+    <div id="trackActionsBox" style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">
+      <h3 style="font-size:14px;margin:0 0 3px">🎯 Acciones para madurez / margen</h3>
+      <p class="hint" style="margin:0 0 10px">Elige una acción, describe el cambio y guárdalo. Marca “hecho” cuando se ejecute; queda registrada la fecha y el estado.</p>
+      <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">
+        <select id="trkActType" style="min-width:200px;width:auto"></select>
+        <div id="trkActForm" class="hidden" style="flex:1;min-width:260px">
+          <textarea id="trkActDesc" rows="2" placeholder="Describe el cambio que se hará (ej: subir presupuesto ADS a $X/día en las 3 publicaciones top)…"></textarea>
+          <div style="margin-top:6px;display:flex;gap:8px;align-items:center">
+            <button class="btn" id="trkActAdd" type="button" style="padding:5px 16px">Añadir</button>
+            <button class="btn ghost" id="trkActCancel" type="button" style="padding:5px 14px">Cancelar</button>
+            <span class="ai-status" id="trkActStatus"></span>
+          </div>
+        </div>
+      </div>
+      <div id="trkActList" style="margin-top:12px"></div>
+    </div>
   </div>
 </div>
 
@@ -750,6 +779,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=263400"></script>
+<script src="src/ui.js?v=263500"></script>
 </body>
 </html>

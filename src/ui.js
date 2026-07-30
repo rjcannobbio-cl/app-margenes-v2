@@ -796,7 +796,9 @@ let _trackSort = 'fs-desc';                 // por defecto: 1ª venta más recie
 const WK_MS = 7 * 864e5;
 function trackStatus(msg, err) { const el = $('trackStatus'); if (!el) return; el.textContent = msg || ''; el.style.color = err ? 'var(--bad)' : 'var(--muted)'; }
 let _trackMetricsTs = 0;
-async function trackLoad() { try { const j = await (await fetch(api('/api/track'))).json(); _trackData = (j && !j.error) ? j : { products: null, meta: {} }; _trackMetrics = (j && j.metrics && j.metrics.m) || {}; _trackMetricsTs = (j && j.metrics && j.metrics.ts) || 0; } catch (e) { _trackData = { products: null, meta: {} }; } }
+async function trackLoad() { try { const j = await (await fetch(api('/api/track'))).json(); _trackData = (j && !j.error) ? j : { products: null, meta: {} }; _trackMetrics = (j && j.metrics && j.metrics.m) || {}; _trackMetricsTs = (j && j.metrics && j.metrics.ts) || 0; _trackActions = (j && j.actions) || {}; } catch (e) { _trackData = { products: null, meta: {} }; } }
+let _trackActions = {};   // {sku:[{id,type,desc,created,status,doneDate}]}
+const TRACK_ACTION_TYPES = ['ADS', 'DOD', 'REL', 'AON', 'Cambio imágenes', 'Cambio SEO', 'Clips', 'Descuentos Mayoristas', 'CMR', 'Ficha técnica'];
 async function renderTrack() {
   if (!_trackData) { $('trackDbWrap').innerHTML = '<p class="muted" style="padding:16px">Cargando…</p>'; await trackLoad(); }
   paintTrack();
@@ -1004,8 +1006,15 @@ function openTrackChart(sku) {
   $('trackChartName').textContent = it.name || sku;
   $('trackChartSku').textContent = sku;
   { const a = $('trackPgLink'); if (a) { if (it.id != null) { a.href = 'https://app.profitguard.cl/sales_speed/' + it.id; a.style.display = ''; } else a.style.display = 'none'; } }
-  paintTrackCards(_trackMetrics[sku]);
+  paintTrackCards(_trackMetrics[sku], it.velApp);
   paintTrackChart();
+  // Accionables: poblar el dropdown (una vez), resetear el form y pintar la lista del SKU.
+  { const sel = $('trkActType'); if (sel && !sel._filled) { sel.innerHTML = '<option value="">+ Nueva acción…</option>' + TRACK_ACTION_TYPES.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join(''); sel._filled = true; } }
+  if ($('trkActType')) $('trkActType').value = '';
+  if ($('trkActDesc')) $('trkActDesc').value = '';
+  if ($('trkActForm')) $('trkActForm').classList.add('hidden');
+  if ($('trkActStatus')) $('trkActStatus').textContent = '';
+  paintTrackActions(sku);
   $('trackOverlay').classList.remove('hidden');
 }
 // Popup con las publicaciones del producto (y sus packs) en cada marketplace, con link directo.
@@ -1033,14 +1042,16 @@ async function openTrackLinks(id, sku, name) {
     : '<p class="muted" style="padding:12px">No se encontraron publicaciones.</p>';
 }
 // Cuadritos de métricas del producto (resumen desde 1ª venta), estilo ficha de PG.
-function paintTrackCards(mx) {
+function paintTrackCards(mx, velApp) {
   const s = mx && mx.summary;
   const money = v => (v == null || isNaN(v)) ? '–' : '$' + Math.round(v).toLocaleString('es-CL');
   const pct = v => (v == null || isNaN(v)) ? '–' : (Math.round(v * 10) / 10) + '%';
   const num = v => (v == null || isNaN(v)) ? '–' : Math.round(v).toLocaleString('es-CL');
   const card = (label, val, color) => `<div style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 11px"><div class="muted" style="font-size:10.5px;text-transform:uppercase;letter-spacing:.3px">${label}</div><div style="font-size:17px;font-weight:800;margin-top:2px${color ? ';color:' + color : ''}">${val}</div></div>`;
   const mg = s ? s.marginPct : null, tacos = s ? s.tacos : null;
+  const vel = (velApp == null || isNaN(velApp)) ? '–' : (Math.round(velApp * 10) / 10) + ' u/sem';
   $('trackCards').innerHTML = [
+    card('Vel. App (PG)', vel, 'var(--accent)'),
     card('Ventas (con kits)', s ? num(s.units) : '–'),
     card('Ticket promedio', s ? money(s.ticket) : '–'),
     card('Margen', s ? pct(mg) : '–', mg == null ? '' : (mg >= 30 ? 'var(--good)' : (mg < 0 ? 'var(--bad)' : ''))),
@@ -1048,6 +1059,53 @@ function paintTrackCards(mx) {
     card('Visitas ML', s && s.visits != null ? num(s.visits) : '–'),
     card('Conversión', s && s.conv != null ? pct(s.conv) : '–')
   ].join('');
+}
+// Lista de accionables del producto (estilo tarjetas), con estado y fechas.
+function paintTrackActions(sku) {
+  const el = $('trkActList'); if (!el) return;
+  const list = (_trackActions[sku] || []).slice().sort((a, b) => (b.created || 0) - (a.created || 0));
+  if (!list.length) { el.innerHTML = '<p class="muted" style="font-size:12px">Sin acciones registradas todavía.</p>'; return; }
+  const fmt = ts => { if (!ts) return '–'; const d = new Date(ts); return d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear(); };
+  el.innerHTML = list.map(a => {
+    const done = a.status === 'done';
+    return `<div class="trk-act${done ? ' done' : ''}">
+      <div class="trk-act-h">
+        <span class="trk-act-type">${escapeHtml(a.type || '')}</span>
+        <span class="trk-badge ${done ? 'ok' : 'wait'}">${done ? 'Completado' : 'En espera'}</span>
+        <span class="trk-act-del" data-id="${escapeHtml(a.id)}" title="Eliminar">✕</span>
+      </div>
+      ${a.desc ? `<div class="trk-act-desc">${escapeHtml(a.desc)}</div>` : ''}
+      <div class="trk-act-foot">
+        <span class="muted">Creada ${fmt(a.created)}</span>
+        ${done ? `<span class="good">· Ejecutada ${fmt(a.doneDate)}</span>` : `<button class="btn ghost trk-act-done" data-id="${escapeHtml(a.id)}" type="button" style="padding:3px 11px;font-size:11px;margin-left:auto">✓ Marcar como hecho</button>`}
+      </div>
+    </div>`;
+  }).join('');
+  el.querySelectorAll('.trk-act-done').forEach(b => b.onclick = () => trackActionDone(sku, b.dataset.id));
+  el.querySelectorAll('.trk-act-del').forEach(b => b.onclick = () => trackActionDelete(sku, b.dataset.id));
+}
+async function trackActionAdd(sku) {
+  if (!sku) return;
+  const type = $('trkActType').value;
+  const desc = ($('trkActDesc').value || '').trim();
+  if (!type) { $('trkActStatus').textContent = 'Elige una acción.'; return; }
+  $('trkActStatus').textContent = 'Guardando…';
+  let j;
+  try { j = await (await fetch(api('/api/track'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'actionAdd', sku, type, desc }) })).json(); }
+  catch (e) { $('trkActStatus').textContent = 'Error: ' + (e.message || e); return; }
+  if (j.error) { $('trkActStatus').textContent = 'Error: ' + j.error; return; }
+  if (j.list) _trackActions[sku] = j.list;
+  $('trkActType').value = ''; $('trkActDesc').value = ''; $('trkActForm').classList.add('hidden'); $('trkActStatus').textContent = '';
+  paintTrackActions(sku);
+}
+async function trackActionDone(sku, id) {
+  try { const j = await (await fetch(api('/api/track'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'actionDone', sku, id }) })).json(); if (j.list) _trackActions[sku] = j.list; } catch (e) {}
+  paintTrackActions(sku);
+}
+async function trackActionDelete(sku, id) {
+  if (!confirm('¿Eliminar esta acción?')) return;
+  try { const j = await (await fetch(api('/api/track'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'actionDelete', sku, id }) })).json(); if (j.list) _trackActions[sku] = j.list; } catch (e) {}
+  paintTrackActions(sku);
 }
 let _trackWeeksRange = null;   // null = todas (desde 1ª venta) | 5 | 10 | 20
 function paintTrackChart() {
@@ -2935,6 +2993,10 @@ function init() {
   { const el = $('trackOnlyIncomplete'); if (el) el.addEventListener('change', paintTrack); }
   { const b = $('trackClose'); if (b) b.onclick = () => $('trackOverlay').classList.add('hidden'); }
   { const o = $('trackOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
+  // Accionables del popup de Seguimiento
+  { const s = $('trkActType'); if (s) s.onchange = () => { $('trkActForm').classList.toggle('hidden', !s.value); if (s.value && $('trkActDesc')) $('trkActDesc').focus(); }; }
+  { const b = $('trkActAdd'); if (b) b.onclick = () => trackActionAdd(_trackChartSku); }
+  { const b = $('trkActCancel'); if (b) b.onclick = () => { $('trkActType').value = ''; $('trkActDesc').value = ''; $('trkActForm').classList.add('hidden'); $('trkActStatus').textContent = ''; }; }
   { const b = $('tlClose'); if (b) b.onclick = () => $('trackLinksOverlay').classList.add('hidden'); }
   { const o = $('trackLinksOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
   // Cotizaciones (inquiries)
