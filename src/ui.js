@@ -3222,7 +3222,7 @@ async function qgAiRow(rf) {
     'DESCRIPTION (English), one attribute per line, "\\n" between lines:\n' +
     '  • Line 1 = concise product name.\n' +
     '  • Then ONLY the technical attributes that matter to quote THIS specific product type. Do NOT use a fixed template — pick the attributes that fit the product. Examples: a guitar → body/neck wood, pickups, bridge/hardware, frets, scale length, finish, dimensions, weight, color; a bottle → material, capacity, dimensions; apparel → fabric, GSM, sizes, color. NEVER add an attribute that is irrelevant to the product (e.g. NEVER put "Capacity" on a guitar).\n' +
-    '  • Use ONLY objective facts from the reference. No marketing/subjective words.\n' +
+    '  • Use ONLY objective facts from the reference. No marketing/subjective words. Keep it concise: the essential attributes only (about 6-9 lines), short values.\n' +
     '  • MISSING SPEC rule (be conservative): only if an attribute that is ESSENTIAL to quote THIS product is truly not stated in the reference, add its line ending EXACTLY with " (' + QG_FALTA + ')". If in doubt, omit it. Never invent irrelevant attributes just to flag them.\n\n' +
     'LOGO — choose the branding method that physically fits the product material (return exactly one):\n' +
     '  • laser logo → metal, wood, glass, hard plastic, leather (engraving). ← e.g. a guitar\n' +
@@ -3238,7 +3238,7 @@ async function qgAiRow(rf) {
     '"logo":"one of: laser logo | printing logo | embroided logo | label logo",' +
     '"packaging":"one of: PP bag + color card | custom color box | custom kraft box",' +
     '"extras":"Manual and/or accessories if it applies (e.g. \\"Manual\\", \\"Manual, pouch\\"); else No"}';
-  return parseJSONLoose(await aiText(prompt, cfg, { maxTokens: 900 })) || {};
+  return parseJSONLoose(await aiText(prompt, cfg, { maxTokens: 1600 })) || {};
 }
 // IA: nombre corto y MUY preciso de la categoría/producto principal del inquiry (para el título).
 async function qgAiInquiryName(refs, rows) {
