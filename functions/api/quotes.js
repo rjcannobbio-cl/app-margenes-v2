@@ -14,9 +14,6 @@
 function keyFor(url) {
   return url.searchParams.get('country') === 'co' ? 'quotes_co' : 'quotes';
 }
-function counterKeyFor(url) {
-  return url.searchParams.get('country') === 'co' ? 'quote_counter_co' : 'quote_counter';
-}
 const FIRST_NUM = 552;   // el primer inquiry nuevo es el N°552 (Rai); luego N+1.
 
 export async function onRequest({ request, env }) {
@@ -35,19 +32,18 @@ export async function onRequest({ request, env }) {
       const body = await request.json();
       const items = Array.isArray(body) ? body : [body];
       const list = JSON.parse((await kv.get(KEY)) || '[]');
-      const CK = counterKeyFor(url);
-      let counter = parseInt(await kv.get(CK), 10);
-      if (!counter || isNaN(counter)) counter = FIRST_NUM;
+      // Correlativo = max(num existentes) + 1, mínimo 552. Se deriva de la lista (self-healing, sin saltos por tests).
+      let maxNum = FIRST_NUM - 1;
+      for (const q of list) { if (q && typeof q.num === 'number' && q.num > maxNum) maxNum = q.num; }
       const saved = [];
       for (const item of items) {
-        if (item.num == null || isNaN(item.num)) { item.num = counter; counter++; }   // asigna correlativo solo a los nuevos
+        if (item.num == null || isNaN(item.num)) { maxNum++; item.num = maxNum; }   // asigna correlativo solo a los nuevos
         item.name = 'Inquiry N-' + item.num + (item.prodName ? ' - ' + item.prodName : '');
         const i = item && item.id ? list.findIndex(x => x.id === item.id) : -1;
         if (i >= 0) list[i] = item; else list.push(item);
         saved.push(item);
       }
       await kv.put(KEY, JSON.stringify(list));
-      await kv.put(CK, String(counter));
       return json({ ok: true, count: list.length, added: items.length, items: saved, item: saved[0] });
     }
     if (method === 'DELETE') {
