@@ -14,6 +14,10 @@
 function keyFor(url) {
   return url.searchParams.get('country') === 'co' ? 'quotes_co' : 'quotes';
 }
+function counterKeyFor(url) {
+  return url.searchParams.get('country') === 'co' ? 'quote_counter_co' : 'quote_counter';
+}
+const FIRST_NUM = 552;   // el primer inquiry nuevo es el N°552 (Rai); luego N+1.
 
 export async function onRequest({ request, env }) {
   const kv = env.MARGENES_KV;
@@ -31,12 +35,20 @@ export async function onRequest({ request, env }) {
       const body = await request.json();
       const items = Array.isArray(body) ? body : [body];
       const list = JSON.parse((await kv.get(KEY)) || '[]');
+      const CK = counterKeyFor(url);
+      let counter = parseInt(await kv.get(CK), 10);
+      if (!counter || isNaN(counter)) counter = FIRST_NUM;
+      const saved = [];
       for (const item of items) {
+        if (item.num == null || isNaN(item.num)) { item.num = counter; counter++; }   // asigna correlativo solo a los nuevos
+        item.name = 'Inquiry N-' + item.num + (item.prodName ? ' - ' + item.prodName : '');
         const i = item && item.id ? list.findIndex(x => x.id === item.id) : -1;
         if (i >= 0) list[i] = item; else list.push(item);
+        saved.push(item);
       }
       await kv.put(KEY, JSON.stringify(list));
-      return json({ ok: true, count: list.length, added: items.length });
+      await kv.put(CK, String(counter));
+      return json({ ok: true, count: list.length, added: items.length, items: saved, item: saved[0] });
     }
     if (method === 'DELETE') {
       if (url.searchParams.get('all')) { await kv.put(KEY, '[]'); return json({ ok: true }); }

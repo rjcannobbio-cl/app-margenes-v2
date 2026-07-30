@@ -639,17 +639,14 @@
       <button class="mini" id="qgClose" type="button" title="Cerrar">✕</button>
     </div>
 
-    <div class="row2" style="margin-bottom:8px">
-      <div><label>Nombre del inquiry / producto</label><input type="text" id="qgName" placeholder="Ej: Nivel láser 12 líneas"></div>
-      <div><label>Cantidad objetivo (opcional)</label><input type="text" id="qgQty" placeholder="Ej: 1000"></div>
-    </div>
     <label>Links de referencia (uno por línea)</label>
-    <textarea id="qgLinks" rows="3" placeholder="https://www.amazon.com/dp/B0XXXXXXX&#10;https://www.mercadolibre.cl/p/MLC..."></textarea>
+    <textarea id="qgLinks" rows="3" placeholder="https://www.amazon.com/dp/B0XXXXXXX&#10;https://www.mercadolibre.cl/p/MLC..." style="width:100%;box-sizing:border-box"></textarea>
     <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <button class="btn" id="qgRead" type="button">🔎 Leer links y armar con IA</button>
+      <button class="btn ghost" id="qgRead" type="button">Leer links y armar con IA</button>
       <button class="btn ghost" id="qgAddRow" type="button">+ Fila vacía</button>
       <span class="ai-status" id="qgStatus"></span>
     </div>
+    <div id="qgNamePreview" class="hidden" style="margin-top:10px;font-size:13px"><span class="muted">Se guardará como:</span> <b id="qgNameTxt"></b></div>
 
     <div id="qgStep2" class="hidden">
       <div id="qgTableWrap" style="overflow-x:auto;margin-top:12px"></div>
@@ -790,6 +787,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=263800"></script>
+<script src="src/ui.js?v=263900"></script>
 </body>
 </html>

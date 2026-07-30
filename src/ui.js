@@ -3091,22 +3091,29 @@ let _cotizAll = [];
 let _cotizLoaded = false;
 let _qgRows = [];          // filas del editor en curso
 let _qgEditId = null;      // id si estamos editando una guardada
+let _qgProdName = '';       // nombre de producto/categoría (IA) para el título del inquiry
+const QG_FALTA = 'FALTA ESTA CARACTERISTICA';   // marca que la IA pone en specs faltantes → se pinta en rojo
 
-// Columnas editables (fotos y la fila-borrar van aparte). Orden = template de inquiry.
+// Columnas EDITABLES por el equipo (fotos y borrar-fila van aparte). El resto del template
+// (Quantity/FOB/peso/dimensiones/PCS/CBM) lo llena el proveedor → salen vacías en el Excel.
 const QUOTE_FIELDS = [
-  { k: 'description', h: 'Descripción', t: 'ta', w: 230 },
-  { k: 'logo', h: 'Logo', t: 'ta', w: 120 },
-  { k: 'packaging', h: 'Packaging', t: 'ta', w: 130 },
-  { k: 'extras', h: 'Extras', t: 'ta', w: 130 },
-  { k: 'quantity', h: 'Cantidad', t: 'in', w: 72 },
-  { k: 'usdFob', h: 'USD FOB', t: 'in', w: 72 },
-  { k: 'yuanFob', h: 'Yuan FOB', t: 'in', w: 72 },
-  { k: 'boxH', h: 'Alto caja (cm)', t: 'in', w: 62 },
-  { k: 'boxL', h: 'Largo caja (cm)', t: 'in', w: 62 },
-  { k: 'boxW', h: 'Ancho caja (cm)', t: 'in', w: 62 },
-  { k: 'weight', h: 'Peso unit. (kg)', t: 'in', w: 64 }
+  { k: 'description', h: 'Description (EN)', t: 'ta', w: 250 },
+  { k: 'descripcionEs', h: 'Descripción (ES)', t: 'ta', w: 250 },
+  { k: 'logo', h: 'Logo', t: 'in', w: 150 },
+  { k: 'packaging', h: 'Packaging', t: 'in', w: 160 },
+  { k: 'extras', h: 'Extras', t: 'in', w: 140 }
 ];
-function qgBlankRow() { return { photos: [], description: '', logo: '', packaging: '', extras: '', quantity: '', usdFob: '', yuanFob: '', boxH: '', boxL: '', boxW: '', weight: '' }; }
+function qgBlankRow() { return { photos: [], description: '', descripcionEs: '', logo: '', packaging: '', extras: '' }; }
+
+// Correlativo del inquiry: arranca en 552 (el server es la fuente de verdad; esto es solo el preview).
+function qgNextNum() { const nums = _cotizAll.map(c => c.num).filter(n => n != null && !isNaN(n)); return (nums.length ? Math.max(...nums) : 551) + 1; }
+function qgInquiryName() { return 'Inquiry N-' + qgNextNum() + (_qgProdName ? ' - ' + _qgProdName : ''); }
+function qgUpdateNamePreview() {
+  const c = _qgEditId ? _cotizAll.find(x => x.id === _qgEditId) : null;
+  const nm = c ? c.name : (_qgProdName ? qgInquiryName() : '');
+  if (nm) { $('qgNameTxt').textContent = nm; $('qgNamePreview').classList.remove('hidden'); }
+  else $('qgNamePreview').classList.add('hidden');
+}
 
 async function renderCotiz() {
   if (!_cotizLoaded) { $('cotizDbWrap').innerHTML = '<p class="muted" style="padding:16px">Cargando…</p>'; await cotizLoad(); _cotizLoaded = true; }
@@ -3138,7 +3145,7 @@ function paintCotiz() {
   }).join('');
   wrap.innerHTML = `<table class="tl-tab dbtab"><thead><tr><th>Nombre</th><th># productos</th><th>Creada</th><th>Acciones</th></tr></thead><tbody>${rows}</tbody></table>`;
   wrap.querySelectorAll('.cotiz-open').forEach(b => b.onclick = () => openQuoteGen(b.dataset.id));
-  wrap.querySelectorAll('.cotiz-xls').forEach(b => b.onclick = () => { const c = _cotizAll.find(x => x.id === b.dataset.id); if (c) { _qgRows = (c.rows || []).map(r => Object.assign(qgBlankRow(), r)); $('qgName').value = c.name || ''; qgExcel(true); } });
+  wrap.querySelectorAll('.cotiz-xls').forEach(b => b.onclick = () => { const c = _cotizAll.find(x => x.id === b.dataset.id); if (c) { _qgEditId = c.id; _qgProdName = c.prodName || ''; _qgRows = (c.rows || []).map(r => Object.assign(qgBlankRow(), r)); qgExcel(true); } });
   wrap.querySelectorAll('.cotiz-del').forEach(b => b.onclick = () => cotizDelete(b.dataset.id));
 }
 
@@ -3154,13 +3161,13 @@ function openQuoteGen(id) {
   _qgEditId = id || null;
   const c = id ? _cotizAll.find(x => x.id === id) : null;
   $('qgTitle').textContent = c ? ('✎ ' + (c.name || 'Cotización')) : '✨ Nueva cotización';
-  $('qgName').value = c ? (c.name || '') : '';
-  $('qgQty').value = c ? (c.qty || '') : '';
   $('qgLinks').value = c ? (c.links || '') : '';
   $('qgStatus').textContent = ''; $('qgStatus2').textContent = '';
+  _qgProdName = c ? (c.prodName || '') : '';
   _qgRows = c ? (c.rows || []).map(r => Object.assign(qgBlankRow(), r)) : [];
   if (_qgRows.length) { $('qgStep2').classList.remove('hidden'); qgRenderTable(); }
   else $('qgStep2').classList.add('hidden');
+  qgUpdateNamePreview();
   $('quoteGenOverlay').classList.remove('hidden');
 }
 
@@ -3179,13 +3186,13 @@ async function qgReadLinks() {
     const rf = refs[i];
     $('qgStatus').textContent = 'Armando con IA ' + (i + 1) + '/' + refs.length + '…';
     const row = qgBlankRow();
-    row.quantity = ($('qgQty').value || '').trim();
     const imgs = (rf.images && rf.images.length) ? rf.images : (rf.image ? [rf.image] : []);
     row.photos = imgs.slice(0, 4);
     if (rf.error && !rf.title) { row.description = '[No se pudo leer automáticamente: ' + rf.link + ' — ' + rf.error + ']'; rows.push(row); continue; }
     try {
       const ai = await qgAiRow(rf);
       row.description = ai.description || rf.title || '';
+      row.descripcionEs = ai.descripcionEs || '';
       row.logo = ai.logo || '';
       row.packaging = ai.packaging || '';
       row.extras = ai.extras || '';
@@ -3193,12 +3200,16 @@ async function qgReadLinks() {
     rows.push(row);
   }
   _qgRows = rows;
+  // Nombre del inquiry (IA: categoría/producto principal, muy preciso).
+  $('qgStatus').textContent = 'Definiendo nombre del inquiry…';
+  try { _qgProdName = await qgAiInquiryName(refs, rows); } catch (e) { _qgProdName = ''; }
   $('qgStep2').classList.remove('hidden');
   qgRenderTable();
+  qgUpdateNamePreview();
   $('qgStatus').textContent = 'Listo: ' + rows.length + ' producto(s). Edita lo que quieras y exporta.';
 }
 
-// IA: de una ficha de referencia → campos objetivos del inquiry (en inglés, para fábricas chinas).
+// IA: de una ficha de referencia → una entrada objetiva del inquiry (specs técnicas, bilingüe).
 async function qgAiRow(rf) {
   const facts = [];
   if (rf.title) facts.push('Title: ' + rf.title);
@@ -3206,9 +3217,31 @@ async function qgAiRow(rf) {
   if (rf.specs && rf.specs.length) facts.push('Specs: ' + rf.specs.map(s => s.name + ': ' + s.value).join(' · '));
   if (rf.attributes && rf.attributes.length) facts.push('Attributes: ' + rf.attributes.map(s => s.name + ': ' + s.value).join(' · '));
   if (rf.weight) facts.push('Weight: ' + rf.weight);
-  const prompt = 'You are a sourcing analyst at ET Brands (imports from China, sells in Chile). From this reference listing data, write an OBJECTIVE INQUIRY to request a quote from a Chinese factory. Be concise and technical, in ENGLISH (suppliers are Chinese).\n\nREFERENCE DATA:\n' + facts.join('\n') +
-    '\n\nReturn ONLY this JSON: {"description":"objective product description with key specs (materials, size, function, what the set includes)","logo":"if applicable, how/where our logo would go (e.g. \\"silk-screen logo on body\\"); if not, empty string","packaging":"suggested packaging (e.g. color box, white box, blister)","extras":"accessories/extras to include (e.g. manual, pouch, charger)"}';
-  return parseJSONLoose(await aiText(prompt, cfg, { maxTokens: 500 })) || {};
+  const prompt =
+    'You are a sourcing analyst at ET Brands (imports from China). From this reference listing, write ONE OBJECTIVE factory-inquiry entry. Use ONLY objective technical characteristics (material, capacity, dimensions, weight, included parts, color). NO marketing or subjective words.\n\n' +
+    'DESCRIPTION FORMAT (one item per line, "\\n" between lines):\n' +
+    '  Line 1 = concise product name.\n' +
+    '  Then, one per line: Material: … / Capacity: … / Product dimensions: … / Weight: … / included features / Color: …\n' +
+    '  If an IMPORTANT technical characteristic is MISSING in the reference (e.g. capacity or material not stated), STILL add its line and end it exactly with " (' + QG_FALTA + ')" so the team fills it.\n\n' +
+    'REFERENCE DATA:\n' + facts.join('\n') +
+    '\n\nReturn ONLY this JSON:\n' +
+    '{"description":"English spec sheet, lines separated by \\n",' +
+    '"descripcionEs":"the SAME spec sheet in Spanish, lines separated by \\n (use \\"(' + QG_FALTA + ')\\" for missing ones)",' +
+    '"logo":"pick ONE that fits the material: laser logo | printing logo | embroided logo | label logo",' +
+    '"packaging":"pick ONE: PP bag + color card | custom color box | custom kraft box",' +
+    '"extras":"include Manual and/or accessories if it applies (e.g. \\"Manual\\", \\"Manual, pouch\\"); else No"}';
+  return parseJSONLoose(await aiText(prompt, cfg, { maxTokens: 800 })) || {};
+}
+// IA: nombre corto y MUY preciso de la categoría/producto principal del inquiry (para el título).
+async function qgAiInquiryName(refs, rows) {
+  const titles = (refs || []).map(r => r.title).filter(Boolean);
+  const descs = (rows || []).map(r => (r.description || '').split('\n')[0]).filter(Boolean);
+  const basis = (titles.length ? titles : descs).join(' | ').slice(0, 800);
+  if (!basis) return '';
+  const prompt = 'Productos de una cotización a fábrica: ' + basis +
+    '\n\nDame el NOMBRE de la categoría o producto principal, MUY PRECISO y corto (2 a 5 palabras, en español, SIN marca), para titular la cotización. Ejemplos: "Shakers de acero inoxidable", "Nivel láser 12 líneas". Responde SOLO el nombre, sin comillas ni nada más.';
+  const r = (await aiText(prompt, cfg, { maxTokens: 60 }) || '').trim().replace(/^["'\s]+|["'\s.]+$/g, '').split('\n')[0].slice(0, 80);
+  return r;
 }
 
 function qgAddRow() { _qgRows.push(qgBlankRow()); $('qgStep2').classList.remove('hidden'); qgRenderTable(); }
@@ -3223,8 +3256,9 @@ function qgRenderTable() {
       `<div class="qg-add" data-i="${i}" title="Agregar foto por URL">＋</div></div>`;
     const cells = QUOTE_FIELDS.map(f => {
       const raw = row[f.k] || '';
+      const falta = f.t === 'ta' && raw.indexOf(QG_FALTA) >= 0;   // specs faltantes → aviso rojo
       const el = f.t === 'ta'
-        ? `<textarea rows="2" data-i="${i}" data-f="${f.k}" style="min-width:${f.w}px">${escapeHtml(raw)}</textarea>`
+        ? `<textarea rows="4" data-i="${i}" data-f="${f.k}" title="${falta ? 'Hay características marcadas como faltantes (saldrán en rojo en el Excel)' : ''}" style="min-width:${f.w}px${falta ? ';border-left:3px solid var(--bad)' : ''}">${escapeHtml(raw)}</textarea>`
         : `<input type="text" data-i="${i}" data-f="${f.k}" style="width:${f.w}px" value="${escapeHtml(raw).replace(/"/g, '&quot;')}">`;
       return `<td>${el}</td>`;
     }).join('');
@@ -3249,6 +3283,18 @@ function loadExcelJS() {
   });
 }
 
+// Valor de celda: si el texto tiene líneas con la marca de "falta", esas líneas van en ROJO (richText).
+function xlsxDescValue(text) {
+  const t = String(text || '');
+  if (t.indexOf(QG_FALTA) < 0) return t;
+  const lines = t.split('\n');
+  const runs = lines.map((ln, idx) => {
+    const seg = ln + (idx < lines.length - 1 ? '\n' : '');
+    return ln.indexOf(QG_FALTA) >= 0 ? { text: seg, font: { color: { argb: 'FFCC0000' }, bold: true } } : { text: seg };
+  });
+  return { richText: runs };
+}
+
 async function qgExcel(fromList) {
   const stat = fromList ? (m => { if ($('cotizCount')) $('cotizCount').textContent = m; }) : (m => { $('qgStatus2').textContent = m; });
   if (!_qgRows.length) { stat('No hay filas para exportar.'); return; }
@@ -3258,16 +3304,18 @@ async function qgExcel(fromList) {
   try {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Inquiry');
-    // Anchos ANTES de agregar filas (ExcelJS es quisquilloso con el orden).
-    ws.columns = [{ width: 20 }, { width: 42 }, { width: 18 }, { width: 18 }, { width: 18 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 16 }];
-    const headers = ['Product Photos', 'Description', 'Logo in product', 'Packaging', 'Extras', 'Quantity', 'USD FOB', 'Yuan FOB', 'Box Height (cm)', 'Box Length (cm)', 'Box Width (cm)', 'Individual weight (kg)'];
-    ws.addRow(headers);
-    ws.getRow(1).font = { bold: true };
-    ws.getRow(1).alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    // Anchos (mismo layout del template real del equipo). 15 columnas A–O.
+    ws.columns = [43, 44, 50, 22, 22, 22, 13, 16, 16, 22, 13, 13, 13, 13, 13].map(w => ({ width: w }));
+    // Encabezado en 2 filas: "Individual box dimensions" abarca Height/Length/Width (K–M).
+    ws.addRow(['PRODUCT PHOTOS', 'DESCRIPTION', 'DESCRIPCIÓN (Español)', 'LOGO IN PRODUCT', 'PACKAGING', 'EXTRAS', 'QUANTITY', 'USD FOB Price', 'Yuan FOB Price', 'Individual product weight', 'Individual box dimensions', '', '', 'PCS/CTN', 'CBM']);
+    ws.addRow(['', '', '', '', '', '', '', '', '', '', 'Height', 'Length', 'Width', '', '']);
+    ['A1:A2', 'B1:B2', 'C1:C2', 'D1:D2', 'E1:E2', 'F1:F2', 'G1:G2', 'H1:H2', 'I1:I2', 'J1:J2', 'K1:M1', 'N1:N2', 'O1:O2'].forEach(r => ws.mergeCells(r));
+    for (let rn = 1; rn <= 2; rn++) { const r = ws.getRow(rn); r.font = { bold: true }; r.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }; }
     for (let i = 0; i < _qgRows.length; i++) {
       const row = _qgRows[i];
-      const er = ws.addRow(['', row.description, row.logo, row.packaging, row.extras, row.quantity, row.usdFob, row.yuanFob, row.boxH, row.boxL, row.boxW, row.weight]);
-      er.height = 95;
+      // A=foto · B/C=descripciones · D=logo · E=packaging · F=extras · G–O las llena el proveedor (vacías).
+      const er = ws.addRow(['', xlsxDescValue(row.description), xlsxDescValue(row.descripcionEs), row.logo || '', row.packaging || '', row.extras || '', '', '', '', '', '', '', '', '', '']);
+      er.height = 120;
       er.alignment = { vertical: 'middle', wrapText: true };
       const url = (row.photos || [])[0];
       if (url) {
@@ -3279,14 +3327,16 @@ async function qgExcel(fromList) {
             const buf = await resp.arrayBuffer();
             const ext = /png/i.test(ct) ? 'png' : (/gif/i.test(ct) ? 'gif' : 'jpeg');
             const imgId = wb.addImage({ buffer: buf, extension: ext });
-            ws.addImage(imgId, { tl: { col: 0.15, row: (er.number - 1) + 0.1 }, ext: { width: 118, height: 112 } });
+            ws.addImage(imgId, { tl: { col: 0.15, row: (er.number - 1) + 0.1 }, ext: { width: 150, height: 140 } });
           } else { er.getCell(1).value = url; }
         } catch (e) { er.getCell(1).value = url; }
       }
     }
     const out = await wb.xlsx.writeBuffer();
     const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    const fname = 'Inquiry - ' + (($('qgName').value || 'cotizacion').replace(/[\\/:*?"<>|]+/g, ' ').trim()) + '.xlsx';
+    const c = _qgEditId ? _cotizAll.find(x => x.id === _qgEditId) : null;
+    const nm = (c && c.name) || qgInquiryName() || 'Inquiry';
+    const fname = nm.replace(/[\\/:*?"<>|]+/g, ' ').trim() + '.xlsx';
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = fname; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
     stat('Excel generado ✔');
@@ -3294,21 +3344,24 @@ async function qgExcel(fromList) {
 }
 
 async function qgSave() {
-  const name = ($('qgName').value || '').trim();
-  if (!name) { $('qgStatus2').textContent = 'Ponle un nombre a la cotización.'; return; }
   if (!_qgRows.length) { $('qgStatus2').textContent = 'No hay filas para guardar.'; return; }
   const prev = _qgEditId ? _cotizAll.find(x => x.id === _qgEditId) : null;
   const rec = {
     id: _qgEditId || ('q' + Date.now() + Math.floor(Math.random() * 1000)),
-    name, qty: ($('qgQty').value || '').trim(), links: ($('qgLinks').value || '').trim(),
-    rows: _qgRows, ts: (prev && prev.ts) || Date.now()
+    prodName: _qgProdName || '', links: ($('qgLinks').value || '').trim(),
+    rows: _qgRows, num: prev ? prev.num : null,   // el server asigna el correlativo si es null
+    ts: (prev && prev.ts) || Date.now()
   };
   _qgEditId = rec.id;
   $('qgStatus2').textContent = 'Guardando…';
-  try { const r = await fetch(api('/api/quotes'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(rec) }); if (!r.ok) throw new Error('HTTP ' + r.status); }
+  let j;
+  try { const r = await fetch(api('/api/quotes'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(rec) }); if (!r.ok) throw new Error('HTTP ' + r.status); j = await r.json(); }
   catch (e) { $('qgStatus2').textContent = 'Error guardando: ' + (e.message || e); return; }
-  const idx = _cotizAll.findIndex(x => x.id === rec.id); if (idx >= 0) _cotizAll[idx] = rec; else _cotizAll.push(rec);
-  $('qgStatus2').textContent = 'Guardada ✔';
+  const saved = (j && j.item) || Object.assign(rec, { name: qgInquiryName() });   // el server devuelve el item con num+name
+  const idx = _cotizAll.findIndex(x => x.id === saved.id); if (idx >= 0) _cotizAll[idx] = saved; else _cotizAll.push(saved);
+  _qgEditId = saved.id;
+  qgUpdateNamePreview();
+  $('qgStatus2').textContent = 'Guardada como “' + (saved.name || '') + '” ✔';
   if (!$('tabCotiz').classList.contains('hidden')) paintCotiz();
 }
 
