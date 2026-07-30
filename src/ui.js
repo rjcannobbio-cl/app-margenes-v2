@@ -1008,14 +1008,27 @@ function openTrackChart(sku) {
   { const a = $('trackPgLink'); if (a) { if (it.id != null) { a.href = 'https://app.profitguard.cl/sales_speed/' + it.id; a.style.display = ''; } else a.style.display = 'none'; } }
   paintTrackCards(_trackMetrics[sku], it.velApp);
   paintTrackChart();
-  // Accionables: poblar el dropdown (una vez), resetear el form y pintar la lista del SKU.
-  { const sel = $('trkActType'); if (sel && !sel._filled) { sel.innerHTML = '<option value="">+ Nueva acción…</option>' + TRACK_ACTION_TYPES.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join(''); sel._filled = true; } }
-  if ($('trkActType')) $('trkActType').value = '';
-  if ($('trkActDesc')) $('trkActDesc').value = '';
-  if ($('trkActForm')) $('trkActForm').classList.add('hidden');
-  if ($('trkActStatus')) $('trkActStatus').textContent = '';
-  paintTrackActions(sku);
+  paintTrackActions(sku);   // accionables del SKU (el alta se hace en el modal #trkActOverlay)
   $('trackOverlay').classList.remove('hidden');
+}
+let _trkActSelType = '';   // tipo elegido en el modal de nueva acción
+// Chips de tipo de acción (single-select), estilo del resto de la app.
+function renderTrackActChips() {
+  const box = $('trkActChips'); if (!box) return;
+  box.innerHTML = TRACK_ACTION_TYPES.map(t => `<button class="rd-mbtn${_trkActSelType === t ? ' active' : ''}" data-t="${escapeHtml(t)}" type="button">${escapeHtml(t)}</button>`).join('');
+  box.querySelectorAll('button').forEach(b => b.onclick = () => { _trkActSelType = b.dataset.t; renderTrackActChips(); });
+}
+// Abre el modal (sobre el popup) para crear una acción del producto actual.
+function openTrackActModal() {
+  if (!_trackChartSku) return;
+  _trkActSelType = '';
+  if ($('trkActDesc')) $('trkActDesc').value = '';
+  if ($('trkActStatus')) $('trkActStatus').textContent = '';
+  const it = ((_trackData && _trackData.products && _trackData.products.items) || []).find(x => x.sku === _trackChartSku);
+  $('trkActProd').textContent = (it && it.name ? it.name + ' · ' : '') + _trackChartSku;
+  renderTrackActChips();
+  $('trkActOverlay').classList.remove('hidden');
+  setTimeout(() => { const d = $('trkActDesc'); if (d) d.focus(); }, 50);
 }
 // Popup con las publicaciones del producto (y sus packs) en cada marketplace, con link directo.
 async function openTrackLinks(id, sku, name) {
@@ -1086,16 +1099,16 @@ function paintTrackActions(sku) {
 }
 async function trackActionAdd(sku) {
   if (!sku) return;
-  const type = $('trkActType').value;
+  const type = _trkActSelType;
   const desc = ($('trkActDesc').value || '').trim();
-  if (!type) { $('trkActStatus').textContent = 'Elige una acción.'; return; }
+  if (!type) { $('trkActStatus').textContent = 'Elige un tipo de acción.'; return; }
   $('trkActStatus').textContent = 'Guardando…';
   let j;
   try { j = await (await fetch(api('/api/track'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'actionAdd', sku, type, desc }) })).json(); }
   catch (e) { $('trkActStatus').textContent = 'Error: ' + (e.message || e); return; }
   if (j.error) { $('trkActStatus').textContent = 'Error: ' + j.error; return; }
   if (j.list) _trackActions[sku] = j.list;
-  $('trkActType').value = ''; $('trkActDesc').value = ''; $('trkActForm').classList.add('hidden'); $('trkActStatus').textContent = '';
+  $('trkActOverlay').classList.add('hidden');
   paintTrackActions(sku);
 }
 async function trackActionDone(sku, id) {
@@ -2993,10 +3006,12 @@ function init() {
   { const el = $('trackOnlyIncomplete'); if (el) el.addEventListener('change', paintTrack); }
   { const b = $('trackClose'); if (b) b.onclick = () => $('trackOverlay').classList.add('hidden'); }
   { const o = $('trackOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
-  // Accionables del popup de Seguimiento
-  { const s = $('trkActType'); if (s) s.onchange = () => { $('trkActForm').classList.toggle('hidden', !s.value); if (s.value && $('trkActDesc')) $('trkActDesc').focus(); }; }
+  // Accionables del popup de Seguimiento (alta vía modal sobre el popup)
+  { const b = $('trkActNew'); if (b) b.onclick = openTrackActModal; }
+  { const b = $('trkActClose'); if (b) b.onclick = () => $('trkActOverlay').classList.add('hidden'); }
+  { const o = $('trkActOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
   { const b = $('trkActAdd'); if (b) b.onclick = () => trackActionAdd(_trackChartSku); }
-  { const b = $('trkActCancel'); if (b) b.onclick = () => { $('trkActType').value = ''; $('trkActDesc').value = ''; $('trkActForm').classList.add('hidden'); $('trkActStatus').textContent = ''; }; }
+  { const b = $('trkActCancel'); if (b) b.onclick = () => $('trkActOverlay').classList.add('hidden'); }
   { const b = $('tlClose'); if (b) b.onclick = () => $('trackLinksOverlay').classList.add('hidden'); }
   { const o = $('trackLinksOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
   // Cotizaciones (inquiries)

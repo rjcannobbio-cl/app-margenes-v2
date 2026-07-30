@@ -713,20 +713,31 @@
     <div id="trackTable" style="overflow-x:auto;margin-top:8px"></div>
 
     <div id="trackActionsBox" style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">
-      <h3 style="font-size:14px;margin:0 0 3px">🎯 Acciones para madurez / margen</h3>
-      <p class="hint" style="margin:0 0 10px">Elige una acción, describe el cambio y guárdalo. Marca “hecho” cuando se ejecute; queda registrada la fecha y el estado.</p>
-      <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">
-        <select id="trkActType" style="min-width:200px;width:auto"></select>
-        <div id="trkActForm" class="hidden" style="flex:1;min-width:260px">
-          <textarea id="trkActDesc" rows="2" placeholder="Describe el cambio que se hará (ej: subir presupuesto ADS a $X/día en las 3 publicaciones top)…"></textarea>
-          <div style="margin-top:6px;display:flex;gap:8px;align-items:center">
-            <button class="btn" id="trkActAdd" type="button" style="padding:5px 16px">Añadir</button>
-            <button class="btn ghost" id="trkActCancel" type="button" style="padding:5px 14px">Cancelar</button>
-            <span class="ai-status" id="trkActStatus"></span>
-          </div>
-        </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <h3 style="font-size:14px;margin:0">🎯 Acciones para madurez / margen</h3>
+        <button class="btn" id="trkActNew" type="button" style="padding:5px 14px;font-size:12px;margin-left:auto">➕ Nueva acción</button>
       </div>
-      <div id="trkActList" style="margin-top:12px"></div>
+      <p class="hint" style="margin:4px 0 10px">Registra las acciones para mejorar velocidad y margen. Marca “hecho” cuando se ejecute; queda la fecha y el estado.</p>
+      <div id="trkActList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal (sobre el popup de Seguimiento): nueva acción -->
+<div id="trkActOverlay" class="modal-overlay hidden" style="z-index:202">
+  <div class="rdetail" style="max-width:540px">
+    <div class="rd-head">
+      <div><h2 style="font-size:17px;margin:0">➕ Nueva acción</h2><div class="rd-l1 muted" id="trkActProd" style="font-size:11px;margin-top:2px"></div></div>
+      <button class="mini" id="trkActClose" type="button" title="Cerrar">✕</button>
+    </div>
+    <label style="font-weight:600;font-size:12px;display:block;margin-bottom:6px">Tipo de acción</label>
+    <div id="trkActChips" class="rd-metrics" style="flex-wrap:wrap;gap:6px;margin-bottom:16px"></div>
+    <label style="font-weight:600;font-size:12px;display:block;margin-bottom:6px">¿Qué cambio se hará?</label>
+    <textarea id="trkActDesc" rows="5" placeholder="Describe el cambio (ej: subir presupuesto ADS a $8.000/día en las 3 publicaciones top y activar Product Ads en Falabella)…"></textarea>
+    <div style="margin-top:16px;display:flex;gap:8px;align-items:center">
+      <button class="btn" id="trkActAdd" type="button">Añadir acción</button>
+      <button class="btn ghost" id="trkActCancel" type="button">Cancelar</button>
+      <span class="ai-status" id="trkActStatus" style="margin-left:auto"></span>
     </div>
   </div>
 </div>
@@ -779,6 +790,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=263500"></script>
+<script src="src/ui.js?v=263600"></script>
 </body>
 </html>
