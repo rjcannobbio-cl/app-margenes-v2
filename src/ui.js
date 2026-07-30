@@ -3148,10 +3148,10 @@ function qgRenderTable() {
       (row.photos || []).map((u, pi) => `<div class="qg-ph"><img src="${escapeHtml(u)}" onerror="this.parentNode.style.opacity=.25" referrerpolicy="no-referrer"><span class="qg-x" data-i="${i}" data-p="${pi}" title="Quitar">✕</span></div>`).join('') +
       `<div class="qg-add" data-i="${i}" title="Agregar foto por URL">＋</div></div>`;
     const cells = QUOTE_FIELDS.map(f => {
-      const v = escapeHtml(row[f.k] || '');
+      const raw = row[f.k] || '';
       const el = f.t === 'ta'
-        ? `<textarea rows="2" data-i="${i}" data-f="${f.k}" style="min-width:${f.w}px">${v}</textarea>`
-        : `<input type="text" data-i="${i}" data-f="${f.k}" style="width:${f.w}px" value="${v}">`;
+        ? `<textarea rows="2" data-i="${i}" data-f="${f.k}" style="min-width:${f.w}px">${escapeHtml(raw)}</textarea>`
+        : `<input type="text" data-i="${i}" data-f="${f.k}" style="width:${f.w}px" value="${escapeHtml(raw).replace(/"/g, '&quot;')}">`;
       return `<td>${el}</td>`;
     }).join('');
     return `<tr><td>${photos}</td>${cells}<td><span class="qg-rowdel" data-i="${i}" title="Eliminar fila">✕</span></td></tr>`;
@@ -3184,11 +3184,12 @@ async function qgExcel(fromList) {
   try {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Inquiry');
+    // Anchos ANTES de agregar filas (ExcelJS es quisquilloso con el orden).
+    ws.columns = [{ width: 20 }, { width: 42 }, { width: 18 }, { width: 18 }, { width: 18 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 16 }];
     const headers = ['Product Photos', 'Description', 'Logo in product', 'Packaging', 'Extras', 'Quantity', 'USD FOB', 'Yuan FOB', 'Box Height (cm)', 'Box Length (cm)', 'Box Width (cm)', 'Individual weight (kg)'];
     ws.addRow(headers);
     ws.getRow(1).font = { bold: true };
     ws.getRow(1).alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
-    ws.columns = [{ width: 20 }, { width: 42 }, { width: 18 }, { width: 18 }, { width: 18 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 16 }];
     for (let i = 0; i < _qgRows.length; i++) {
       const row = _qgRows[i];
       const er = ws.addRow(['', row.description, row.logo, row.packaging, row.extras, row.quantity, row.usdFob, row.yuanFob, row.boxH, row.boxL, row.boxW, row.weight]);
