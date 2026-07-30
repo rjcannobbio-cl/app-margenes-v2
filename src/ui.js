@@ -3218,19 +3218,27 @@ async function qgAiRow(rf) {
   if (rf.attributes && rf.attributes.length) facts.push('Attributes: ' + rf.attributes.map(s => s.name + ': ' + s.value).join(' · '));
   if (rf.weight) facts.push('Weight: ' + rf.weight);
   const prompt =
-    'You are a sourcing analyst at ET Brands (imports from China). From this reference listing, write ONE OBJECTIVE factory-inquiry entry. Use ONLY objective technical characteristics (material, capacity, dimensions, weight, included parts, color). NO marketing or subjective words.\n\n' +
-    'DESCRIPTION FORMAT (one item per line, "\\n" between lines):\n' +
-    '  Line 1 = concise product name.\n' +
-    '  Then, one per line: Material: … / Capacity: … / Product dimensions: … / Weight: … / included features / Color: …\n' +
-    '  If an IMPORTANT technical characteristic is MISSING in the reference (e.g. capacity or material not stated), STILL add its line and end it exactly with " (' + QG_FALTA + ')" so the team fills it.\n\n' +
+    'You are a senior sourcing analyst at ET Brands (imports from China). Build ONE objective factory-inquiry entry for the product below. Think about WHAT the product actually is first.\n\n' +
+    'DESCRIPTION (English), one attribute per line, "\\n" between lines:\n' +
+    '  • Line 1 = concise product name.\n' +
+    '  • Then ONLY the technical attributes that matter to quote THIS specific product type. Do NOT use a fixed template — pick the attributes that fit the product. Examples: a guitar → body/neck wood, pickups, bridge/hardware, frets, scale length, finish, dimensions, weight, color; a bottle → material, capacity, dimensions; apparel → fabric, GSM, sizes, color. NEVER add an attribute that is irrelevant to the product (e.g. NEVER put "Capacity" on a guitar).\n' +
+    '  • Use ONLY objective facts from the reference. No marketing/subjective words.\n' +
+    '  • MISSING SPEC rule (be conservative): only if an attribute that is ESSENTIAL to quote THIS product is truly not stated in the reference, add its line ending EXACTLY with " (' + QG_FALTA + ')". If in doubt, omit it. Never invent irrelevant attributes just to flag them.\n\n' +
+    'LOGO — choose the branding method that physically fits the product material (return exactly one):\n' +
+    '  • laser logo → metal, wood, glass, hard plastic, leather (engraving). ← e.g. a guitar\n' +
+    '  • printing logo → plastic, painted/coated surfaces, general hard goods (pad/silkscreen print).\n' +
+    '  • embroided logo → textile/fabric (apparel, caps, bags).\n' +
+    '  • label logo → sewn/woven labels or hangtags (mainly apparel/soft goods).\n\n' +
+    'PACKAGING — choose exactly one: PP bag + color card | custom color box | custom kraft box.\n' +
+    'EXTRAS — Manual and/or accessories if the product needs them, else "No".\n\n' +
     'REFERENCE DATA:\n' + facts.join('\n') +
     '\n\nReturn ONLY this JSON:\n' +
     '{"description":"English spec sheet, lines separated by \\n",' +
-    '"descripcionEs":"the SAME spec sheet in Spanish, lines separated by \\n (use \\"(' + QG_FALTA + ')\\" for missing ones)",' +
-    '"logo":"pick ONE that fits the material: laser logo | printing logo | embroided logo | label logo",' +
-    '"packaging":"pick ONE: PP bag + color card | custom color box | custom kraft box",' +
-    '"extras":"include Manual and/or accessories if it applies (e.g. \\"Manual\\", \\"Manual, pouch\\"); else No"}';
-  return parseJSONLoose(await aiText(prompt, cfg, { maxTokens: 800 })) || {};
+    '"descripcionEs":"the SAME spec sheet in Spanish, lines separated by \\n (keep \\"(' + QG_FALTA + ')\\" on the same missing lines)",' +
+    '"logo":"one of: laser logo | printing logo | embroided logo | label logo",' +
+    '"packaging":"one of: PP bag + color card | custom color box | custom kraft box",' +
+    '"extras":"Manual and/or accessories if it applies (e.g. \\"Manual\\", \\"Manual, pouch\\"); else No"}';
+  return parseJSONLoose(await aiText(prompt, cfg, { maxTokens: 900 })) || {};
 }
 // IA: nombre corto y MUY preciso de la categoría/producto principal del inquiry (para el título).
 async function qgAiInquiryName(refs, rows) {
