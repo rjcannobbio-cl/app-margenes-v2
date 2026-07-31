@@ -1949,6 +1949,7 @@ function paintResearch() {
   const canibCell = x => (x.canibalizacion || _myCats.has(x.id)) ? '<td style="text-align:center"><span style="color:var(--accent);font-weight:700" title="Ya tenemos productos publicados en esta categoría">● Sí</span></td>' : '<td style="text-align:center" class="muted">–</td>';
   const p2Cell = x => _p2Index[x.id] ? '<td style="text-align:center"><span style="color:var(--good);font-weight:700" title="Ya tiene análisis P2 guardado">Sí</span></td>' : '<td style="text-align:center" class="muted">No</td>';
   const prioCell = x => { const p = x.prioridad || ''; const col = p === 'alta' ? 'var(--accent)' : p === 'media' ? 'var(--mid)' : p === 'baja' ? 'var(--muted)' : ''; return `<td style="text-align:center" data-nosort><select class="research-prio" data-id="${escapeHtml(x.id || '')}" style="font-size:11px;padding:2px 4px;font-weight:700;${col ? 'color:' + col : ''}"><option value="">—</option><option value="alta"${p === 'alta' ? ' selected' : ''}>Alta</option><option value="media"${p === 'media' ? ' selected' : ''}>Media</option><option value="baja"${p === 'baja' ? ' selected' : ''}>Baja</option></select></td>`; };
+  const estadoInvCell = x => { const e = x.estadoInv || INV_ESTADOS[0]; return `<td style="text-align:center" data-nosort><select class="research-estado" data-id="${escapeHtml(x.id || '')}" style="font-size:11px;padding:2px 4px">${INV_ESTADOS.map(s => `<option${s === e ? ' selected' : ''}>${escapeHtml(s)}</option>`).join('')}</select></td>`; };
   const ref = oppRef();
   const oppCell = x => { const s = oppScore(x, ref); if (s == null) return '<td style="text-align:center" class="muted" title="Sin P2: corre el análisis para obtener el score">–</td>'; const col = s >= 66 ? 'var(--good)' : s >= 40 ? 'var(--mid)' : 'var(--bad)'; return `<td style="text-align:center;font-weight:800;color:${col}" title="Opportunity Score 0-100">${s}</td>`; };
   const sortVal = x => { switch (_researchSort.key) { case 'prio': return ({ alta: 3, media: 2, baja: 1 })[x.prioridad] || 0; case 'opp': { const s = oppScore(x, ref); return s == null ? -1 : s; } case 'yoy': { const y = yoy12(x.serie); return y == null ? -1e9 : y; } case 'ticket': return parseFloat(x.ticket) || 0; case 'comp': return parseFloat(x.competidores) || 0; case 'cuota': return researchCuota(x) || 0; default: return parseFloat(x.ventasGmv) || 0; } };
@@ -1958,6 +1959,7 @@ function paintResearch() {
       <td>${escapeHtml(x.l1 || '')}</td>
       <td>${escapeHtml(x.leaf || '')}</td>
       ${prioCell(x)}
+      ${estadoInvCell(x)}
       ${oppCell(x)}
       ${p2Cell(x)}
       ${canibCell(x)}
@@ -1968,13 +1970,15 @@ function paintResearch() {
       <td class="mcell">${cuota != null ? fmtCLP(cuota) : '–'}</td>
     </tr>`; }).join('');
   const arrow = k => _researchSort.key === k ? `<span style="color:var(--accent)">${_researchSort.dir === -1 ? ' ▼' : ' ▲'}</span>` : ' <span style="opacity:.35;font-size:10px">⇅</span>';
-  wrap.innerHTML = `<table class="histtab dbtab restab-compact" style="min-width:1020px"><thead><tr>
-    <th>Categoría L1</th><th>Categoría hoja</th><th data-sort="prio" style="cursor:pointer" title="Prioridad de investigación que define el equipo (editable). Clic para ordenar (mayor a menor).">Prioridad${arrow('prio')}</th><th data-sort="opp" style="cursor:pointer" title="Opportunity Score 0-100 (solo con P2): diferenciabilidad IA 35% + tamaño + competencia (menos vendedores) + crecimiento + ticket + estacionalidad. Clic para ordenar.">Opportunity${arrow('opp')}</th><th title="Categorías con análisis P2 guardado">P2</th><th title="Categorías donde ET Brands ya tiene productos publicados">Canibalización</th><th data-sort="gmv" style="cursor:pointer">Ventas prom (GMV, 12m)${arrow('gmv')}</th><th data-sort="yoy" style="cursor:pointer" title="Crecimiento del GMV: últimos 12 meses vs los 12 previos. Clic para ordenar.">Crec. YoY (12m)${arrow('yoy')}</th><th data-sort="ticket" style="cursor:pointer">Ticket medio (12m)${arrow('ticket')}</th><th data-sort="comp" style="cursor:pointer" title="Cantidad de vendedores profesionales (12m). Clic para ordenar.">Vendedores${arrow('comp')}</th><th data-sort="cuota" style="cursor:pointer">Cuota x seller${arrow('cuota')}</th>
+  wrap.innerHTML = `<table class="histtab dbtab restab-compact" style="min-width:1140px"><thead><tr>
+    <th>Categoría L1</th><th>Categoría hoja</th><th data-sort="prio" style="cursor:pointer" title="Prioridad de investigación que define el equipo (editable). Clic para ordenar (mayor a menor).">Prioridad${arrow('prio')}</th><th title="Estado de la investigación (editable)">Estado</th><th data-sort="opp" style="cursor:pointer" title="Opportunity Score 0-100 (solo con P2): diferenciabilidad IA 35% + tamaño + competencia (menos vendedores) + crecimiento + ticket + estacionalidad. Clic para ordenar.">Opportunity${arrow('opp')}</th><th title="Categorías con análisis P2 guardado">P2</th><th title="Categorías donde ET Brands ya tiene productos publicados">Canibalización</th><th data-sort="gmv" style="cursor:pointer">Ventas prom (GMV, 12m)${arrow('gmv')}</th><th data-sort="yoy" style="cursor:pointer" title="Crecimiento del GMV: últimos 12 meses vs los 12 previos. Clic para ordenar.">Crec. YoY (12m)${arrow('yoy')}</th><th data-sort="ticket" style="cursor:pointer">Ticket medio (12m)${arrow('ticket')}</th><th data-sort="comp" style="cursor:pointer" title="Cantidad de vendedores profesionales (12m). Clic para ordenar.">Vendedores${arrow('comp')}</th><th data-sort="cuota" style="cursor:pointer">Cuota x seller${arrow('cuota')}</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
   wrap.querySelectorAll('th[data-sort]').forEach(th => { th.onclick = () => { const k = th.dataset.sort; if (_researchSort.key === k) _researchSort.dir *= -1; else { _researchSort.key = k; _researchSort.dir = -1; } paintResearch(); }; });
   wrap.querySelectorAll('select.research-prio').forEach(sel => { sel.onclick = e => e.stopPropagation(); sel.onchange = () => { const item = _researchAll.find(x => x.id === sel.dataset.id); if (item) { item.prioridad = sel.value; researchSavePrio(); paintResearch(); } }; });
+  wrap.querySelectorAll('select.research-estado').forEach(sel => { sel.onclick = e => e.stopPropagation(); sel.onchange = () => { const item = _researchAll.find(x => x.id === sel.dataset.id); if (item) { item.estadoInv = sel.value; researchSavePrio(); } }; });
   wrap.querySelectorAll('tbody tr[data-id]').forEach(tr => { tr.title = 'Clic para ver el reporte de la categoría'; tr.onclick = () => openResearchDetail(_researchAll.find(x => x.id === tr.dataset.id)); });
 }
+const INV_ESTADOS = ['Por Analizar', 'En análisis', 'En cotización', 'Descartado', 'Cerrado'];
 let _resPrioT = null;
 function researchSavePrio() { clearTimeout(_resPrioT); _resPrioT = setTimeout(() => { researchReplace(_researchAll).catch(() => {}); }, 600); }
 
@@ -2560,6 +2564,26 @@ async function p2VisionAI(item, stats, products, reviews, own) {
 function p2Feedback(catId) { try { return localStorage.getItem('p2fb_' + catId) || ''; } catch (e) { return ''; } }
 function p2SaveFeedback(catId, note) { try { const cur = p2Feedback(catId); localStorage.setItem('p2fb_' + catId, (cur ? cur + ' | ' : '') + note); } catch (e) {} }
 
+// P2 final (link a Drive del análisis final, por categoría). Abre una caja de texto plano.
+function p2LinkFinal(id) {
+  const w = $('p2FinalWrap'); if (!w) return;
+  const cur = (_p2Item && _p2Item.p2FinalLink) || '';
+  w.innerHTML = `<div style="display:flex;gap:6px;align-items:center;justify-content:flex-end;flex-wrap:wrap;margin-top:2px">
+    <input type="text" id="p2FinalInput" value="${escapeHtml(cur).replace(/"/g, '&quot;')}" placeholder="Pega el link de Drive del P2 final" style="min-width:240px;font-size:12px;padding:6px 8px;background:var(--input);border:1px solid var(--line);border-radius:6px;color:var(--ink)">
+    <button class="btn" style="font-size:12px;padding:5px 12px" onclick="p2LinkFinalSave('${escapeHtml(id)}')">Guardar</button>
+    <button class="btn ghost" style="font-size:12px;padding:5px 12px" onclick="p2LinkFinalCancel()">Cancelar</button>
+  </div>`;
+  const inp = $('p2FinalInput'); if (inp) inp.focus();
+}
+function p2LinkFinalSave(id) {
+  const inp = $('p2FinalInput'); if (!inp) return;
+  const val = inp.value.trim();
+  const item = (_researchAll || []).find(x => x.id === id) || _p2Item;
+  if (item) { item.p2FinalLink = val; if (_p2Item) _p2Item.p2FinalLink = val; researchSavePrio(); }
+  renderP2(_p2Report, _p2Item, _p2Ts);
+}
+function p2LinkFinalCancel() { renderP2(_p2Report, _p2Item, _p2Ts); }
+
 function renderP2(report, item, ts) {
   _p2Report = report; _p2Ts = ts; _p2Item = item;
   const host = $('p2Panel'); const s = report.stats || {}, ai = report.ai || {}, prods = report.products || [], revs = report.reviews || [];
@@ -2611,8 +2635,12 @@ function renderP2(report, item, ts) {
   const fmt = v => (v != null && !isNaN(v)) ? '$' + Math.round(v).toLocaleString('es-CL') : '–';
 
   const updStr = ts ? new Date(ts).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+  const pf = (item.p2FinalLink || '').trim();
+  const p2FinalBtn = pf
+    ? `<a class="btn ghost" style="font-size:12px;padding:7px 13px;text-decoration:none;display:inline-block" href="${esc(pf)}" target="_blank" rel="noopener">📄 Ver P2 final ↗</a>`
+    : `<button class="btn ghost" style="font-size:12px;padding:7px 13px" onclick="p2LinkFinal('${esc(item.id)}')">🔗 Linkear P2 final</button>`;
   host.innerHTML =
-    `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px;flex-wrap:wrap"><h3 style="margin:0;font-size:15px;font-weight:800">🔬 Análisis P2 · ${esc(item.leaf)}</h3><div style="text-align:right"><button class="btn" style="font-size:12px;padding:7px 13px" onclick="runP2(_rdItem,true)">🔄 Actualizar análisis</button><div class="muted" style="font-size:11px;margin-top:4px">Última actualización: <b style="color:var(--ink)">${updStr}</b></div></div></div>` +
+    `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px;flex-wrap:wrap"><h3 style="margin:0;font-size:15px;font-weight:800">🔬 Análisis P2 · ${esc(item.leaf)}</h3><div style="text-align:right"><button class="btn" style="font-size:12px;padding:7px 13px" onclick="runP2(_rdItem,true)">🔄 Actualizar análisis</button><div class="muted" style="font-size:11px;margin-top:4px">Última actualización: <b style="color:var(--ink)">${updStr}</b></div><div id="p2FinalWrap" style="margin-top:8px">${p2FinalBtn}</div></div></div>` +
     (ai._err ? `<div class="p2err" style="margin-bottom:12px">La IA falló (${esc(ai._err)}). Se muestran los datos igual.</div>` : '') +
     `<div class="p2tool"><button class="btn ghost" style="font-size:12px;padding:7px 12px" id="p2ChatToggle">💬 Pregúntale a la IA</button><button class="btn ${report.deep ? 'ghost' : ''}" style="font-size:12px;padding:7px 12px" id="p2DeepToggle">📊 ${report.deep ? 'Re-analizar en profundidad' : 'Analizar en profundidad'}</button></div>` +
     ('own' in report ? renderP2Own(report.own) : '') +
