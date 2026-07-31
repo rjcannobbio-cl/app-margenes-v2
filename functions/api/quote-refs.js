@@ -87,8 +87,8 @@ async function resolveML(link, pgKey) {
     }
   }
   const page = await resolveMLPage(link);
-  if (page) return page;
-  return { source: 'ml', link, error: 'ML no permite leer esta publicación por API (items de terceros dan 403). Prueba con el link de catálogo (/p/MLC…) o llena la fila a mano.' };
+  if (page && page.title) return page;
+  return { source: 'ml', link, error: 'ML no permite leer esta publicación por API (items de terceros dan 403). Prueba con el link de catálogo (/p/MLC…) o llena la fila a mano.', _dbg: (page && page._dbg) || 'null' };
 }
 
 // Passthrough GET a ML; devuelve el body o { error }.
@@ -115,8 +115,8 @@ async function resolveMLPage(link) {
         'Accept': 'text/html,application/xhtml+xml', 'Accept-Language': 'es-CL,es;q=0.9'
       }
     });
-    if (!r.ok) return null;
-    const html = await r.text();
+    const html = r.ok ? await r.text() : '';
+    if (!r.ok) return { _dbg: { status: r.status, len: 0 } };
     const og = prop => {
       const m = html.match(new RegExp('<meta[^>]+property=["\\\']og:' + prop + '["\\\'][^>]*content=["\\\']([^"\\\']+)["\\\']', 'i'))
         || html.match(new RegExp('<meta[^>]+content=["\\\']([^"\\\']+)["\\\'][^>]*property=["\\\']og:' + prop + '["\\\']', 'i'));
@@ -140,14 +140,14 @@ async function resolveMLPage(link) {
         }
       } catch (e) {}
     }
-    if (!title && !images.length) return null;
+    if (!title && !images.length) return { _dbg: { status: r.status, len: html.length, hasOg: /og:title/i.test(html), snippet: html.slice(0, 200) } };
     return {
       source: 'ml', link, id: (link.match(/(ML[A-Z]U?\d+)/i) || [])[1] || '',
       title, image: images[0] || '', images: images.slice(0, 8),
       bullets: desc ? [desc.replace(/\s+/g, ' ').trim().slice(0, 700)] : [],
       specs: [], attributes: [], weight: '', price: '', viaPage: true
     };
-  } catch (e) { return null; }
+  } catch (e) { return { _dbg: { err: String((e && e.message) || e) } }; }
 }
 
 function decodeEntities(s) {
