@@ -66,42 +66,92 @@ async function resolveAmazon(link, rfKey) {
   };
 }
 
-/* ---------- Mercado Libre (passthrough público) ---------- */
+/* ---------- Mercado Libre ----------
+   ML bloquea con nuestro token el acceso por API a items ajenos (/items → 403) y a la
+   búsqueda pública. Solo el catálogo /products/{id} sobrevive. Estrategia:
+     1) si el link es de catálogo (/p/MLCxxxx) → /products/ por passthrough (rico: fotos + atributos).
+     2) si no (o si falla) → leer la PÁGINA pública de ML (og: + JSON-LD). Sirve para /up/MLCU y artículos. */
 async function resolveML(link, pgKey) {
-  if (!pgKey) return { source: 'ml', link, error: 'falta la key de ProfitGuard' };
   const cat = link.match(/\/p\/(ML[A-Z]\d+)/i);
-  const itm = link.match(/(ML[A-Z])-?(\d{6,})/i);
-  let path, isCatalog = false, id;
-  if (cat) { id = cat[1].toUpperCase(); path = `/products/${id}`; isCatalog = true; }
-  else if (itm) { id = (itm[1] + itm[2]).toUpperCase(); path = `/items/${id}`; }
-  else return { source: 'ml', link, error: 'no se pudo extraer el id de ML de la URL' };
+  if (cat && pgKey) {
+    const b = await mlPassthrough(`/products/${cat[1].toUpperCase()}`, {}, pgKey);
+    if (b && !b.error) {
+      const pics = (b.pictures || []).map(p => p.secure_url || p.url).filter(Boolean).slice(0, 8);
+      const attrs = (b.attributes || []).map(a => ({ name: a.name || '', value: a.value_name || (a.values && a.values[0] && a.values[0].name) || '' })).filter(a => a.value);
+      return {
+        source: 'ml', link, id: cat[1].toUpperCase(),
+        title: b.name || b.title || '', image: pics[0] || '', images: pics,
+        bullets: (b.main_features || []).map(f => (typeof f === 'string' ? f : (f.text || ''))).filter(Boolean).slice(0, 8),
+        specs: [], attributes: attrs.slice(0, 25), weight: '', price: ''
+      };
+    }
+  }
+  const page = await resolveMLPage(link);
+  if (page) return page;
+  return { source: 'ml', link, error: 'ML no permite leer esta publicación por API (items de terceros dan 403). Prueba con el link de catálogo (/p/MLC…) o llena la fila a mano.' };
+}
 
-  const query = isCatalog ? {} : { include_attributes: 'all' };
-  const r = await fetch(`${PG}/integrations/${ML_INTEGRATION_CL}/passthrough`, {
-    method: 'POST',
-    headers: { Authorization: 'Bearer ' + pgKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ method: 'GET', path, query })
-  });
-  const jr = await r.json().catch(() => null);
-  const b = jr && (jr.body != null ? jr.body : jr);
-  if (!b || b.error) return { source: 'ml', link, id, error: 'passthrough: ' + ((b && b.error) || r.status) };
+// Passthrough GET a ML; devuelve el body o { error }.
+async function mlPassthrough(path, query, pgKey) {
+  try {
+    const r = await fetch(`${PG}/integrations/${ML_INTEGRATION_CL}/passthrough`, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + pgKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ method: 'GET', path, query: query || {} })
+    });
+    const jr = await r.json().catch(() => null);
+    const b = jr && (jr.body != null ? jr.body : jr);
+    if (!r.ok || !b || b.error) return { error: (b && b.error) || ('passthrough ' + r.status) };
+    return b;
+  } catch (e) { return { error: String((e && e.message) || e) }; }
+}
 
-  const pics = (b.pictures || []).map(p => p.secure_url || p.url).filter(Boolean).slice(0, 8);
-  const attrs = (b.attributes || []).map(a => ({
-    name: a.name || '',
-    value: a.value_name || (a.values && a.values[0] && a.values[0].name) || (a.value_struct && (a.value_struct.number + ' ' + (a.value_struct.unit || ''))) || ''
-  })).filter(a => a.value);
-  return {
-    source: 'ml', link, id,
-    title: b.title || b.name || '',
-    image: pics[0] || '',
-    images: pics,
-    bullets: (b.main_features || []).map(f => f.text || '').filter(Boolean).slice(0, 8),
-    specs: [],
-    attributes: attrs.slice(0, 25),
-    weight: '',
-    price: b.price || (b.buy_box_winner && b.buy_box_winner.price) || ''
-  };
+// Lee la página pública de ML y extrae título/imágenes/descripción (og: + JSON-LD Product).
+async function resolveMLPage(link) {
+  try {
+    const r = await fetch(link.split('#')[0], {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml', 'Accept-Language': 'es-CL,es;q=0.9'
+      }
+    });
+    if (!r.ok) return null;
+    const html = await r.text();
+    const og = prop => {
+      const m = html.match(new RegExp('<meta[^>]+property=["\\\']og:' + prop + '["\\\'][^>]*content=["\\\']([^"\\\']+)["\\\']', 'i'))
+        || html.match(new RegExp('<meta[^>]+content=["\\\']([^"\\\']+)["\\\'][^>]*property=["\\\']og:' + prop + '["\\\']', 'i'));
+      return m ? decodeEntities(m[1]) : '';
+    };
+    const title = og('title');
+    const images = [];
+    const mainImg = og('image'); if (mainImg) images.push(mainImg);
+    let desc = '';
+    const lds = html.match(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi) || [];
+    for (const block of lds) {
+      const txt = block.replace(/<script[^>]*>/i, '').replace(/<\/script>/i, '').trim();
+      try {
+        const o = JSON.parse(txt);
+        const arr = Array.isArray(o) ? o : (o['@graph'] && Array.isArray(o['@graph']) ? o['@graph'] : [o]);
+        const prod = arr.find(x => x && (x['@type'] === 'Product' || x.name));
+        if (prod) {
+          if (prod.description) desc = String(prod.description);
+          if (prod.image) (Array.isArray(prod.image) ? prod.image : [prod.image]).forEach(u => { if (u && !images.includes(u)) images.push(u); });
+          break;
+        }
+      } catch (e) {}
+    }
+    if (!title && !images.length) return null;
+    return {
+      source: 'ml', link, id: (link.match(/(ML[A-Z]U?\d+)/i) || [])[1] || '',
+      title, image: images[0] || '', images: images.slice(0, 8),
+      bullets: desc ? [desc.replace(/\s+/g, ' ').trim().slice(0, 700)] : [],
+      specs: [], attributes: [], weight: '', price: '', viaPage: true
+    };
+  } catch (e) { return null; }
+}
+
+function decodeEntities(s) {
+  return String(s || '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&#x2F;/gi, '/');
 }
 
 function json(obj, status) {
