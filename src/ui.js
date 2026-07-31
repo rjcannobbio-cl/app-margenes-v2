@@ -3123,32 +3123,84 @@ async function renderCotiz() {
 }
 async function cotizLoad() { try { const j = await (await fetch(api('/api/quotes'))).json(); _cotizAll = Array.isArray(j) ? j : []; } catch (e) { _cotizAll = []; } }
 
+const COTIZ_ESTADOS = ['Cotización pendiente de revisión', 'Esperando respuesta', 'Respuesta a proveedor pendiente', 'En proceso de cierre', 'Factura finalizada', 'Descartado'];
+
 function paintCotiz() {
   const q = normalize(($('cotizFilter') && $('cotizFilter').value) || '');
   const all = _cotizAll.slice().sort((a, b) => (b.ts || 0) - (a.ts || 0));
-  const filtered = q ? all.filter(x => normalize([x.name, x.links, (x.rows || []).map(r => r.description).join(' ')].join(' ')).includes(q)) : all;
+  const filtered = q ? all.filter(x => normalize([x.name, x.prodName, x.estado, x.remark, x.links].join(' ')).includes(q)) : all;
   $('cotizCount').textContent = (q ? filtered.length + '/' + all.length : all.length) + ' cotización' + ((q ? filtered.length : all.length) === 1 ? '' : 'es');
   const wrap = $('cotizDbWrap');
   if (!all.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Aún no hay cotizaciones. Crea una con “✨ Generar nueva cotización”.</p>'; return; }
   if (!filtered.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Sin resultados para “' + escapeHtml($('cotizFilter').value) + '”.</p>'; return; }
+  const ym = ts => { if (!ts) return '—'; const d = new Date(ts); return d.getFullYear() + '/' + String(d.getMonth() + 1).padStart(2, '0'); };
+  const at = s => escapeHtml(s || '').replace(/"/g, '&quot;');
   const rows = filtered.map(c => {
-    const d = c.ts ? new Date(c.ts) : null;
-    const fecha = d ? (d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear()) : '—';
-    return `<tr>
-      <td>${escapeHtml(c.name || '—')}</td>
-      <td style="text-align:center">${(c.rows || []).length}</td>
-      <td style="white-space:nowrap">${fecha}</td>
-      <td style="white-space:nowrap">
-        <button class="btn ghost cotiz-open" data-id="${escapeHtml(c.id)}" type="button" style="padding:4px 10px;font-size:12px">✎ Abrir</button>
-        <button class="btn ghost cotiz-xls" data-id="${escapeHtml(c.id)}" type="button" style="padding:4px 10px;font-size:12px">📊 Excel</button>
-        <button class="btn ghost cotiz-del" data-id="${escapeHtml(c.id)}" type="button" style="padding:4px 10px;font-size:12px;border-color:var(--bad);color:var(--bad)">✕</button>
-      </td>
+    const estado = c.estado || COTIZ_ESTADOS[0];
+    const opts = COTIZ_ESTADOS.map(s => `<option${s === estado ? ' selected' : ''}>${escapeHtml(s)}</option>`).join('');
+    const sq = (c.supplierQuotes || []).map(s => `<span class="cotiz-sq" title="${at((s.fileName || '') + ' · ' + (s.rows || []).length + ' productos')}">${escapeHtml(s.label || 'Proveedor')}<span class="cotiz-sq-x" data-id="${escapeHtml(c.id)}" data-sq="${escapeHtml(s.id)}" title="Quitar">✕</span></span>`).join('');
+    return `<tr data-id="${escapeHtml(c.id)}">
+      <td><input class="cotiz-prod" data-id="${escapeHtml(c.id)}" value="${at(c.prodName)}" placeholder="Producto"></td>
+      <td style="white-space:nowrap">${ym(c.ts)}</td>
+      <td><select class="cotiz-estado" data-id="${escapeHtml(c.id)}" style="min-width:210px">${opts}</select></td>
+      <td style="white-space:nowrap">N-${c.num != null ? c.num : '—'}</td>
+      <td style="white-space:nowrap"><a href="#" class="cotiz-inq" data-id="${escapeHtml(c.id)}" style="color:#7db0ff;text-decoration:underline">📊 Inquiry</a> · <a href="#" class="cotiz-edit" data-id="${escapeHtml(c.id)}" style="color:var(--muted);font-size:11px">editar</a></td>
+      <td><div class="cotiz-sq-wrap">${sq}<button class="btn ghost cotiz-sq-add" data-id="${escapeHtml(c.id)}" type="button" style="padding:2px 9px;font-size:11px">＋ Subir</button></div></td>
+      <td><input class="cotiz-remark" data-id="${escapeHtml(c.id)}" value="${at(c.remark)}" placeholder="—"></td>
+      <td><span class="cotiz-del" data-id="${escapeHtml(c.id)}" title="Eliminar" style="cursor:pointer;color:var(--faint);font-weight:700">✕</span></td>
     </tr>`;
   }).join('');
-  wrap.innerHTML = `<table class="tl-tab dbtab"><thead><tr><th>Nombre</th><th># productos</th><th>Creada</th><th>Acciones</th></tr></thead><tbody>${rows}</tbody></table>`;
-  wrap.querySelectorAll('.cotiz-open').forEach(b => b.onclick = () => openQuoteGen(b.dataset.id));
-  wrap.querySelectorAll('.cotiz-xls').forEach(b => b.onclick = () => { const c = _cotizAll.find(x => x.id === b.dataset.id); if (c) { _qgEditId = c.id; _qgProdName = c.prodName || ''; _qgRows = (c.rows || []).map(r => Object.assign(qgBlankRow(), r)); qgExcel(true); } });
+  wrap.innerHTML = `<table class="tl-tab cotiz-tab"><thead><tr><th>Producto</th><th>Año/Mes</th><th>Estado</th><th>Inquiry N°</th><th>Inquiry</th><th>Supplier quotes</th><th>Remark</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+  wrap.querySelectorAll('.cotiz-prod').forEach(el => el.onchange = () => cotizPatch(el.dataset.id, { prodName: el.value.trim() }));
+  wrap.querySelectorAll('.cotiz-estado').forEach(el => el.onchange = () => cotizPatch(el.dataset.id, { estado: el.value }));
+  wrap.querySelectorAll('.cotiz-remark').forEach(el => el.onchange = () => cotizPatch(el.dataset.id, { remark: el.value }));
+  wrap.querySelectorAll('.cotiz-inq').forEach(a => a.onclick = e => { e.preventDefault(); cotizExport(a.dataset.id); });
+  wrap.querySelectorAll('.cotiz-edit').forEach(a => a.onclick = e => { e.preventDefault(); openQuoteGen(a.dataset.id); });
   wrap.querySelectorAll('.cotiz-del').forEach(b => b.onclick = () => cotizDelete(b.dataset.id));
+  wrap.querySelectorAll('.cotiz-sq-add').forEach(b => b.onclick = () => cotizSupplierUpload(b.dataset.id));
+  wrap.querySelectorAll('.cotiz-sq-x').forEach(b => b.onclick = () => cotizSupplierRemove(b.dataset.id, b.dataset.sq));
+}
+
+// Guarda un cambio puntual de una cotización (Producto/Estado/Remark/supplierQuotes) en KV.
+async function cotizPatch(id, patch) {
+  const c = _cotizAll.find(x => x.id === id); if (!c) return;
+  Object.assign(c, patch);
+  try {
+    const r = await fetch(api('/api/quotes'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(c) });
+    const j = await r.json().catch(() => null);
+    if (j && j.item) { const i = _cotizAll.findIndex(x => x.id === id); if (i >= 0) _cotizAll[i] = j.item; }
+  } catch (e) {}
+}
+// Descarga el Excel de la inquiry guardada (con IA o reemplazada por el equipo).
+function cotizExport(id) {
+  const c = _cotizAll.find(x => x.id === id); if (!c) return;
+  _qgEditId = c.id; _qgProdName = c.prodName || ''; _qgRows = (c.rows || []).map(r => Object.assign(qgBlankRow(), r));
+  qgExcel(true);
+}
+// Sube una respuesta de proveedor (Excel de la inquiry con precios) y la guarda en la cotización.
+function cotizSupplierUpload(id) {
+  const c = _cotizAll.find(x => x.id === id); if (!c) return;
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.xlsx,.xls';
+  inp.onchange = async () => {
+    const f = inp.files[0]; if (!f) return;
+    const label = prompt('Nombre del proveedor (para identificar esta respuesta):', f.name.replace(/\.xlsx?$/i, ''));
+    if (label === null) return;
+    let rows;
+    try { await loadXLSX(); const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' }); const ws = wb.Sheets[wb.SheetNames[0]]; rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }); }
+    catch (e) { alert('No se pudo leer el Excel: ' + (e.message || e)); return; }
+    const s = v => (v == null ? '' : String(v)).trim();
+    const parsed = rows.slice(2).filter(r => r && (s(r[0]) || s(r[2]))).map(r => ({ code: s(r[0]), quantity: s(r[7]), usdFob: s(r[8]), yuanFob: s(r[9]), weight: s(r[10]), boxH: s(r[11]), boxL: s(r[12]), boxW: s(r[13]), pcsCtn: s(r[14]), cbm: s(r[15]) }));
+    const sq = { id: 'sq' + Date.now() + Math.floor(Math.random() * 1000), label: (label || f.name).trim(), fileName: f.name, ts: Date.now(), rows: parsed };
+    await cotizPatch(id, { supplierQuotes: (c.supplierQuotes || []).concat([sq]) });
+    paintCotiz();
+  };
+  inp.click();
+}
+async function cotizSupplierRemove(id, sqId) {
+  const c = _cotizAll.find(x => x.id === id); if (!c) return;
+  if (!confirm('¿Quitar esta respuesta de proveedor?')) return;
+  await cotizPatch(id, { supplierQuotes: (c.supplierQuotes || []).filter(s => s.id !== sqId) });
+  paintCotiz();
 }
 
 async function cotizDelete(id) {

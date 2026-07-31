@@ -67,6 +67,13 @@
   .qg-photos .qg-ph .qg-x{position:absolute;top:0;right:0;background:rgba(0,0,0,.6);color:#fff;font-size:11px;line-height:1;padding:1px 3px;cursor:pointer;border-bottom-left-radius:5px}
   .qg-photos .qg-add{width:44px;height:44px;border:1px dashed var(--line);border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--muted);font-size:18px}
   .qg-rowdel{cursor:pointer;color:var(--bad);font-weight:700;padding:2px 6px}
+  /* Tabla de Cotizaciones (listado) */
+  .cotiz-tab input,.cotiz-tab select{width:100%;min-width:120px;background:var(--input);border:1px solid var(--line);border-radius:6px;color:var(--ink);font:inherit;font-size:12px;padding:4px 6px}
+  .cotiz-tab input:focus,.cotiz-tab select:focus{background:var(--input-focus);border-color:var(--accent);outline:none}
+  .cotiz-sq-wrap{display:flex;flex-wrap:wrap;align-items:center;gap:5px;min-width:170px}
+  .cotiz-sq{display:inline-flex;align-items:center;gap:5px;background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:2px 9px;font-size:11px}
+  .cotiz-sq-x{cursor:pointer;color:var(--faint);font-weight:700}
+  .cotiz-sq-x:hover{color:var(--bad)}
   /* Accionables (Seguimiento) */
   .trk-act{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin-bottom:8px}
   .trk-act.done{opacity:.72}
@@ -789,6 +796,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=264400"></script>
+<script src="src/ui.js?v=264500"></script>
 </body>
 </html>
