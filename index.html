@@ -508,6 +508,8 @@
     <div class="hist-actions">
       <input type="text" id="cotizFilter" class="hist-filter" placeholder="Filtrar: producto, proveedor, código…">
       <button class="btn" id="btnCotizNew" type="button" title="Arma un inquiry objetivo a partir de links de referencia (Amazon / Mercado Libre)">✨ Generar nueva cotización</button>
+      <button class="btn ghost" id="btnCotizImport" type="button" title="Sube el Excel editado por el equipo para reemplazar la cotización en la base de datos. El nombre del archivo debe coincidir EXACTO con el de la cotización.">⬆ Importar Excel editado</button>
+      <input type="file" id="cotizFile" accept=".xlsx,.xls" style="display:none">
       <span class="muted" id="cotizCount"></span>
     </div>
     <div class="hint" style="margin-bottom:10px">Arma <b>inquiries objetivos</b> para las fábricas a partir de links de referencia (Amazon / Mercado Libre). La IA lee las fichas y llena la tabla; el equipo la edita y exporta el Excel <b>con las fotos embebidas</b> (no se rompen al descargar). Las cotizaciones quedan guardadas y compartidas.</div>
@@ -635,7 +637,7 @@
 <div id="quoteGenOverlay" class="modal-overlay hidden" style="z-index:200">
   <div class="rdetail" style="max-width:1220px">
     <div class="rd-head">
-      <div><h2 id="qgTitle" style="font-size:18px;margin:0">✨ Nueva cotización</h2><div class="rd-l1 muted" style="font-size:11px;margin-top:2px">Pega links de referencia (Amazon / Mercado Libre). La IA arma el inquiry objetivo; el equipo lo edita y exporta el Excel con fotos embebidas.</div></div>
+      <div><h2 id="qgTitle" style="font-size:18px;margin:0">✨ Nueva cotización</h2></div>
       <button class="mini" id="qgClose" type="button" title="Cerrar">✕</button>
     </div>
 
@@ -787,6 +789,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=264200"></script>
+<script src="src/ui.js?v=264300"></script>
 </body>
 </html>

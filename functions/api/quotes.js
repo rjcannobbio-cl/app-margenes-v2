@@ -39,6 +39,12 @@ export async function onRequest({ request, env }) {
       for (const item of items) {
         if (item.num == null || isNaN(item.num)) { maxNum++; item.num = maxNum; }   // asigna correlativo solo a los nuevos
         item.name = 'Inquiry N-' + item.num + (item.prodName ? ' - ' + item.prodName : '');
+        // Código único por producto: {num}-{n}. Estable: solo asigna a los que falten.
+        if (Array.isArray(item.rows)) {
+          let maxN = 0;
+          for (const r of item.rows) { if (r && r.code) { const m = /-(\d+)$/.exec(r.code); if (m && +m[1] > maxN) maxN = +m[1]; } }
+          for (const r of item.rows) { if (r && !r.code) r.code = item.num + '-' + (++maxN); }
+        }
         const i = item && item.id ? list.findIndex(x => x.id === item.id) : -1;
         if (i >= 0) list[i] = item; else list.push(item);
         saved.push(item);

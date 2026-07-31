@@ -3013,6 +3013,8 @@ function init() {
   { const o = $('trackLinksOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
   // Cotizaciones (inquiries)
   { const b = $('btnCotizNew'); if (b) b.onclick = () => openQuoteGen(null); }
+  { const b = $('btnCotizImport'); if (b) b.onclick = () => $('cotizFile').click(); }
+  { const fi = $('cotizFile'); if (fi) fi.addEventListener('change', e => { const f = e.target.files[0]; if (f) cotizImport(f); e.target.value = ''; }); }
   { const el = $('cotizFilter'); if (el) el.addEventListener('input', debounce(paintCotiz, 200)); }
   { const b = $('qgClose'); if (b) b.onclick = () => $('quoteGenOverlay').classList.add('hidden'); }
   { const o = $('quoteGenOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
@@ -3103,7 +3105,7 @@ const QUOTE_FIELDS = [
   { k: 'packaging', h: 'Packaging', t: 'in', w: 160 },
   { k: 'extras', h: 'Extras', t: 'in', w: 140 }
 ];
-function qgBlankRow() { return { photos: [], description: '', descripcionEs: '', logo: '', packaging: '', extras: '' }; }
+function qgBlankRow() { return { code: '', photos: [], description: '', descripcionEs: '', logo: '', packaging: '', extras: '', quantity: '', usdFob: '', yuanFob: '', weight: '', boxH: '', boxL: '', boxW: '', pcsCtn: '', cbm: '', sourceLink: '' }; }
 
 // Correlativo del inquiry: arranca en 552 (el server es la fuente de verdad; esto es solo el preview).
 function qgNextNum() { const nums = _cotizAll.map(c => c.num).filter(n => n != null && !isNaN(n)); return (nums.length ? Math.max(...nums) : 551) + 1; }
@@ -3157,6 +3159,51 @@ async function cotizDelete(id) {
   _cotizAll = _cotizAll.filter(x => x.id !== id); paintCotiz();
 }
 
+// Reemplaza una cotización con el Excel editado por el equipo. Matchea por NOMBRE exacto
+// (nombre del archivo = nombre de la cotización) y conserva las fotos de cada producto por su código.
+async function cotizImport(file) {
+  const nm = file.name.replace(/\.xlsx?$/i, '').trim();
+  if (!_cotizLoaded) await cotizLoad();
+  const c = _cotizAll.find(x => (x.name || '').trim() === nm);
+  if (!c) {
+    alert('No hay ninguna cotización guardada con el nombre exacto:\n\n“' + nm + '”\n\nEl nombre del archivo debe coincidir EXACTO con el de la cotización (ej: «Inquiry N-552 - Guitarra Eléctrica.xlsx»).\nSi al descargar el navegador le agregó «(1)», quítalo antes de subir.');
+    return;
+  }
+  let rows;
+  try {
+    await loadXLSX();
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+  } catch (e) { alert('No se pudo leer el Excel: ' + (e.message || e)); return; }
+  // Cabecera en filas 1-2 → datos desde la fila 3 (índice 2). Columnas 0-based del template:
+  // 0 Código · 1 foto · 2 desc EN · 3 desc ES · 4 logo · 5 packaging · 6 extras · 7 qty · 8 USD FOB · 9 Yuan FOB · 10 peso · 11 H · 12 L · 13 W · 14 PCS/CTN · 15 CBM · 16 link
+  const s = v => (v == null ? '' : String(v)).trim();
+  const byCode = {}; (c.rows || []).forEach(r => { if (r.code) byCode[r.code] = r; });
+  const dataRows = rows.slice(2).filter(r => r && (s(r[0]) || s(r[2]) || s(r[3])));
+  if (!dataRows.length) { alert('El Excel no tiene filas de productos. Usa el archivo generado por la app (con la fila de códigos).'); return; }
+  const newRows = dataRows.map(r => {
+    const code = s(r[0]);
+    const base = (code && byCode[code]) ? byCode[code] : qgBlankRow();   // conserva fotos del producto por su código
+    return Object.assign({}, base, {
+      code: code || base.code,
+      description: s(r[2]), descripcionEs: s(r[3]), logo: s(r[4]), packaging: s(r[5]), extras: s(r[6]),
+      quantity: s(r[7]), usdFob: s(r[8]), yuanFob: s(r[9]), weight: s(r[10]),
+      boxH: s(r[11]), boxL: s(r[12]), boxW: s(r[13]), pcsCtn: s(r[14]), cbm: s(r[15]),
+      sourceLink: s(r[16]) || base.sourceLink || ''
+    });
+  });
+  const rec = Object.assign({}, c, { rows: newRows });
+  try {
+    const rr = await fetch(api('/api/quotes'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(rec) });
+    if (!rr.ok) throw new Error('HTTP ' + rr.status);
+    const jj = await rr.json(); const saved = (jj && jj.item) || rec;
+    const idx = _cotizAll.findIndex(x => x.id === saved.id); if (idx >= 0) _cotizAll[idx] = saved; else _cotizAll.push(saved);
+  } catch (e) { alert('Error guardando: ' + (e.message || e)); return; }
+  paintCotiz();
+  alert('✔ Cotización “' + nm + '” actualizada con ' + newRows.length + ' producto(s).');
+}
+
 function openQuoteGen(id) {
   _qgEditId = id || null;
   const c = id ? _cotizAll.find(x => x.id === id) : null;
@@ -3186,6 +3233,7 @@ async function qgReadLinks() {
     const rf = refs[i];
     $('qgStatus').textContent = 'Armando con IA ' + (i + 1) + '/' + refs.length + '…';
     const row = qgBlankRow();
+    row.sourceLink = rf.link || '';
     const imgs = (rf.images && rf.images.length) ? rf.images : (rf.image ? [rf.image] : []);
     row.photos = imgs.slice(0, 4);
     if (rf.error && !rf.title) { row.description = '[No se pudo leer automáticamente: ' + rf.link + ' — ' + rf.error + ']'; rows.push(row); continue; }
@@ -3313,19 +3361,21 @@ async function qgExcel(fromList) {
   try { await loadExcelJS(); } catch (e) { stat(e.message || String(e)); return; }
   stat('Generando Excel (embebiendo fotos)…');
   try {
+    const c = _qgEditId ? _cotizAll.find(x => x.id === _qgEditId) : null;
+    const num = (c && c.num) || qgNextNum();   // para el código de producto {num}-{n}
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Inquiry');
-    // Anchos (mismo layout del template real del equipo). 15 columnas A–O.
-    ws.columns = [43, 44, 50, 22, 22, 22, 13, 16, 16, 22, 13, 13, 13, 13, 13].map(w => ({ width: w }));
-    // Encabezado en 2 filas: "Individual box dimensions" abarca Height/Length/Width (K–M).
-    ws.addRow(['PRODUCT PHOTOS', 'DESCRIPTION', 'DESCRIPCIÓN (Español)', 'LOGO IN PRODUCT', 'PACKAGING', 'EXTRAS', 'QUANTITY', 'USD FOB Price', 'Yuan FOB Price', 'Individual product weight', 'Individual box dimensions', '', '', 'PCS/CTN', 'CBM']);
-    ws.addRow(['', '', '', '', '', '', '', '', '', '', 'Height', 'Length', 'Width', '', '']);
-    ['A1:A2', 'B1:B2', 'C1:C2', 'D1:D2', 'E1:E2', 'F1:F2', 'G1:G2', 'H1:H2', 'I1:I2', 'J1:J2', 'K1:M1', 'N1:N2', 'O1:O2'].forEach(r => ws.mergeCells(r));
+    // 17 columnas A–Q: A=Código, B=foto, C/D=descripciones, E=logo, F=packaging, G=extras,
+    // H–P las llena el proveedor (Quantity/FOB/peso/dimensiones/PCS/CBM), Q=link original.
+    ws.columns = [12, 22, 44, 50, 22, 22, 22, 13, 16, 16, 22, 13, 13, 13, 13, 13, 46].map(w => ({ width: w }));
+    ws.addRow(['Código', 'PRODUCT PHOTOS', 'DESCRIPTION', 'DESCRIPCIÓN (Español)', 'LOGO IN PRODUCT', 'PACKAGING', 'EXTRAS', 'QUANTITY', 'USD FOB Price', 'Yuan FOB Price', 'Individual product weight', 'Individual box dimensions', '', '', 'PCS/CTN', 'CBM', 'Reference link']);
+    ws.addRow(['', '', '', '', '', '', '', '', '', '', '', 'Height', 'Length', 'Width', '', '', '']);
+    ['A1:A2', 'B1:B2', 'C1:C2', 'D1:D2', 'E1:E2', 'F1:F2', 'G1:G2', 'H1:H2', 'I1:I2', 'J1:J2', 'K1:K2', 'L1:N1', 'O1:O2', 'P1:P2', 'Q1:Q2'].forEach(r => ws.mergeCells(r));
     for (let rn = 1; rn <= 2; rn++) { const r = ws.getRow(rn); r.font = { bold: true }; r.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }; }
     for (let i = 0; i < _qgRows.length; i++) {
       const row = _qgRows[i];
-      // A=foto · B/C=descripciones · D=logo · E=packaging · F=extras · G–O las llena el proveedor (vacías).
-      const er = ws.addRow(['', xlsxDescValue(row.description), xlsxDescValue(row.descripcionEs), row.logo || '', row.packaging || '', row.extras || '', '', '', '', '', '', '', '', '', '']);
+      const code = row.code || (num + '-' + (i + 1));
+      const er = ws.addRow([code, '', xlsxDescValue(row.description), xlsxDescValue(row.descripcionEs), row.logo || '', row.packaging || '', row.extras || '', row.quantity || '', row.usdFob || '', row.yuanFob || '', row.weight || '', row.boxH || '', row.boxL || '', row.boxW || '', row.pcsCtn || '', row.cbm || '', row.sourceLink || '']);
       er.height = 120;
       er.alignment = { vertical: 'middle', wrapText: true };
       const url = (row.photos || [])[0];
@@ -3338,14 +3388,13 @@ async function qgExcel(fromList) {
             const buf = await resp.arrayBuffer();
             const ext = /png/i.test(ct) ? 'png' : (/gif/i.test(ct) ? 'gif' : 'jpeg');
             const imgId = wb.addImage({ buffer: buf, extension: ext });
-            ws.addImage(imgId, { tl: { col: 0.15, row: (er.number - 1) + 0.1 }, ext: { width: 150, height: 140 } });
-          } else { er.getCell(1).value = url; }
-        } catch (e) { er.getCell(1).value = url; }
+            ws.addImage(imgId, { tl: { col: 1.15, row: (er.number - 1) + 0.1 }, ext: { width: 150, height: 140 } });   // col B (0-indexed 1)
+          } else { er.getCell(2).value = url; }
+        } catch (e) { er.getCell(2).value = url; }
       }
     }
     const out = await wb.xlsx.writeBuffer();
     const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    const c = _qgEditId ? _cotizAll.find(x => x.id === _qgEditId) : null;
     const nm = (c && c.name) || qgInquiryName() || 'Inquiry';
     const fname = nm.replace(/[\\/:*?"<>|]+/g, ' ').trim() + '.xlsx';
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = fname; document.body.appendChild(a); a.click(); a.remove();
