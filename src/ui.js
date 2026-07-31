@@ -813,7 +813,10 @@ function trackDerived(it, m) {
   const firstSale = (mx && mx.firstSale) || m.firstSale || '';   // 1ª venta: PG manda, Excel es fallback
   const velMadura = (m.velMadura != null && m.velMadura !== '') ? +m.velMadura : null;
   const maduro = firstSale ? (Date.now() - Date.parse(firstSale + 'T00:00:00')) >= 12 * WK_MS : false;
-  const roll = (vals, win, thr) => { if (vals.length < win) return null; let best = -Infinity; for (let i = 0; i + win <= vals.length; i++) { const s = vals.slice(i, i + win).reduce((a, b) => a + b, 0) / win; if (s > best) best = s; } return best >= thr; };
+  // Ventana móvil de HASTA 5 sem, pero adaptativa: con < 5 sem usa las disponibles (mín 3) para
+  // reconocer productos jóvenes que ya venden por sobre el objetivo. Los maduros (≥5 sem) usan 5 → sin cambio.
+  const MIN_WK = 3;
+  const roll = (vals, win, thr) => { if (vals.length < MIN_WK) return null; const w = Math.min(win, vals.length); let best = -Infinity; for (let i = 0; i + w <= vals.length; i++) { const s = vals.slice(i, i + w).reduce((a, b) => a + b, 0) / w; if (s > best) best = s; } return best >= thr; };
   // 3 estados a partir de un booleano/null: 'si' (ya se logró → irreversible, aunque no esté maduro),
   //   'no' (maduro y nunca se logró), 'curso' (aún inmaduro, todavía puede lograrlo), null (sin dato para evaluar).
   const evalState = a => a === true ? 'si' : (maduro ? 'no' : 'curso');
@@ -829,7 +832,7 @@ function trackDerived(it, m) {
   if (mxWk && velMadura) {
     const u = mxWk.map(w => w.units || 0), mg = mxWk.map(w => w.marginPct || 0);
     let ok = null;
-    if (u.length >= 5) { ok = false; for (let i = 0; i + 5 <= u.length; i++) { const au = u.slice(i, i + 5).reduce((a, b) => a + b, 0) / 5, am = mg.slice(i, i + 5).reduce((a, b) => a + b, 0) / 5; if (au >= velMadura && am >= 30) { ok = true; break; } } }
+    if (u.length >= MIN_WK) { const w = Math.min(5, u.length); ok = false; for (let i = 0; i + w <= u.length; i++) { const au = u.slice(i, i + w).reduce((a, b) => a + b, 0) / w, am = mg.slice(i, i + w).reduce((a, b) => a + b, 0) / w; if (au >= velMadura && am >= 30) { ok = true; break; } } }
     cumpleMargen = evalState(ok);
   }
   const velReal = (mx && mx.summary && mx.summary.velReal != null) ? mx.summary.velReal : it.avgWeekly;
