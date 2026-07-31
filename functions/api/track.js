@@ -212,9 +212,10 @@ export async function onRequest({ request, env }) {
         for (const it of slice) {
           try {
             const m = store.m[it.sku] || { firstSale: null, summary: {}, last: null, weeks: [] };
-            // 1) TODAS las publicaciones ML del SKU (tradicional + catálogo + variantes), paginando; cacheadas en m.mlIds
+            // 1) TODAS las publicaciones ML del SKU (tradicional + catálogo + variantes), paginando; cacheadas en m.mlIds.
+            // Re-buscar si NO hay cache O si quedó VACÍO (una falla transitoria/rate-limit no debe quedar cacheada como "sin publicaciones").
             let ids = m.mlIds;
-            if (!Array.isArray(ids)) {
+            if (!Array.isArray(ids) || !ids.length) {
               ids = [];
               for (let pg = 0; pg < 6; pg++) {
                 if (!firstCall) await sleep(500); firstCall = false;

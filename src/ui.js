@@ -900,8 +900,11 @@ function paintTrack() {
       <td style="text-align:center">${cumpleCell(der.cumpleMargen, der.maduro)}</td>
     </tr>`;
   }).join('');
-  const upd = d.products && d.products.ts ? new Date(d.products.ts).toLocaleDateString('es-CL') : '—';
-  $('trackCount').textContent = rows.length + '/' + items.length + ' productos D · actualizado ' + upd;
+  const fdate = ts => ts ? new Date(ts).toLocaleDateString('es-CL') : '—';
+  const pupd = d.products && d.products.ts ? fdate(d.products.ts) : '—';   // fecha de la lista de productos D
+  const mupd = fdate(_trackMetricsTs);                                     // fecha de métricas + visitas
+  $('trackCount').textContent = rows.length + '/' + items.length + ' productos D · métricas y visitas: ' + mupd;
+  $('trackCount').title = 'Productos D leídos de ProfitGuard: ' + pupd + '\nMétricas + visitas actualizadas: ' + mupd;
   wrap.innerHTML = `<table class="histtab dbtab restab-compact" style="min-width:1200px"><thead><tr>${h1}</tr><tr>${h2}</tr></thead><tbody>${body}</tbody></table>`;
   // Interacciones: colapsar/expandir grupos, editar madura/1ª venta, click fila → gráfico.
   wrap.querySelectorAll('.trk-grp').forEach(th => th.onclick = () => { const k = th.dataset.g; if (_trackCollapsed.has(k)) _trackCollapsed.delete(k); else _trackCollapsed.add(k); paintTrack(); });
