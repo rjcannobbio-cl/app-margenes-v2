@@ -3229,11 +3229,13 @@ async function qgReadLinks() {
     refs = j.refs || [];
   } catch (e) { $('qgStatus').textContent = 'Error leyendo links: ' + (e.message || e); return; }
   const rows = [];
+  let limited = 0;   // leídos solo por nombre (ML bloqueó la lectura completa)
   for (let i = 0; i < refs.length; i++) {
     const rf = refs[i];
     $('qgStatus').textContent = 'Armando con IA ' + (i + 1) + '/' + refs.length + '…';
     const row = qgBlankRow();
     row.sourceLink = rf.link || '';
+    if (rf.viaSlug) limited++;
     const imgs = (rf.images && rf.images.length) ? rf.images : (rf.image ? [rf.image] : []);
     row.photos = imgs.slice(0, 4);
     if (rf.error && !rf.title) { row.description = '[No se pudo leer automáticamente: ' + rf.link + ' — ' + rf.error + ']'; rows.push(row); continue; }
@@ -3255,7 +3257,8 @@ async function qgReadLinks() {
   $('qgStep2').classList.remove('hidden');
   qgRenderTable();
   qgUpdateNamePreview();
-  $('qgStatus').textContent = 'Listo: ' + rows.length + ' producto(s). Edita lo que quieras y exporta.';
+  $('qgStatus').textContent = 'Listo: ' + rows.length + ' producto(s). Edita lo que quieras y exporta.' +
+    (limited ? ' ⚠ ' + limited + ' de Mercado Libre se leyó solo por el nombre del link (ML bloquea la lectura); revisa specs y agrega fotos a mano.' : '');
 }
 
 // IA: de una ficha de referencia → una entrada objetiva del inquiry (specs técnicas, bilingüe).
