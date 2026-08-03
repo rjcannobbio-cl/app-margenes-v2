@@ -284,7 +284,7 @@ function renderPackSim(p) {
     </div>`;
   };
   out.innerHTML = `<div class="landed-out" style="display:block;margin-top:12px">
-    <div style="font-weight:700;color:var(--ink)">📦 Simulación de pack · ${n} unidades</div>
+    <div style="font-weight:700;color:var(--ink)">Simulación de pack · ${n} unidades</div>
     <div class="hint" style="margin:2px 0">COGS, precio y peso ×${n}; una dimensión del packaging ×${n}; <b>un solo envío</b> para las ${n} unidades.</div>
     ${block('Mercado Libre', pML, p.unitMlPct, false)}
     ${block('Falabella', pFB, p.unitFbPct, true)}
@@ -645,7 +645,7 @@ function setEditing(id) {
   state.editingId = id || null;
   const badge = $('editBadge');
   if (state.editingId) {
-    $('btnAdd').textContent = '💾 Guardar cambios';
+    $('btnAdd').textContent = 'Guardar cambios';
     badge.textContent = state.editingStore === 'closed'
       ? 'Editando un producto cerrado — los cambios actualizan Productos cerrados.'
       : 'Editando un producto guardado — los cambios actualizan ese registro.';
@@ -813,26 +813,27 @@ function trackDerived(it, m) {
   const firstSale = (mx && mx.firstSale) || m.firstSale || '';   // 1ª venta: PG manda, Excel es fallback
   const velMadura = (m.velMadura != null && m.velMadura !== '') ? +m.velMadura : null;
   const maduro = firstSale ? (Date.now() - Date.parse(firstSale + 'T00:00:00')) >= 12 * WK_MS : false;
-  // Ventana móvil de HASTA 5 sem, pero adaptativa: con < 5 sem usa las disponibles (mín 3) para
-  // reconocer productos jóvenes que ya venden por sobre el objetivo. Los maduros (≥5 sem) usan 5 → sin cambio.
-  const MIN_WK = 3;
-  const roll = (vals, win, thr) => { if (vals.length < MIN_WK) return null; const w = Math.min(win, vals.length); let best = -Infinity; for (let i = 0; i + w <= vals.length; i++) { const s = vals.slice(i, i + w).reduce((a, b) => a + b, 0) / w; if (s > best) best = s; } return best >= thr; };
-  // 3 estados a partir de un booleano/null: 'si' (ya se logró → irreversible, aunque no esté maduro),
-  //   'no' (maduro y nunca se logró), 'curso' (aún inmaduro, todavía puede lograrlo), null (sin dato para evaluar).
+  // 3 estados: 'si' (ya se logró → irreversible), 'no' (maduro y nunca se logró),
+  //   'curso' (aún inmaduro, todavía puede lograrlo), null (sin dato/umbral para evaluar).
   const evalState = a => a === true ? 'si' : (maduro ? 'no' : 'curso');
-  // Cumple velocidad: unidades (con kits) ≥ vel madura en alguna ventana de 5 sem (fallback a la serie de la lista).
+  // Objetivo de la ventana de 5 semanas (en unidades): 5 × vel madura.
+  // "Sí" = GARANTIZADO: alguna racha de ≤5 semanas consecutivas ya alcanza ese objetivo total.
+  //   Como las semanas siguientes solo suman, esa ventana ya no puede dejar de cumplir → marca Sí de una.
+  //   (No es promedio sobre ventana adaptativa: no basta "ir a buen ritmo", debe estar ya asegurado.)
+  const target = velMadura ? 5 * velMadura : null;
+  const bestSpan = vals => { let best = 0; for (let i = 0; i < vals.length; i++) { let s = 0; for (let k = 0; k < 5 && i + k < vals.length; k++) { s += vals[i + k]; if (s > best) best = s; } } return best; };
   const wk = (mx && mx.weeks && mx.weeks.length)
     ? mx.weeks.filter(w => w.bucket >= firstSale).slice(0, 12).map(w => w.units || 0)
     : (it.weeks || []).filter(w => w.s && w.s >= firstSale).slice(0, 12).map(w => w.u || 0);
-  const cumpleVel = velMadura ? evalState(roll(wk, 5, velMadura)) : null;
-  // Cumple margen: en la MISMA ventana de 5 sem debe cumplirse velocidad (unid ≥ vel madura) Y margen ≥ 30%.
-  // (No basta margen alto en semanas lentas; se busca vender el VOLUMEN objetivo AL MARGEN objetivo a la vez.)
+  const cumpleVel = target != null ? evalState(bestSpan(wk) >= target) : null;
+  // Cumple margen: alguna racha de ≤5 sem que ya asegure el VOLUMEN objetivo (≥ target) Y con
+  //   margen ponderado por unidades ≥ 30% en esa misma racha (vender el volumen objetivo AL margen objetivo).
   const mxWk = (mx && mx.weeks) ? mx.weeks.filter(w => w.bucket >= firstSale).slice(0, 12) : null;
   let cumpleMargen = null;
-  if (mxWk && velMadura) {
+  if (mxWk && target != null) {
     const u = mxWk.map(w => w.units || 0), mg = mxWk.map(w => w.marginPct || 0);
-    let ok = null;
-    if (u.length >= MIN_WK) { const w = Math.min(5, u.length); ok = false; for (let i = 0; i + w <= u.length; i++) { const au = u.slice(i, i + w).reduce((a, b) => a + b, 0) / w, am = mg.slice(i, i + w).reduce((a, b) => a + b, 0) / w; if (au >= velMadura && am >= 30) { ok = true; break; } } }
+    let ok = false;
+    for (let i = 0; i < u.length && !ok; i++) { let su = 0, sm = 0; for (let k = 0; k < 5 && i + k < u.length; k++) { su += u[i + k]; sm += u[i + k] * mg[i + k]; if (su >= target && su > 0 && sm / su >= 30) { ok = true; break; } } }
     cumpleMargen = evalState(ok);
   }
   const velReal = (mx && mx.summary && mx.summary.velReal != null) ? mx.summary.velReal : it.avgWeekly;
@@ -845,13 +846,11 @@ function paintTrack() {
   const d = _trackData || { products: null, meta: {} };
   const items = (d.products && d.products.items) || [];
   const wrap = $('trackDbWrap');
-  if (!items.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Sin productos D. Aprieta “↻ Actualizar productos D” para leerlos de ProfitGuard, y “⬆ Importar Excel” para las fechas de 1ª venta y velocidades maduras.</p>'; $('trackCount').textContent = ''; return; }
+  if (!items.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Sin productos D. Aprieta “Actualizar productos D” para leerlos de ProfitGuard.</p>'; $('trackCount').textContent = ''; return; }
   const meta = d.meta || {};
   const q = normalize(($('trackFilter') && $('trackFilter').value) || '');
-  const onlyInc = $('trackOnlyIncomplete') && $('trackOnlyIncomplete').checked;
   let rows = items.filter(it => !it.kit);   // excluir kits (por si el KV viejo aún los tuviera)
   rows = rows.filter(it => !q || normalize((it.sku || '') + ' ' + (it.name || '')).includes(q));
-  if (onlyInc) rows = rows.filter(it => { const mm = meta[it.sku] || {}; return !(mm.velMadura > 0); });
   // Orden por 1ª venta (los sin fecha van al final). _trackSort: null | 'fs-asc' | 'fs-desc'.
   if (_trackSort === 'fs-asc' || _trackSort === 'fs-desc') {
     const fsOf = it => { const x = _trackMetrics[it.sku]; return (x && x.firstSale) || ((meta[it.sku] || {}).firstSale) || ''; };
@@ -1244,7 +1243,7 @@ async function runCompareQuotes() {
       <td>${money(r.o.cogs)}</td>
     </tr>`).join('');
   const table = `<div style="overflow-x:auto"><table class="tl-tab"><thead><tr><th>Proveedor</th><th>Producto</th><th>Precio FOB</th><th>Dimensiones</th><th>Peso</th><th>Landed COGS</th></tr></thead><tbody>${trs}</tbody></table></div>`;
-  const ver = j.veredicto ? `<div class="p2ai" style="margin-top:10px"><b>🏆 Veredicto:</b> ${mdBold(escapeHtml(j.veredicto))}</div>` : '';
+  const ver = j.veredicto ? `<div class="p2ai" style="margin-top:10px"><b>Veredicto:</b> ${mdBold(escapeHtml(j.veredicto))}</div>` : '';
   const ana = j.analisis ? `<div class="p2ai" style="white-space:pre-wrap;margin-top:8px">${mdBold(escapeHtml(j.analisis))}</div>` : '';
   $('cqResult').innerHTML = table + ver + ana;
   $('cqStatus').textContent = '';
@@ -1261,12 +1260,16 @@ function paintDb(mode) {
     ? all.filter(x => normalize([x.nombre, x.skuProveedor, x.skuCierre, x.sku, x.proveedor, x.cotizacion, x.mesCierre, x.anioCierre].join(' ')).includes(q))
     : all;
   $(ids.count).textContent = (q ? (filtered.length + '/' + all.length) : all.length) +
-    ' producto' + ((q ? filtered.length : all.length) === 1 ? '' : 's') + (_histBackend ? ' · compartido' : ' · solo local');
+    ' producto' + ((q ? filtered.length : all.length) === 1 ? '' : 's');
   const wrap = $(ids.wrap);
   if (!all.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">' + (isClosed ? 'Aún no hay productos cerrados. Ciérralos desde el Historial con el botón “Cerrar”.' : 'Aún no hay productos evaluados. Agrégalos desde la pestaña Calculadora.') + '</p>'; return; }
   if (!filtered.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Sin resultados para “' + escapeHtml($(ids.filter).value) + '”.</p>'; return; }
   const cell = v => (v || v === 0) ? v : '';
-  const hprice = (x, field) => `<td><input type="number" class="hist-price" data-id="${x.id || ''}" data-field="${field}" value="${x[field] || ''}" placeholder="–" min="0" step="1"></td>`;
+  // En Productos cerrados, una vez que se entra el PIN (autorización), los precios quedan BLOQUEADOS (no editables).
+  const priceLocked = isClosed && !!_sellPin;
+  const hprice = (x, field) => priceLocked
+    ? `<td title="Bloqueado tras autorizar con el PIN">${x[field] ? fmtCLP(x[field]) : '–'}</td>`
+    : `<td><input type="number" class="hist-price" data-id="${x.id || ''}" data-field="${field}" value="${x[field] || ''}" placeholder="–" min="0" step="1"></td>`;
   const hmarg = (key, v) => `<td class="mcell ${v == null ? '' : marginClass(v)}" data-hcell="${key}">${v == null ? '–' : fmtPct(v)}</td>`;
   const actionCell = x => isClosed
     ? `<td style="white-space:nowrap"><button class="mini" data-reopen="${x.id || ''}" title="Devolver al Historial">↩</button> <button class="mini" data-del="${x.id || ''}" title="Eliminar definitivamente">✕</button></td>`
@@ -1284,8 +1287,8 @@ function paintDb(mode) {
   const authCell = x => { if (!isClosed) return ''; const on = !!(_sellAuth[x.id] && _sellAuth[x.id].ok); return `<td class="sell-auth-cell" style="text-align:center;white-space:nowrap"><input type="checkbox" class="sell-auth" data-id="${escapeHtml(x.id || '')}" ${on ? 'checked' : ''} title="Autorizar venta (requiere clave)"> <span style="font-size:11px;font-weight:700;color:${on ? 'var(--good)' : 'var(--muted)'}">${on ? 'Autorizado' : '—'}</span></td>`; };
 
   const packHead = packExpanded
-    ? `<th class="pack-toggle" data-nosort title="Agrupar packaging">📦 ◂ Alto</th><th>Largo</th><th>Ancho</th><th>Peso</th>`
-    : `<th class="pack-toggle" data-nosort title="Expandir packaging">📦 Packaging ▸</th>`;
+    ? `<th class="pack-toggle" data-nosort title="Agrupar packaging">◂ Alto</th><th>Largo</th><th>Ancho</th><th>Peso</th>`
+    : `<th class="pack-toggle" data-nosort title="Expandir packaging">Packaging ▸</th>`;
   const packCells = x => packExpanded
     ? `<td>${cell(x.alto)}</td><td>${cell(x.largo)}</td><td>${cell(x.ancho)}</td><td>${cell(x.peso)}</td>`
     : `<td>${escapeHtml(packSummary(x))}</td>`;
@@ -1684,7 +1687,7 @@ function paintCatalogo() {
   const q = normalize(($('catFilter') && $('catFilter').value) || '');
   const filtered = q ? _catAll.filter(x => normalize([x.sku, x.titulo, x.proveedor].join(' ')).includes(q)) : _catAll;
   $('catCount').textContent = (q ? filtered.length + '/' + _catAll.length : _catAll.length) +
-    ' ítem' + ((q ? filtered.length : _catAll.length) === 1 ? '' : 's') + (_catBackend ? ' · compartido' : ' · solo local');
+    ' ítem' + ((q ? filtered.length : _catAll.length) === 1 ? '' : 's');
   const wrap = $('catDbWrap');
   if (!_catAll.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">El catálogo está vacío. Se carga sincronizando desde ProfitGuard (ver con el equipo).</p>'; return; }
   if (!filtered.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Sin resultados.</p>'; return; }
@@ -2008,7 +2011,7 @@ function openResearchDetail(item) {
   renderRdChart();
   { const pp = $('p2Panel'); if (pp) { pp.classList.add('hidden'); pp.innerHTML = ''; } const b = $('p2Btn'); if (b) b.style.display = ''; }
   // Botón del Opportunity Score (si la categoría tiene P2) → abre el desglose.
-  { const ob = $('rdOppBtn'); if (ob) { const s = oppScore(item, oppRef()); if (s != null) { ob.textContent = '🎯 Opportunity ' + s; ob.classList.remove('hidden'); ob.onclick = () => openOppBreakdown(item); } else ob.classList.add('hidden'); } }
+  { const ob = $('rdOppBtn'); if (ob) { const s = oppScore(item, oppRef()); if (s != null) { ob.textContent = 'Opportunity ' + s; ob.classList.remove('hidden'); ob.onclick = () => openOppBreakdown(item); } else ob.classList.add('hidden'); } }
   _p2ChatOpen = false; _p2DeepOpen = false; _p2Busy = false;   // reset UI interactiva P2 al cambiar de categoría
   $('rDetailOverlay').classList.remove('hidden');
   p2LoadCached(item);   // si ya hay análisis guardado, se muestra solo (sin re-analizar)
@@ -2316,11 +2319,11 @@ const AMZ_MIN_REVIEWS = 100;   // prueba de venta mínima
 function amzBtn(query, desc, precio, key) {
   const q = (query || '').toString().slice(0, 120), d = (desc || '').toString().slice(0, 240), k = (key || '').toString().slice(0, 80);
   if (!q) return '';
-  return `<button class="btn ghost" style="font-size:11px;padding:3px 9px;margin-top:4px" data-q="${escapeHtml(q)}" data-d="${escapeHtml(d)}" data-p="${+precio || 0}" data-k="${escapeHtml(k)}" onclick="amazonRefsFromBtn(this)">🔎 Ver en Amazon</button><div class="amzRefs"></div>`;
+  return `<button class="btn ghost" style="font-size:11px;padding:3px 9px;margin-top:4px" data-q="${escapeHtml(q)}" data-d="${escapeHtml(d)}" data-p="${+precio || 0}" data-k="${escapeHtml(k)}" onclick="amazonRefsFromBtn(this)">Ver en Amazon</button><div class="amzRefs"></div>`;
 }
 async function amazonRefsFromBtn(btn) {
   const box = btn.parentElement.querySelector('.amzRefs'); if (!box) return;
-  if (btn._busy) return; btn._busy = true; const old = btn.textContent; btn.textContent = '🔎 buscando…';
+  if (btn._busy) return; btn._busy = true; const old = btn.textContent; btn.textContent = 'buscando…';
   box.innerHTML = '<span class="muted small">Buscando en Amazon (≥' + AMZ_MIN_REVIEWS + ' reseñas) y verificando specs…</span>';
   try {
     // Banda de precio: el ticket sugerido (CLP) → USD, ±(Amazon es retail US, suele ser más barato que Chile).
@@ -3000,7 +3003,6 @@ function init() {
   { const f = $('quoteFile'); if (f) f.addEventListener('change', e => { const file = e.target.files[0]; if (file) importQuoteFile(file); e.target.value = ''; }); }
   { const b = $('quoteClose'); if (b) b.onclick = () => $('quoteOverlay').classList.add('hidden'); }
   { const o = $('quoteOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
-  { const b = $('btnCompareQuotes'); if (b) b.onclick = openCompareQuotes; }
   { const b = $('cqClose'); if (b) b.onclick = () => $('compareQuotesOverlay').classList.add('hidden'); }
   { const o = $('compareQuotesOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
   { const b = $('cqRun'); if (b) b.onclick = runCompareQuotes; }
@@ -3020,10 +3022,8 @@ function init() {
 
   // pestañas + historial
   document.querySelectorAll('.tab').forEach(t => t.onclick = () => showTab(t.dataset.tab));
-  $('btnHistRefresh').onclick = renderHistorial;
   $('btnHistExport').onclick = exportHistorialCSV;
   $('histFilter').addEventListener('input', debounce(renderHistorial, 200));
-  $('btnClosedRefresh').onclick = renderClosed;
   $('btnClosedExport').onclick = exportClosedCSV;
   $('closedFilter').addEventListener('input', debounce(paintClosed, 200));
   $('btnResearchExport').onclick = exportResearchCSV;
@@ -3034,7 +3034,6 @@ function init() {
   { const b = $('btnTrackRefreshProducts'); if (b) b.onclick = trackRefreshProducts; }
   { const b = $('btnTrackRefreshMetrics'); if (b) b.onclick = () => trackRefreshAll(false); }
   { const el = $('trackFilter'); if (el) el.addEventListener('input', debounce(paintTrack, 200)); }
-  { const el = $('trackOnlyIncomplete'); if (el) el.addEventListener('change', paintTrack); }
   { const b = $('trackClose'); if (b) b.onclick = () => $('trackOverlay').classList.add('hidden'); }
   { const o = $('trackOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
   // Accionables del popup de Seguimiento (alta vía modal sobre el popup)
@@ -3064,8 +3063,6 @@ function init() {
   { const b = $('rfClear'); if (b) b.onclick = clearResearchFilter; }
   { const b = $('oppClose'); if (b) b.onclick = () => $('oppOverlay').classList.add('hidden'); }
   { const o = $('oppOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
-  { const b = $('p2BatchBtn'); if (b) b.onclick = () => { if (!confirm('Pre-analizar el top 500 de categorías (por cuota x seller). Toma ~1–2 h en segundo plano y respeta el límite de ProfitGuard. Podés seguir usando la app. ¿Continuar?')) return; const force = confirm('¿Sobrescribir las que YA tenías analizadas, para aplicarles el contexto de negocio actual?\n\n• Aceptar = re-analiza TODAS (aplica el nuevo contexto).\n• Cancelar = solo las que falten.'); runP2Batch(500, force); }; }
-  { const s = $('p2BatchStop'); if (s) s.onclick = () => { if (_p2Batch) _p2Batch.stop = true; s.classList.add('hidden'); const t = $('p2BatchTxt'); if (t && _p2Batch && _p2Batch.running) t.innerHTML += ' · <b>deteniendo…</b>'; }; }
   // Modal "Analizar en profundidad"
   { const c = $('p2DeepClose'); if (c) c.onclick = () => $('p2DeepOverlay').classList.add('hidden'); }
   { const o = $('p2DeepOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
@@ -3086,8 +3083,6 @@ function init() {
   $('rDetailOverlay').onclick = e => { if (e.target === $('rDetailOverlay')) $('rDetailOverlay').classList.add('hidden'); };
   $('btnCatExport').onclick = exportCatalogoCSV;
   $('btnCatSync').onclick = syncFromPG;
-  $('btnCatImport').onclick = () => $('catFile').click();
-  $('catFile').addEventListener('change', e => { const f = e.target.files[0]; if (f) importCatalogExcel(f); e.target.value = ''; });
   $('catFilter').addEventListener('input', debounce(paintCatalogo, 200));
 
   $('btnAdd').onclick = addToComparison;
@@ -3165,7 +3160,7 @@ function paintCotiz() {
   const filtered = q ? all.filter(x => normalize([x.name, x.prodName, x.estado, x.remark, x.links].join(' ')).includes(q)) : all;
   $('cotizCount').textContent = (q ? filtered.length + '/' + all.length : all.length) + ' cotización' + ((q ? filtered.length : all.length) === 1 ? '' : 'es');
   const wrap = $('cotizDbWrap');
-  if (!all.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Aún no hay cotizaciones. Crea una con “✨ Generar nueva cotización”.</p>'; return; }
+  if (!all.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Aún no hay cotizaciones. Crea una con “Generar nueva cotización”.</p>'; return; }
   if (!filtered.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Sin resultados para “' + escapeHtml($('cotizFilter').value) + '”.</p>'; return; }
   const ym = ts => { if (!ts) return '—'; const d = new Date(ts); return d.getFullYear() + '/' + String(d.getMonth() + 1).padStart(2, '0'); };
   const at = s => escapeHtml(s || '').replace(/"/g, '&quot;');
@@ -3178,7 +3173,7 @@ function paintCotiz() {
       <td style="white-space:nowrap">${ym(c.ts)}</td>
       <td><select class="cotiz-estado" data-id="${escapeHtml(c.id)}" style="min-width:210px">${opts}</select></td>
       <td style="white-space:nowrap">N-${c.num != null ? c.num : '—'}</td>
-      <td style="white-space:nowrap"><a href="#" class="cotiz-inq" data-id="${escapeHtml(c.id)}" style="color:#7db0ff;text-decoration:underline">📊 Inquiry</a> · <a href="#" class="cotiz-edit" data-id="${escapeHtml(c.id)}" style="color:var(--muted);font-size:11px">editar</a></td>
+      <td style="white-space:nowrap"><a href="#" class="cotiz-inq" data-id="${escapeHtml(c.id)}" style="color:#7db0ff;text-decoration:underline">Inquiry</a> · <a href="#" class="cotiz-edit" data-id="${escapeHtml(c.id)}" style="color:var(--muted);font-size:11px">editar</a></td>
       <td><div class="cotiz-sq-wrap">${sq}<button class="btn ghost cotiz-sq-add" data-id="${escapeHtml(c.id)}" type="button" style="padding:2px 9px;font-size:11px">＋ Subir</button></div></td>
       <td><input class="cotiz-remark" data-id="${escapeHtml(c.id)}" value="${at(c.remark)}" placeholder="—"></td>
       <td><span class="cotiz-del" data-id="${escapeHtml(c.id)}" title="Eliminar" style="cursor:pointer;color:var(--faint);font-weight:700">✕</span></td>
@@ -3293,7 +3288,7 @@ async function cotizImport(file) {
 function openQuoteGen(id) {
   _qgEditId = id || null;
   const c = id ? _cotizAll.find(x => x.id === id) : null;
-  $('qgTitle').textContent = c ? ('✎ ' + (c.name || 'Cotización')) : '✨ Nueva cotización';
+  $('qgTitle').textContent = c ? (c.name || 'Cotización') : 'Nueva cotización';
   $('qgLinks').value = c ? (c.links || '') : '';
   $('qgStatus').textContent = ''; $('qgStatus2').textContent = '';
   _qgProdName = c ? (c.prodName || '') : '';

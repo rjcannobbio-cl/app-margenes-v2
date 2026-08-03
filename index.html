@@ -328,7 +328,7 @@
     <div class="panel">
       <h2>Datos del producto</h2>
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
-        <button class="btn ghost" id="btnImportQuote" type="button" title="Sube la cotización del proveedor (.xlsx); la IA la interpreta y lleva cada producto al Historial">📥 Importar quote</button>
+        <button class="btn ghost" id="btnImportQuote" type="button" title="Sube la cotización del proveedor (.xlsx); la IA la interpreta y lleva cada producto al Historial">Importar quote</button>
         <input type="file" id="quoteFile" accept=".xlsx,.xls" style="display:none">
         <span id="quoteStatus" class="ai-status"></span>
       </div>
@@ -346,12 +346,12 @@
       <div class="catrow">
         <div class="catbox">
           <div class="top"><span>Categoría Mercado Libre</span><span id="mlCatBadge" class="badge badge-warn">sin deducir</span></div>
-          <input type="text" id="mlCatFilter" class="cat-filter" placeholder="🔎 Filtrar categoría (ej: mochila)…" autocomplete="off">
+          <input type="text" id="mlCatFilter" class="cat-filter" placeholder="Filtrar categoría (ej: mochila)…" autocomplete="off">
           <select id="mlCatSelect" size="1"></select>
         </div>
         <div class="catbox fbla-col">
           <div class="top"><span>Categoría Falabella</span><span id="fblaCatBadge" class="badge badge-warn">sin deducir</span></div>
-          <input type="text" id="fblaCatFilter" class="cat-filter" placeholder="🔎 Filtrar categoría…" autocomplete="off">
+          <input type="text" id="fblaCatFilter" class="cat-filter" placeholder="Filtrar categoría…" autocomplete="off">
           <select id="fblaCatSelect" size="1"></select>
         </div>
       </div>
@@ -363,7 +363,7 @@
         </div>
       </div>
       <div class="ai-row">
-        <button class="btn ghost" id="btnAI" type="button">✨ Sugerir con IA</button>
+        <button class="btn ghost" id="btnAI" type="button">Sugerir con IA</button>
         <span id="aiStatus" class="ai-status"></span>
       </div>
 
@@ -424,7 +424,7 @@
       <!-- ===== PARÁMETROS ===== -->
       <section class="block">
         <div class="panel">
-          <div class="cfg-head" id="cfgToggle"><h2>⚙ Parámetros y supuestos</h2><span class="muted">▼ mostrar / ocultar</span></div>
+          <div class="cfg-head" id="cfgToggle"><h2>Parámetros y supuestos</h2><span class="muted">▼ mostrar / ocultar</span></div>
           <div id="cfgBody" class="hidden">
             <div class="row2 fbla-col">
               <div><label>Reputación Falabella</label>
@@ -456,8 +456,6 @@
   <div id="tabHist" class="hidden">
     <div class="hist-actions">
       <input type="text" id="histFilter" class="hist-filter" placeholder="Filtrar: producto, SKU, proveedor, cotización…">
-      <button class="btn ghost" id="btnHistRefresh" type="button">↻ Actualizar</button>
-      <button class="btn ghost" id="btnCompareQuotes" type="button" title="Compara con IA las cotizaciones que comparten un mismo N° de cotización">⚖️ Comparar quotes</button>
       <button class="btn ghost" id="btnHistExport" type="button">Exportar CSV</button>
       <span class="muted" id="histCount"></span>
     </div>
@@ -467,38 +465,32 @@
   <div id="tabCat" class="hidden">
     <div class="hist-actions">
       <input type="text" id="catFilter" class="hist-filter" placeholder="Filtrar: SKU, título, proveedor…">
-      <button class="btn" id="btnCatSync" type="button">🔄 Sincronizar con ProfitGuard</button>
-      <button class="btn" id="btnCatImport" type="button">⬆ Importar precios (Excel)</button>
-      <input type="file" id="catFile" accept=".xlsx" style="display:none">
+      <button class="btn" id="btnCatSync" type="button">Sincronizar con ProfitGuard</button>
       <button class="btn ghost" id="btnCatExport" type="button">Exportar CSV</button>
       <span class="muted" id="catCount"></span>
       <span class="muted" id="catStatus" style="flex-basis:100%;margin-top:4px"></span>
     </div>
-    <div class="hint" style="margin-bottom:10px">Los márgenes se recalculan en vivo con el factor CBM y el dólar de Parámetros. Los precios Full / AON / DOD son editables (clic en la celda) y persisten.</div>
     <div id="catDbWrap" class="db-wrap"></div>
   </div>
 
   <div id="tabClosed" class="hidden">
     <div class="hist-actions">
       <input type="text" id="closedFilter" class="hist-filter" placeholder="Filtrar: producto, SKU, proveedor, cotización, mes cierre (ej: Mayo)…">
-      <button class="btn ghost" id="btnClosedRefresh" type="button">↻ Actualizar</button>
       <button class="btn ghost" id="btnClosedExport" type="button">Exportar CSV</button>
       <span class="muted" id="closedCount"></span>
     </div>
-    <div class="hint" style="margin-bottom:10px">Productos cerrados (finalizados). Se mueven aquí desde el Historial con el botón “Cerrar”. Con ↩ vuelven al Historial.</div>
     <div id="closedDbWrap" class="db-wrap"></div>
   </div>
 
   <div id="tabResearch" class="hidden">
     <div class="hist-actions">
       <input type="text" id="researchFilter" class="hist-filter" placeholder="Filtrar: categoría L1 u hoja…">
-      <button class="btn ghost" id="btnResearchFilter" type="button" title="Filtrar por ventas, crecimiento, ticket, cuota, canibalización y L1">🔎 Filtrar</button>
-      <button class="btn ghost hidden" id="btnResearchClear" type="button" title="Quitar todos los filtros">✕ Limpiar filtros</button>
-      <button class="btn" id="btnResearchImport" type="button">⬆ Importar datos (Nubimetrics)</button>
+      <button class="btn ghost" id="btnResearchFilter" type="button" title="Filtrar por ventas, crecimiento, ticket, cuota, canibalización y L1">Filtrar</button>
+      <button class="btn ghost hidden" id="btnResearchClear" type="button" title="Quitar todos los filtros">Limpiar filtros</button>
+      <button class="btn" id="btnResearchImport" type="button">Importar datos (Nubimetrics)</button>
       <input type="file" id="researchFile" accept=".json" style="display:none">
       <button class="btn ghost" id="btnResearchExport" type="button">Exportar CSV</button>
-      <button class="btn ghost cl-only" id="p2BatchBtn" type="button" title="Pre-computa el P2 de las 500 categorías más atractivas (cuota x seller) y las guarda. Reanudable.">🔬 Pre-analizar top 500</button>
-      <button class="btn ghost" id="p2CtxBtn" type="button" title="Contexto del negocio que la IA usa en TODOS los análisis P2">⚙️ Contexto IA</button>
+      <button class="btn ghost" id="p2CtxBtn" type="button" title="Contexto del negocio que la IA usa en TODOS los análisis P2">Contexto IA</button>
       <button class="btn ghost hidden" id="p2BatchStop" type="button" style="border-color:var(--bad);color:var(--bad)">■ Detener</button>
       <span class="muted" id="researchCount"></span>
       <span class="muted" id="researchStatus" style="flex-basis:100%;margin-top:4px"></span>
@@ -507,28 +499,25 @@
         <span class="hint" id="p2BatchTxt" style="margin-top:3px;display:block"></span>
       </div>
     </div>
-    <div class="hint" style="margin-bottom:10px">Categorías hoja con datos de Nubimetrics (visión global de ML, promedio de los últimos 12 meses). <b>Cuota x seller = ventas (GMV) ÷ competidores profesionales</b>. Los datos se recolectan desde tu sesión de Nubimetrics y se importan aquí (snapshot). Clic en una fila: detalle (próximamente).</div>
     <div id="researchDbWrap" class="db-wrap"></div>
   </div>
 
   <div id="tabCotiz" class="hidden">
     <div class="hist-actions">
       <input type="text" id="cotizFilter" class="hist-filter" placeholder="Filtrar: producto, proveedor, código…">
-      <button class="btn" id="btnCotizNew" type="button" title="Arma un inquiry objetivo a partir de links de referencia (Amazon / Mercado Libre)">✨ Generar nueva cotización</button>
-      <button class="btn ghost" id="btnCotizImport" type="button" title="Sube el Excel editado por el equipo para reemplazar la cotización en la base de datos. El nombre del archivo debe coincidir EXACTO con el de la cotización.">⬆ Importar Excel editado</button>
+      <button class="btn" id="btnCotizNew" type="button" title="Arma un inquiry objetivo a partir de links de referencia (Amazon / Mercado Libre)">Generar nueva cotización</button>
+      <button class="btn ghost" id="btnCotizImport" type="button" title="Sube el Excel editado por el equipo para reemplazar la cotización en la base de datos. El nombre del archivo debe coincidir EXACTO con el de la cotización.">Importar Excel editado</button>
       <input type="file" id="cotizFile" accept=".xlsx,.xls" style="display:none">
       <span class="muted" id="cotizCount"></span>
     </div>
-    <div class="hint" style="margin-bottom:10px">Arma <b>inquiries objetivos</b> para las fábricas a partir de links de referencia (Amazon / Mercado Libre). La IA lee las fichas y llena la tabla; el equipo la edita y exporta el Excel <b>con las fotos embebidas</b> (no se rompen al descargar). Las cotizaciones quedan guardadas y compartidas.</div>
     <div id="cotizDbWrap" class="db-wrap"></div>
   </div>
 
   <div id="tabTrack" class="hidden">
     <div class="hist-actions">
       <input type="text" id="trackFilter" class="hist-filter" placeholder="Filtrar: SKU o título…">
-      <button class="btn ghost" id="btnTrackRefreshProducts" type="button" title="Re-lee los productos categoría D desde ProfitGuard (semanal)">↻ Actualizar productos D</button>
-      <button class="btn ghost" id="btnTrackRefreshMetrics" type="button" title="Ventas/margen/TACOS (PG) + visitas/conversión (ML). Las visitas tardan por el rate limit de ML.">↻ Actualizar métricas y visitas</button>
-      <label class="check" style="margin:0"><input type="checkbox" id="trackOnlyIncomplete"> <span class="muted">Solo velocidad madura incompleta</span></label>
+      <button class="btn ghost" id="btnTrackRefreshProducts" type="button" title="Re-lee los productos categoría D desde ProfitGuard (semanal)">Actualizar productos D</button>
+      <button class="btn ghost" id="btnTrackRefreshMetrics" type="button" title="Ventas/margen/TACOS (PG) + visitas/conversión (ML). Las visitas tardan por el rate limit de ML.">Actualizar métricas y visitas</button>
       <span class="muted" id="trackCount"></span>
       <span class="muted" id="trackStatus" style="flex-basis:100%;margin-top:4px"></span>
     </div>
@@ -627,7 +616,7 @@
 <div id="compareQuotesOverlay" class="modal-overlay hidden" style="z-index:200">
   <div class="rdetail" style="max-width:1080px">
     <div class="rd-head">
-      <div><h2 style="font-size:18px;margin:0">⚖️ Comparar quotes por código</h2><div class="rd-l1 muted" style="font-size:11px;margin-top:2px">Compara con IA los productos del Historial que comparten un mismo N° de cotización (precios, specs, packaging, proveedor).</div></div>
+      <div><h2 style="font-size:18px;margin:0">Comparar quotes por código</h2><div class="rd-l1 muted" style="font-size:11px;margin-top:2px">Compara con IA los productos del Historial que comparten un mismo N° de cotización (precios, specs, packaging, proveedor).</div></div>
       <button class="mini" id="cqClose" type="button" title="Cerrar">✕</button>
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
@@ -644,7 +633,7 @@
 <div id="quoteGenOverlay" class="modal-overlay hidden" style="z-index:200">
   <div class="rdetail" style="max-width:1220px">
     <div class="rd-head">
-      <div><h2 id="qgTitle" style="font-size:18px;margin:0">✨ Nueva cotización</h2></div>
+      <div><h2 id="qgTitle" style="font-size:18px;margin:0">Nueva cotización</h2></div>
       <button class="mini" id="qgClose" type="button" title="Cerrar">✕</button>
     </div>
 
@@ -660,8 +649,8 @@
     <div id="qgStep2" class="hidden">
       <div id="qgTableWrap" style="overflow-x:auto;margin-top:12px"></div>
       <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <button class="btn" id="qgExcel" type="button">📊 Generar Excel</button>
-        <button class="btn ghost" id="qgSave" type="button">💾 Guardar cotización</button>
+        <button class="btn" id="qgExcel" type="button">Generar Excel</button>
+        <button class="btn ghost" id="qgSave" type="button">Guardar cotización</button>
         <span class="ai-status" id="qgStatus2"></span>
       </div>
     </div>
@@ -720,8 +709,8 @@
 
     <div id="trackActionsBox" style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <h3 style="font-size:14px;margin:0">🎯 Acciones para madurez / margen</h3>
-        <button class="btn ghost" id="trkActNew" type="button" style="padding:5px 14px;font-size:12px;margin-left:auto">➕ Nueva acción</button>
+        <h3 style="font-size:14px;margin:0">Acciones para madurez / margen</h3>
+        <button class="btn ghost" id="trkActNew" type="button" style="padding:5px 14px;font-size:12px;margin-left:auto">Nueva acción</button>
       </div>
       <p class="hint" style="margin:4px 0 10px">Registra las acciones para mejorar velocidad y margen. Marca “hecho” cuando se ejecute; queda la fecha y el estado.</p>
       <div id="trkActList"></div>
@@ -733,7 +722,7 @@
 <div id="trkActOverlay" class="modal-overlay hidden" style="z-index:202">
   <div class="rdetail" style="max-width:540px">
     <div class="rd-head">
-      <div><h2 style="font-size:17px;margin:0">➕ Nueva acción</h2><div class="rd-l1 muted" id="trkActProd" style="font-size:11px;margin-top:2px"></div></div>
+      <div><h2 style="font-size:17px;margin:0">Nueva acción</h2><div class="rd-l1 muted" id="trkActProd" style="font-size:11px;margin-top:2px"></div></div>
       <button class="mini" id="trkActClose" type="button" title="Cerrar">✕</button>
     </div>
     <label style="font-weight:600;font-size:12px;display:block;margin-bottom:6px">Tipo de acción</label>
@@ -780,9 +769,9 @@
     </div>
     <div id="rdChart" class="rd-chart"></div>
     <div class="rd-links">
-      <a id="rdRanking" class="btn" target="_blank" rel="noopener">📊 Ranking de mercado ↗</a>
-      <a id="rdTrends" class="btn ghost" target="_blank" rel="noopener">🔎 Lo más buscado del mes ↗</a>
-      <button id="p2Btn" class="btn" type="button" style="margin-left:auto">🔬 Hacer análisis (P2)</button>
+      <a id="rdRanking" class="btn" target="_blank" rel="noopener">Ranking de mercado ↗</a>
+      <a id="rdTrends" class="btn ghost" target="_blank" rel="noopener">Lo más buscado del mes ↗</a>
+      <button id="p2Btn" class="btn" type="button" style="margin-left:auto">Hacer análisis (P2)</button>
     </div>
     <div class="hint rd-note">Datos de Nubimetrics. El gráfico usa la serie mensual recolectada. Los botones abren <b>Rankings de mercado</b> ya posicionado en esta categoría hoja: el <b>ranking</b> está en la pestaña “Publicaciones” y <b>lo más buscado</b> en “Demanda”.</div>
     <div id="p2Panel" class="p2panel hidden"></div>
@@ -796,6 +785,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=264800"></script>
+<script src="src/ui.js?v=264900"></script>
 </body>
 </html>
