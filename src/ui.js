@@ -1265,10 +1265,10 @@ function paintDb(mode) {
   if (!all.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">' + (isClosed ? 'Aún no hay productos cerrados. Ciérralos desde el Historial con el botón “Cerrar”.' : 'Aún no hay productos evaluados. Agrégalos desde la pestaña Calculadora.') + '</p>'; return; }
   if (!filtered.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Sin resultados para “' + escapeHtml($(ids.filter).value) + '”.</p>'; return; }
   const cell = v => (v || v === 0) ? v : '';
-  // En Productos cerrados, una vez que se entra el PIN (autorización), los precios quedan BLOQUEADOS (no editables).
-  const priceLocked = isClosed && !!_sellPin;
-  const hprice = (x, field) => priceLocked
-    ? `<td title="Bloqueado tras autorizar con el PIN">${x[field] ? fmtCLP(x[field]) : '–'}</td>`
+  // En Productos cerrados, los precios de un producto YA AUTORIZADO a vender quedan BLOQUEADOS (no editables).
+  const priceLocked = x => isClosed && _sellAuth[x.id] && _sellAuth[x.id].ok;
+  const hprice = (x, field) => priceLocked(x)
+    ? `<td title="Bloqueado: producto autorizado a vender">${x[field] ? fmtCLP(x[field]) : '–'}</td>`
     : `<td><input type="number" class="hist-price" data-id="${x.id || ''}" data-field="${field}" value="${x[field] || ''}" placeholder="–" min="0" step="1"></td>`;
   const hmarg = (key, v) => `<td class="mcell ${v == null ? '' : marginClass(v)}" data-hcell="${key}">${v == null ? '–' : fmtPct(v)}</td>`;
   const actionCell = x => isClosed
