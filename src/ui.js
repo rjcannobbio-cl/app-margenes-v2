@@ -998,8 +998,29 @@ async function trackRefreshVisits(silent) {
   } catch (e) { if (!silent) trackStatus('Error de red (visitas): ' + e.message, true); }
   finally { _trackVisitsBusy = false; }
 }
-// Métricas + visitas encadenadas (lo que dispara el botón / el refresco en 2º plano).
-async function trackRefreshAll(silent) { await trackRefreshMetrics(silent); await trackRefreshVisits(silent); }
+let _trackFullAdsBusy = false;
+async function trackRefreshFullAds(silent) {
+  if (_trackFullAdsBusy) return; _trackFullAdsBusy = true;
+  if (!silent) trackStatus('Trayendo stock Full y campañas de Mercado Ads… (puede tardar)');
+  let offset = 0, total = null, done = 0;
+  try {
+    while (true) {
+      let j;
+      try { j = await (await fetch(api('/api/track'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'refreshFullAds', offset, limit: 6 }) })).json(); }
+      catch (e) { await new Promise(r => setTimeout(r, 3000)); continue; }   // reintenta el lote ante caída de red
+      if (j.error) { if (!silent) trackStatus('Error Full/ads: ' + j.error, true); break; }
+      total = j.total; done += j.processed;
+      if (!silent) trackStatus(`Full/ads ML… ${done}/${total}`);
+      if (j.next == null) break; offset = j.next;
+    }
+    await trackLoad(); paintTrack();
+    if (!silent) trackStatus(`✓ Métricas, visitas, stock Full y campañas actualizadas · ${new Date().toLocaleString('es-CL')}`);
+    else trackStatus('');
+  } catch (e) { if (!silent) trackStatus('Error de red (Full/ads): ' + e.message, true); }
+  finally { _trackFullAdsBusy = false; }
+}
+// Métricas + visitas + stock Full/campañas encadenadas (lo que dispara el botón / el refresco en 2º plano).
+async function trackRefreshAll(silent) { await trackRefreshMetrics(silent); await trackRefreshVisits(silent); await trackRefreshFullAds(silent); }
 // Import Excel: columnas SKU · Vel madura · 1a venta (Fecha 1ra venta.xlsx).
 async function trackImportFile(file) {
   try {
@@ -1344,9 +1365,9 @@ function paintDb(mode) {
   const rerender = isClosed ? renderClosed : renderHistorial;
   const save = isClosed ? closedSaveDebounced : histSaveDebounced;
   const q = normalize(($(ids.filter) && $(ids.filter).value) || '');
-  const filtered = q
+  const filtered = (q
     ? all.filter(x => normalize([x.nombre, x.skuProveedor, x.skuCierre, x.sku, x.proveedor, x.cotizacion, x.mesCierre, x.anioCierre].join(' ')).includes(q))
-    : all;
+    : all.slice()).sort((a, b) => (b.ts || 0) - (a.ts || 0));   // orden por defecto: más reciente primero (clic en columna re-ordena)
   $(ids.count).textContent = (q ? (filtered.length + '/' + all.length) : all.length) +
     ' producto' + ((q ? filtered.length : all.length) === 1 ? '' : 's');
   const wrap = $(ids.wrap);
