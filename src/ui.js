@@ -268,6 +268,7 @@ function renderPackSim(p) {
   const priceFB = num('inpPackPrecioFB') || autoFB;
   const pML = priceML ? computeChannel('ml', priceML, costoPack, p.comML || 0, wPack, p.isSuper, cfg) : null;
   const pFB = priceFB ? computeChannel('fbla', priceFB, costoPack, p.comFB || 0, wPack, false, cfg) : null;
+  state.lastPack = { n, alto: p.alto, ancho: p.ancho, largo: p.largo, peso: p.peso, isSuper: p.isSuper, priceML, priceFB, pML, pFB };
   const block = (head, r, unitPct, hide) => {
     if (!r || !r.valid) return '';
     const cmp = (unitPct != null) ? `<div class="hint" style="margin-top:3px">Unidad suelta ${fmtPct(unitPct)} → <b style="color:var(--ink)">pack ${fmtPct(r.marginPct)}</b></div>` : '';
@@ -288,8 +289,36 @@ function renderPackSim(p) {
     <div class="hint" style="margin:2px 0">COGS, precio y peso ×${n}; una dimensión del packaging ×${n}; <b>un solo envío</b> para las ${n} unidades.</div>
     ${block('Mercado Libre', pML, p.unitMlPct, false)}
     ${block('Falabella', pFB, p.unitFbPct, true)}
-    ${(!pML && !pFB) ? '<div class="hint">Ingresa un precio de venta para ver el pack.</div>' : ''}
+    ${(!pML && !pFB) ? '<div class="hint">Ingresa un precio de venta para ver el pack.</div>' : `<div style="margin-top:12px"><button class="btn ghost" id="btnSavePack" type="button">Guardar pack en Historial</button></div>`}
   </div>`;
+  { const sb = $('btnSavePack'); if (sb) sb.onclick = savePackToHist; }
+}
+// Guarda el pack simulado como un producto en el Historial (nombre + "(Pack xN)", COGS/dims/peso/FOB ×N, un envío).
+async function savePackToHist() {
+  const lp = state.lastPack;
+  if (!lp || (!lp.pML && !lp.pFB)) { alert('Ingresa el precio del pack primero.'); return; }
+  const proveedor = $('inpProveedor').value.trim();
+  if (!proveedor) { alert('El proveedor es obligatorio.'); $('inpProveedor').focus(); return; }
+  const r = state.lastResult || {};
+  const base = ($('inpNombre').value.trim() || '(sin nombre)');
+  const item = {
+    id: newId(), ts: Date.now(), fecha: new Date().toISOString().slice(0, 19).replace('T', ' '),
+    nombre: base + ' (Pack x' + lp.n + ')', proveedor, cotizacion: $('inpCotizacion').value.trim(), skuProveedor: $('inpSkuProv').value.trim(),
+    alto: lp.alto * lp.n, ancho: lp.ancho, largo: lp.largo, peso: lp.peso * lp.n, fob: (num('inpFob') || 0) * lp.n,
+    precioML: lp.priceML || '', precioFB: lp.priceFB || '', isSuper: lp.isSuper,
+    mlCatIdx: state.mlCatIdx, mlCatName: r.ml ? r.ml.catName : '', mlComPct: r.ml ? r.ml.comPct : null,
+    fblaCatIdx: state.fblaCatIdx, fblaCatName: r.fbla ? r.fbla.catName : '', fbComPct: r.fbla ? r.fbla.comPct : null,
+    hs: state.hs, arancelPct: state.arancelPct, dolar: cfg.dolar, factorCBM: cfg.factorCBM,
+    cogs: lp.pML ? lp.pML.cogs : (lp.pFB ? lp.pFB.cogs : 0),
+    mlPrice: lp.pML ? lp.pML.price : '', mlMargin: lp.pML ? lp.pML.margin : '', mlMarginPct: lp.pML ? lp.pML.marginPct : null,
+    fbPrice: lp.pFB ? lp.pFB.price : '', fbMargin: lp.pFB ? lp.pFB.margin : '', fbMarginPct: lp.pFB ? lp.pFB.marginPct : null,
+    isPack: true, packUnits: lp.n
+  };
+  await histAdd(item);
+  const vi = viewList.findIndex(v => v.id === item.id); if (vi >= 0) viewList[vi] = item; else viewList.push(item);
+  renderHist();
+  if (!$('tabHist').classList.contains('hidden')) renderHistorial();
+  setAiStatus('✓ Pack guardado en el Historial.', false);
 }
 
 function marginClass(pct) {
@@ -561,7 +590,7 @@ function renderQuoteReview(data, filename) {
   $('quoteHint').innerHTML = anyMissing
     ? '⚠️ Faltan datos (celdas en rojo). Complétalos y aprieta “Importar al Historial”.'
     : 'Revisa que esté todo bien y aprieta “Importar al Historial”. Los márgenes se calculan solos si pones precio de venta.';
-  const inp = (i, k, v, bad) => `<td><input type="${k === 'nombre' || k === 'sku' ? 'text' : 'number'}" data-i="${i}" data-k="${k}" value="${v == null ? '' : String(v).replace(/"/g, '&quot;')}" style="width:${k === 'nombre' ? '190' : k === 'sku' ? '90' : '68'}px;font-size:12px${bad ? ';border-color:var(--bad);background:rgba(239,68,68,.08)' : ''}"></td>`;
+  const inp = (i, k, v, bad) => `<td><input type="${k === 'nombre' || k === 'sku' ? 'text' : 'number'}" data-i="${i}" data-k="${k}" value="${v == null ? '' : String(v).replace(/"/g, '&quot;')}" style="width:${k === 'nombre' ? '190' : k === 'sku' ? '90' : k === 'precio' ? '104' : '68'}px;font-size:12px${bad ? ';border-color:var(--bad);background:rgba(239,68,68,.08)' : ''}"></td>`;
   const rows = data.productos.map((p, i) => `<tr>${inp(i, 'nombre', p.nombre)}${inp(i, 'sku', p.sku)}${inp(i, 'fob', p.fob, miss(p, 'fob'))}${inp(i, 'alto', p.alto, miss(p, 'alto'))}${inp(i, 'ancho', p.ancho, miss(p, 'ancho'))}${inp(i, 'largo', p.largo, miss(p, 'largo'))}${inp(i, 'peso', p.peso, miss(p, 'peso'))}${inp(i, 'precio', p.precio)}</tr>`).join('');
   $('quoteReview').innerHTML = `<table class="p2own" style="font-size:12px;white-space:nowrap"><thead><tr><th style="text-align:left">Producto</th><th>SKU</th><th>FOB US$</th><th>Alto cm</th><th>Ancho cm</th><th>Largo cm</th><th>Peso kg</th><th>Precio venta $</th></tr></thead><tbody>${rows}</tbody></table>`;
   $('quoteTitle').textContent = data.productos.length + ' producto' + (data.productos.length === 1 ? '' : 's') + ' · ' + (filename || '');
@@ -798,7 +827,7 @@ function trackStatus(msg, err) { const el = $('trackStatus'); if (!el) return; e
 let _trackMetricsTs = 0;
 async function trackLoad() { try { const j = await (await fetch(api('/api/track'))).json(); _trackData = (j && !j.error) ? j : { products: null, meta: {} }; _trackMetrics = (j && j.metrics && j.metrics.m) || {}; _trackMetricsTs = (j && j.metrics && j.metrics.ts) || 0; _trackActions = (j && j.actions) || {}; } catch (e) { _trackData = { products: null, meta: {} }; } }
 let _trackActions = {};   // {sku:[{id,type,desc,created,status,doneDate}]}
-const TRACK_ACTION_TYPES = ['ADS', 'DOD', 'REL', 'AON', 'Cambio imágenes', 'Cambio SEO', 'Clips', 'Descuentos Mayoristas', 'CMR', 'Ficha técnica'];
+const TRACK_ACTION_TYPES = ['ADS', 'DOD', 'REL', 'AON', 'Cambio imágenes', 'Cambio SEO', 'Clips', 'Descuentos Mayoristas', 'CMR', 'Ficha técnica', 'Enviar a full'];
 async function renderTrack() {
   if (!_trackData) { $('trackDbWrap').innerHTML = '<p class="muted" style="padding:16px">Cargando…</p>'; await trackLoad(); }
   paintTrack();
@@ -850,6 +879,8 @@ function paintTrack() {
   const meta = d.meta || {};
   const q = normalize(($('trackFilter') && $('trackFilter').value) || '');
   let rows = items.filter(it => !it.kit);   // excluir kits (por si el KV viejo aún los tuviera)
+  // Solo productos D con actividad: al menos 1 venta (con kits) O al menos 1 unidad en stock.
+  rows = rows.filter(it => { const m = _trackMetrics[it.sku]; const ventas = (m && m.summary && m.summary.units) || 0; return ventas >= 1 || (it.stock || 0) >= 1; });
   rows = rows.filter(it => !q || normalize((it.sku || '') + ' ' + (it.name || '')).includes(q));
   // Orden por 1ª venta (los sin fecha van al final). _trackSort: null | 'fs-asc' | 'fs-desc'.
   if (_trackSort === 'fs-asc' || _trackSort === 'fs-desc') {
@@ -890,7 +921,7 @@ function paintTrack() {
     }
     return `<tr data-sku="${esc(it.sku || '')}">
       <td class="trk-linkcell" data-id="${esc(it.id != null ? String(it.id) : '')}" data-sku="${esc(it.sku || '')}" data-name="${esc(it.name || '')}" style="cursor:pointer;color:#7db0ff;text-decoration:underline;text-underline-offset:2px" title="Ver publicaciones por canal">${esc(it.sku || '')}</td>
-      <td title="${esc(it.name || '')}" style="max-width:220px;overflow:hidden;text-overflow:ellipsis">${esc(it.name || '')}${it.kit ? ' <span class="muted" title="Kit/pack">·kit</span>' : ''}</td>
+      <td title="${esc(it.name || '')}">${esc((it.name || '').slice(0, 80))}${(it.name || '').length > 80 ? '…' : ''}${it.kit ? ' <span class="muted" title="Kit/pack">·kit</span>' : ''}</td>
       <td class="mcell muted">–</td>
       <td class="mcell">${der.velApp != null ? der.velApp : '–'}</td>
       <td><input type="number" class="trk-vm" data-sku="${esc(it.sku || '')}" value="${der.velMadura != null ? der.velMadura : ''}" placeholder="–" min="0" step="0.1" style="width:60px;text-align:right;font-size:12px"></td>
@@ -1011,7 +1042,7 @@ function openTrackChart(sku) {
   $('trackChartName').textContent = it.name || sku;
   $('trackChartSku').textContent = sku;
   { const a = $('trackPgLink'); if (a) { if (it.id != null) { a.href = 'https://app.profitguard.cl/sales_speed/' + it.id; a.style.display = ''; } else a.style.display = 'none'; } }
-  paintTrackCards(_trackMetrics[sku], it.velApp);
+  { const meta = (_trackData && _trackData.meta && _trackData.meta[sku]) || {}; paintTrackCards(_trackMetrics[sku], it.velApp, meta.velMadura); }
   paintTrackChart();
   paintTrackActions(sku);   // accionables del SKU (el alta se hace en el modal #trkActOverlay)
   $('trackOverlay').classList.remove('hidden');
@@ -1060,22 +1091,28 @@ async function openTrackLinks(id, sku, name) {
     : '<p class="muted" style="padding:12px">No se encontraron publicaciones.</p>';
 }
 // Cuadritos de métricas del producto (resumen desde 1ª venta), estilo ficha de PG.
-function paintTrackCards(mx, velApp) {
+function paintTrackCards(mx, velApp, velMadura) {
   const s = mx && mx.summary;
   const money = v => (v == null || isNaN(v)) ? '–' : '$' + Math.round(v).toLocaleString('es-CL');
   const pct = v => (v == null || isNaN(v)) ? '–' : (Math.round(v * 10) / 10) + '%';
   const num = v => (v == null || isNaN(v)) ? '–' : Math.round(v).toLocaleString('es-CL');
   const card = (label, val, color) => `<div style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 11px"><div class="muted" style="font-size:10.5px;text-transform:uppercase;letter-spacing:.3px">${label}</div><div style="font-size:17px;font-weight:800;margin-top:2px${color ? ';color:' + color : ''}">${val}</div></div>`;
+  const cardT = (label, val, color) => `<div style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 11px"><div class="muted" style="font-size:10.5px;text-transform:uppercase;letter-spacing:.3px">${label}</div><div style="font-size:13px;font-weight:700;margin-top:3px;line-height:1.25;word-break:break-word${color ? ';color:' + color : ''}">${escapeHtml(val)}</div></div>`;
   const mg = s ? s.marginPct : null, tacos = s ? s.tacos : null;
   const vel = (velApp == null || isNaN(velApp)) ? '–' : (Math.round(velApp * 10) / 10) + ' u/sem';
+  const velM = (velMadura == null || velMadura === '' || isNaN(velMadura)) ? '–' : (Math.round(velMadura * 10) / 10) + ' u/sem';
   $('trackCards').innerHTML = [
     card('Vel. App (PG)', vel, 'var(--accent)'),
+    card('Vel. Madura', velM),
     card('Ventas (con kits)', s ? num(s.units) : '–'),
     card('Ticket promedio', s ? money(s.ticket) : '–'),
     card('Margen', s ? pct(mg) : '–', mg == null ? '' : (mg >= 30 ? 'var(--good)' : (mg < 0 ? 'var(--bad)' : ''))),
     card('TACOS', s ? pct(tacos) : '–', tacos == null ? '' : (tacos > 20 ? 'var(--bad)' : '')),
     card('Visitas ML', s && s.visits != null ? num(s.visits) : '–'),
-    card('Conversión', s && s.conv != null ? pct(s.conv) : '–')
+    card('Conversión', s && s.conv != null ? pct(s.conv) : '–'),
+    card('Stock en full', s && s.fullStock != null ? num(s.fullStock) : '–'),
+    card('En camino a full', s && s.inboundStock != null ? num(s.inboundStock) : '–'),
+    cardT('Campaña ads', (s && s.adCampaign) ? s.adCampaign : '–', (s && s.adCampaign) ? 'var(--accent)' : '')
   ].join('');
 }
 // Lista de accionables del producto (estilo tarjetas), con estado y fechas.
@@ -1088,16 +1125,67 @@ function paintTrackActions(sku) {
     const done = a.status === 'done';
     return `<tr>
       <td style="white-space:nowrap">${escapeHtml(a.type || '')}</td>
-      <td style="max-width:340px;white-space:pre-wrap">${escapeHtml(a.desc || '')}</td>
+      <td class="trk-act-desc-cell" data-id="${escapeHtml(a.id)}" style="max-width:340px;white-space:pre-wrap">${escapeHtml(a.desc || '')}</td>
       <td style="white-space:nowrap">${done ? 'Completado' : 'En espera'}</td>
       <td style="white-space:nowrap">${fmt(a.created)}</td>
       <td style="white-space:nowrap">${done ? fmt(a.doneDate) : '–'}</td>
-      <td style="white-space:nowrap">${done ? '<span class="muted">—</span>' : `<button class="btn ghost trk-act-done" data-id="${escapeHtml(a.id)}" type="button" style="padding:3px 10px;font-size:11px">Marcar como hecho</button>`}<span class="trk-act-del" data-id="${escapeHtml(a.id)}" title="Eliminar" style="cursor:pointer;color:var(--faint);margin-left:8px">✕</span></td>
+      <td style="white-space:nowrap">${done ? '<span class="muted">—</span>' : `<button class="btn ghost trk-act-done" data-id="${escapeHtml(a.id)}" type="button" style="padding:3px 10px;font-size:11px">Marcar como hecho</button>`}<span class="trk-act-edit" data-id="${escapeHtml(a.id)}" title="Editar descripción" style="cursor:pointer;color:var(--faint);margin-left:8px">✎</span><span class="trk-act-del" data-id="${escapeHtml(a.id)}" title="Eliminar" style="cursor:pointer;color:var(--faint);margin-left:8px">✕</span></td>
     </tr>`;
   }).join('');
   el.innerHTML = `<div style="overflow-x:auto"><table class="tl-tab"><thead><tr><th>Acción</th><th>Descripción</th><th>Estado</th><th>Fecha creación</th><th>Fecha ejecución</th><th>Marcar como hecho</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   el.querySelectorAll('.trk-act-done').forEach(b => b.onclick = () => trackActionDone(sku, b.dataset.id));
+  el.querySelectorAll('.trk-act-edit').forEach(b => b.onclick = () => trackActionEditInline(sku, b.dataset.id, () => paintTrackActions(sku)));
   el.querySelectorAll('.trk-act-del').forEach(b => b.onclick = () => trackActionDelete(sku, b.dataset.id));
+}
+// Edición inline de la descripción (lo único editable) de un accionable.
+function trackActionEditInline(sku, id, onDone) {
+  const a = (_trackActions[sku] || []).find(x => x.id === id); if (!a) return;
+  const cell = document.querySelector('.trk-act-desc-cell[data-id="' + id + '"]'); if (!cell) return;
+  cell.innerHTML = `<textarea class="trk-edit-ta" style="width:100%;min-width:240px;min-height:64px;background:var(--input);border:1px solid var(--line);border-radius:6px;color:var(--ink);font:inherit;font-size:12px;padding:6px">${escapeHtml(a.desc || '')}</textarea>
+    <div style="margin-top:5px;display:flex;gap:6px"><button class="btn trk-edit-save" type="button" style="padding:3px 12px;font-size:11px">Guardar</button><button class="btn ghost trk-edit-cancel" type="button" style="padding:3px 12px;font-size:11px">Cancelar</button></div>`;
+  const ta = cell.querySelector('.trk-edit-ta'); ta.focus();
+  cell.querySelector('.trk-edit-save').onclick = async () => { await trackActionEdit(sku, id, ta.value.trim()); if (onDone) onDone(); };
+  cell.querySelector('.trk-edit-cancel').onclick = () => { if (onDone) onDone(); };
+}
+async function trackActionEdit(sku, id, desc) {
+  try { const j = await (await fetch(api('/api/track'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'actionEdit', sku, id, desc }) })).json(); if (j.list) _trackActions[sku] = j.list; } catch (e) {}
+}
+// Editor inline reutilizable de la descripción dentro de una celda dada.
+function _inlineEditDesc(cell, curDesc, onSave, onCancel) {
+  cell.innerHTML = `<textarea class="trk-edit-ta" style="width:100%;min-width:240px;min-height:64px;background:var(--input);border:1px solid var(--line);border-radius:6px;color:var(--ink);font:inherit;font-size:12px;padding:6px">${escapeHtml(curDesc || '')}</textarea>
+    <div style="margin-top:5px;display:flex;gap:6px"><button class="btn _ie-save" type="button" style="padding:3px 12px;font-size:11px">Guardar</button><button class="btn ghost _ie-cancel" type="button" style="padding:3px 12px;font-size:11px">Cancelar</button></div>`;
+  const ta = cell.querySelector('.trk-edit-ta'); ta.focus();
+  cell.querySelector('._ie-save').onclick = () => onSave(ta.value.trim());
+  cell.querySelector('._ie-cancel').onclick = onCancel;
+}
+
+// Panel: TODOS los accionables pendientes de TODOS los SKUs.
+function openTrackPending() {
+  const items = (_trackData && _trackData.products && _trackData.products.items) || [];
+  const nameBySku = {}; items.forEach(it => { nameBySku[it.sku] = it.name || ''; });
+  const pend = [];
+  Object.keys(_trackActions || {}).forEach(sku => (_trackActions[sku] || []).forEach(a => { if (a.status !== 'done') pend.push({ sku, name: nameBySku[sku] || '', a }); }));
+  pend.sort((x, y) => (y.a.created || 0) - (x.a.created || 0));
+  $('trackPendingCount').textContent = pend.length + ' pendiente' + (pend.length === 1 ? '' : 's') + ' en ' + new Set(pend.map(p => p.sku)).size + ' producto(s)';
+  const body = $('trackPendingBody');
+  const fmt = ts => { if (!ts) return '–'; const d = new Date(ts); return d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear(); };
+  if (!pend.length) { body.innerHTML = '<p class="muted" style="padding:12px">No hay acciones pendientes.</p>'; }
+  else {
+    const rows = pend.map(p => `<tr>
+      <td style="white-space:nowrap"><a href="#" class="tp-open" data-sku="${escapeHtml(p.sku)}" style="color:#7db0ff">${escapeHtml(p.sku)}</a></td>
+      <td>${escapeHtml((p.name || '').slice(0, 80))}</td>
+      <td style="white-space:nowrap">${escapeHtml(p.a.type || '')}</td>
+      <td class="tp-desc-cell" data-sku="${escapeHtml(p.sku)}" data-id="${escapeHtml(p.a.id)}" style="max-width:360px;white-space:pre-wrap">${escapeHtml(p.a.desc || '')}</td>
+      <td style="white-space:nowrap">En espera</td>
+      <td style="white-space:nowrap">${fmt(p.a.created)}</td>
+      <td style="white-space:nowrap"><button class="btn ghost tp-done" data-sku="${escapeHtml(p.sku)}" data-id="${escapeHtml(p.a.id)}" type="button" style="padding:3px 10px;font-size:11px">Marcar como hecho</button><span class="tp-edit" data-sku="${escapeHtml(p.sku)}" data-id="${escapeHtml(p.a.id)}" title="Editar descripción" style="cursor:pointer;color:var(--faint);margin-left:8px">✎</span></td>
+    </tr>`).join('');
+    body.innerHTML = `<div style="overflow-x:auto"><table class="tl-tab"><thead><tr><th>SKU</th><th>Título</th><th>Acción</th><th>Descripción</th><th>Estado</th><th>Fecha creación</th><th>Marcar como hecho</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    body.querySelectorAll('.tp-done').forEach(b => b.onclick = async () => { await trackActionDone(b.dataset.sku, b.dataset.id); openTrackPending(); });
+    body.querySelectorAll('.tp-edit').forEach(b => b.onclick = () => { const a = (_trackActions[b.dataset.sku] || []).find(x => x.id === b.dataset.id); const cell = body.querySelector('.tp-desc-cell[data-sku="' + b.dataset.sku + '"][data-id="' + b.dataset.id + '"]'); if (a && cell) _inlineEditDesc(cell, a.desc || '', async v => { await trackActionEdit(b.dataset.sku, b.dataset.id, v); openTrackPending(); }, openTrackPending); });
+    body.querySelectorAll('.tp-open').forEach(a => a.onclick = e => { e.preventDefault(); $('trackPendingOverlay').classList.add('hidden'); openTrackChart(a.dataset.sku); });
+  }
+  $('trackPendingOverlay').classList.remove('hidden');
 }
 async function trackActionAdd(sku) {
   if (!sku) return;
@@ -1295,7 +1383,7 @@ function paintDb(mode) {
 
   const rows = filtered.map((x, i) => { const o = deriveOutputs(x); return `
     <tr data-i="${i}" title="Clic para cargar este producto en la calculadora">
-      <td title="${escapeHtml(x.nombre || '')}">${escapeHtml((x.nombre || '').slice(0, 20))}${(x.nombre || '').length > 20 ? '…' : ''}</td>
+      <td title="${escapeHtml(x.nombre || '')}">${escapeHtml((x.nombre || '').slice(0, 80))}${(x.nombre || '').length > 80 ? '…' : ''}</td>
       <td title="SKU del proveedor">${escapeHtml(x.skuProveedor || '')}</td>
       ${closedInfoCells(x)}
       <td>${escapeHtml(x.proveedor || '')}</td>
@@ -1697,7 +1785,7 @@ function paintCatalogo() {
   const rows = filtered.map(x => { const r = catMargins(x); return `
     <tr data-id="${x.id}" title="Clic para cargar este producto en la Calculadora y simular cambios">
       <td>${escapeHtml(x.sku || '')}</td>
-      <td title="${escapeHtml(x.titulo || '')}" style="max-width:240px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(x.titulo || '')}</td>
+      <td title="${escapeHtml(x.titulo || '')}">${escapeHtml((x.titulo || '').slice(0, 80))}${(x.titulo || '').length > 80 ? '…' : ''}</td>
       <td>${cell(x.largo)}</td><td>${cell(x.alto)}</td><td>${cell(x.ancho)}</td><td>${cell(x.peso)}</td>
       <td>${x.fob ? ('US$' + x.fob) : ''}</td>
       <td>${escapeHtml(x.proveedor || '')}</td>
@@ -3033,6 +3121,9 @@ function init() {
   // Seguimiento de productos nuevos
   { const b = $('btnTrackRefreshProducts'); if (b) b.onclick = trackRefreshProducts; }
   { const b = $('btnTrackRefreshMetrics'); if (b) b.onclick = () => trackRefreshAll(false); }
+  { const b = $('btnTrackPending'); if (b) b.onclick = openTrackPending; }
+  { const b = $('trackPendingClose'); if (b) b.onclick = () => $('trackPendingOverlay').classList.add('hidden'); }
+  { const o = $('trackPendingOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
   { const el = $('trackFilter'); if (el) el.addEventListener('input', debounce(paintTrack, 200)); }
   { const b = $('trackClose'); if (b) b.onclick = () => $('trackOverlay').classList.add('hidden'); }
   { const o = $('trackOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }

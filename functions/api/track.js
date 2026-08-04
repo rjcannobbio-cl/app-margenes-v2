@@ -329,6 +329,16 @@ export async function onRequest({ request, env }) {
         await kv.put('track_actions', JSON.stringify(store));
         return json({ ok: true, list });
       }
+      if (action === 'actionEdit') {   // editar SOLO la descripción de un accionable
+        if (!body.sku || !body.id) return json({ error: 'falta sku/id' }, 400);
+        const store = JSON.parse((await kv.get('track_actions')) || '{}');
+        const list = store[body.sku] || [];
+        const it = list.find(x => x.id === body.id);
+        if (it) it.desc = String(body.desc || '').slice(0, 3000);
+        store[body.sku] = list;
+        await kv.put('track_actions', JSON.stringify(store));
+        return json({ ok: true, list });
+      }
       if (action === 'actionDone') {
         if (!body.sku || !body.id) return json({ error: 'falta sku/id' }, 400);
         const store = JSON.parse((await kv.get('track_actions')) || '{}');

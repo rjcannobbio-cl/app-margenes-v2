@@ -201,7 +201,10 @@
   .modal p{margin:0 0 18px;font-size:15px;font-weight:600;line-height:1.4}
   .modal-actions{display:flex;gap:10px;justify-content:flex-end}
   /* Reporte de detalle (Investigación) */
-  .rdetail{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 22px;max-width:1100px;width:100%;box-shadow:0 12px 44px rgba(0,0,0,.55);max-height:calc(100vh - 28px);overflow-y:auto}
+  .rdetail{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 22px;max-width:80vw;width:100%;box-shadow:0 12px 44px rgba(0,0,0,.55);max-height:calc(100vh - 28px);overflow-y:auto}
+  /* Quita las flechitas (spinners) de los inputs numéricos */
+  input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  input[type=number]{-moz-appearance:textfield}
   .rd-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px;position:sticky;top:-20px;background:var(--panel);padding:20px 0 8px;margin-top:-20px;z-index:6}
   .rd-l1{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px}
   .rd-head h2{margin:2px 0 0;font-size:20px;font-weight:800;letter-spacing:-.2px}
@@ -518,6 +521,7 @@
       <input type="text" id="trackFilter" class="hist-filter" placeholder="Filtrar: SKU o título…">
       <button class="btn ghost" id="btnTrackRefreshProducts" type="button" title="Re-lee los productos categoría D desde ProfitGuard (semanal)">Actualizar productos D</button>
       <button class="btn ghost" id="btnTrackRefreshMetrics" type="button" title="Ventas/margen/TACOS (PG) + visitas/conversión (ML). Las visitas tardan por el rate limit de ML.">Actualizar métricas y visitas</button>
+      <button class="btn ghost" id="btnTrackPending" type="button" title="Todos los accionables pendientes de todos los productos">Ver acciones pendientes</button>
       <span class="muted" id="trackCount"></span>
       <span class="muted" id="trackStatus" style="flex-basis:100%;margin-top:4px"></span>
     </div>
@@ -614,7 +618,7 @@
 <!-- Reporte de detalle de categoría (Investigación) -->
 <!-- Modal: comparar quotes por código de cotización (IA) -->
 <div id="compareQuotesOverlay" class="modal-overlay hidden" style="z-index:200">
-  <div class="rdetail" style="max-width:1080px">
+  <div class="rdetail" style="max-width:80vw">
     <div class="rd-head">
       <div><h2 style="font-size:18px;margin:0">Comparar quotes por código</h2><div class="rd-l1 muted" style="font-size:11px;margin-top:2px">Compara con IA los productos del Historial que comparten un mismo N° de cotización (precios, specs, packaging, proveedor).</div></div>
       <button class="mini" id="cqClose" type="button" title="Cerrar">✕</button>
@@ -631,7 +635,7 @@
 
 <!-- Modal: generar / editar una cotización (inquiry) -->
 <div id="quoteGenOverlay" class="modal-overlay hidden" style="z-index:200">
-  <div class="rdetail" style="max-width:1220px">
+  <div class="rdetail" style="max-width:80vw">
     <div class="rd-head">
       <div><h2 id="qgTitle" style="font-size:18px;margin:0">Nueva cotización</h2></div>
       <button class="mini" id="qgClose" type="button" title="Cerrar">✕</button>
@@ -659,7 +663,7 @@
 
 <!-- Modal: revisar quote importada antes de llevar al Historial -->
 <div id="quoteOverlay" class="modal-overlay hidden" style="z-index:200">
-  <div class="rdetail" style="max-width:1040px">
+  <div class="rdetail" style="max-width:80vw">
     <div class="rd-head">
       <div><div class="rd-l1">Importar quote</div><h2 id="quoteTitle" style="font-size:18px">Revisar productos</h2></div>
       <button class="mini" id="quoteClose" type="button" title="Cerrar">✕</button>
@@ -680,7 +684,7 @@
 <!-- Modal: evolución de un producto en seguimiento -->
 <!-- Modal: publicaciones por canal de un producto (Seguimiento) -->
 <div id="trackLinksOverlay" class="modal-overlay hidden" style="z-index:201">
-  <div class="rdetail" style="max-width:1000px">
+  <div class="rdetail" style="max-width:80vw">
     <div class="rd-head">
       <div><h2 id="tlName" style="font-size:18px;margin:0"></h2><div class="rd-l1 muted" id="tlSku" style="font-size:11px;margin-top:2px"></div></div>
       <button class="mini" id="tlClose" type="button" title="Cerrar">✕</button>
@@ -691,7 +695,7 @@
 </div>
 
 <div id="trackOverlay" class="modal-overlay hidden" style="z-index:200">
-  <div class="rdetail" style="max-width:1080px">
+  <div class="rdetail" style="max-width:80vw">
     <div class="rd-head">
       <div><h2 id="trackChartName" style="font-size:18px;margin:0"></h2><div class="rd-l1 muted" id="trackChartSku" style="font-size:11px;margin-top:2px"></div></div>
       <div style="display:flex;gap:8px;align-items:center">
@@ -715,6 +719,17 @@
       <p class="hint" style="margin:4px 0 10px">Registra las acciones para mejorar velocidad y margen. Marca “hecho” cuando se ejecute; queda la fecha y el estado.</p>
       <div id="trkActList"></div>
     </div>
+  </div>
+</div>
+
+<!-- Modal: todos los accionables pendientes (todos los SKUs) -->
+<div id="trackPendingOverlay" class="modal-overlay hidden" style="z-index:201">
+  <div class="rdetail">
+    <div class="rd-head">
+      <div><h2 style="font-size:18px;margin:0">Acciones pendientes</h2><div class="rd-l1 muted" id="trackPendingCount" style="font-size:11px;margin-top:2px"></div></div>
+      <button class="mini" id="trackPendingClose" type="button" title="Cerrar">✕</button>
+    </div>
+    <div id="trackPendingBody"></div>
   </div>
 </div>
 
@@ -785,6 +800,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=265000"></script>
+<script src="src/ui.js?v=265100"></script>
 </body>
 </html>
