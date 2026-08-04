@@ -511,6 +511,7 @@
       <button class="btn" id="btnCotizNew" type="button" title="Arma un inquiry objetivo a partir de links de referencia (Amazon / Mercado Libre)">Generar nueva cotización</button>
       <button class="btn ghost" id="btnCotizImport" type="button" title="Sube el Excel editado por el equipo para reemplazar la cotización en la base de datos. El nombre del archivo debe coincidir EXACTO con el de la cotización.">Importar Excel editado</button>
       <input type="file" id="cotizFile" accept=".xlsx,.xls" style="display:none">
+      <select id="cotizProvFilter" class="hist-filter" style="max-width:230px" title="Filtrar por proveedor con respuesta"><option value="">Todos los proveedores</option></select>
       <span class="muted" id="cotizCount"></span>
     </div>
     <div id="cotizDbWrap" class="db-wrap"></div>
@@ -681,6 +682,18 @@
   </div>
 </div>
 
+<!-- Modal: comparar respuestas de proveedores (por correlativo de producto) -->
+<div id="cotizCompareOverlay" class="modal-overlay hidden" style="z-index:203">
+  <div class="rdetail">
+    <div class="rd-head">
+      <div><h2 id="ccTitle" style="font-size:18px;margin:0">Comparar respuestas</h2><div class="rd-l1 muted" id="ccSub" style="font-size:11px;margin-top:2px"></div></div>
+      <button class="mini" id="ccClose" type="button" title="Cerrar">✕</button>
+    </div>
+    <div style="margin-bottom:8px;display:flex;gap:8px;align-items:center"><button class="btn" id="ccRun" type="button">Comparar con IA</button><span class="ai-status" id="ccStatus"></span></div>
+    <div id="ccBody"></div>
+  </div>
+</div>
+
 <!-- Modal: ver una respuesta de proveedor -->
 <div id="supViewOverlay" class="modal-overlay hidden" style="z-index:203">
   <div class="rdetail">
@@ -836,6 +849,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=265300"></script>
+<script src="src/ui.js?v=265400"></script>
 </body>
 </html>

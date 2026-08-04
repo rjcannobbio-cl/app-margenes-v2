@@ -3167,7 +3167,11 @@ function init() {
   { const b = $('supViewClose'); if (b) b.onclick = () => $('supViewOverlay').classList.add('hidden'); }
   { const o = $('supViewOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
   { const b = $('supViewDownload'); if (b) b.onclick = supViewDownload; }
+  { const b = $('ccClose'); if (b) b.onclick = () => $('cotizCompareOverlay').classList.add('hidden'); }
+  { const o = $('cotizCompareOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
+  { const b = $('ccRun'); if (b) b.onclick = runCotizCompare; }
   { const el = $('cotizFilter'); if (el) el.addEventListener('input', debounce(paintCotiz, 200)); }
+  { const el = $('cotizProvFilter'); if (el) el.addEventListener('change', paintCotiz); }
   { const b = $('qgClose'); if (b) b.onclick = () => $('quoteGenOverlay').classList.add('hidden'); }
   { const o = $('quoteGenOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
   { const b = $('qgRead'); if (b) b.onclick = qgReadLinks; }
@@ -3274,11 +3278,20 @@ async function cotizLoad() { try { const j = await (await fetch(api('/api/quotes
 
 const COTIZ_ESTADOS = ['Cotización pendiente de revisión', 'Esperando respuesta', 'Respuesta a proveedor pendiente', 'En proceso de cierre', 'Factura finalizada', 'Descartado'];
 
+function cotizPopulateProvFilter() {
+  const sel = $('cotizProvFilter'); if (!sel || !_pgProviders.length || sel._filled) return;
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">Todos los proveedores</option>' + _pgProviders.map(p => `<option value="${escapeHtml(String(p.id))}">${escapeHtml(p.name)}</option>`).join('');
+  sel.value = cur; sel._filled = true;
+}
 function paintCotiz() {
+  cotizPopulateProvFilter();
   const q = normalize(($('cotizFilter') && $('cotizFilter').value) || '');
+  const pf = ($('cotizProvFilter') && $('cotizProvFilter').value) || '';
   const all = _cotizAll.slice().sort((a, b) => (b.ts || 0) - (a.ts || 0));
-  const filtered = q ? all.filter(x => normalize([x.name, x.prodName, x.estado, x.remark, x.links].join(' ')).includes(q)) : all;
-  $('cotizCount').textContent = (q ? filtered.length + '/' + all.length : all.length) + ' cotización' + ((q ? filtered.length : all.length) === 1 ? '' : 'es');
+  let filtered = q ? all.filter(x => normalize([x.name, x.prodName, x.estado, x.remark, x.links].join(' ')).includes(q)) : all;
+  if (pf) filtered = filtered.filter(c => (c.supplierQuotes || []).some(s => String(s.providerId) === String(pf)));   // solo inquiries con respuesta de ese proveedor
+  $('cotizCount').textContent = ((q || pf) ? filtered.length + '/' + all.length : all.length) + ' cotización' + ((q || pf ? filtered.length : all.length) === 1 ? '' : 'es');
   const wrap = $('cotizDbWrap');
   if (!all.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Aún no hay cotizaciones. Crea una con “Generar nueva cotización”.</p>'; return; }
   if (!filtered.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Sin resultados para “' + escapeHtml($('cotizFilter').value) + '”.</p>'; return; }
@@ -3295,11 +3308,12 @@ function paintCotiz() {
       <td style="white-space:nowrap">N-${c.num != null ? c.num : '—'}</td>
       <td style="white-space:nowrap"><a href="#" class="cotiz-inq" data-id="${escapeHtml(c.id)}" style="color:#7db0ff;text-decoration:underline">Inquiry</a> · <a href="#" class="cotiz-edit" data-id="${escapeHtml(c.id)}" style="color:var(--muted);font-size:11px">editar</a></td>
       <td><div class="cotiz-sq-wrap">${sq}<button class="btn ghost cotiz-sq-add" data-id="${escapeHtml(c.id)}" type="button" style="padding:2px 9px;font-size:11px">＋ Subir</button></div></td>
+      <td style="white-space:nowrap">${(c.supplierQuotes || []).length >= 2 ? `<button class="btn ghost cotiz-cmp" data-id="${escapeHtml(c.id)}" type="button" style="padding:3px 10px;font-size:11px">Comparar</button>` : '<span class="muted" style="font-size:11px">—</span>'}</td>
       <td><input class="cotiz-remark" data-id="${escapeHtml(c.id)}" value="${at(c.remark)}" placeholder="—"></td>
       <td><span class="cotiz-del" data-id="${escapeHtml(c.id)}" title="Eliminar" style="cursor:pointer;color:var(--faint);font-weight:700">✕</span></td>
     </tr>`;
   }).join('');
-  wrap.innerHTML = `<table class="tl-tab cotiz-tab"><thead><tr><th>Producto</th><th>Año/Mes</th><th>Estado</th><th>Inquiry N°</th><th>Inquiry</th><th>Supplier quotes</th><th>Remark</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+  wrap.innerHTML = `<table class="tl-tab cotiz-tab"><thead><tr><th>Producto</th><th>Año/Mes</th><th>Estado</th><th>Inquiry N°</th><th>Inquiry</th><th>Supplier quotes</th><th>Comparar</th><th>Remark</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
   wrap.querySelectorAll('.cotiz-prod').forEach(el => el.onchange = () => cotizPatch(el.dataset.id, { prodName: el.value.trim() }));
   wrap.querySelectorAll('.cotiz-estado').forEach(el => el.onchange = () => cotizPatch(el.dataset.id, { estado: el.value }));
   wrap.querySelectorAll('.cotiz-remark').forEach(el => el.onchange = () => cotizPatch(el.dataset.id, { remark: el.value }));
@@ -3307,6 +3321,7 @@ function paintCotiz() {
   wrap.querySelectorAll('.cotiz-edit').forEach(a => a.onclick = e => { e.preventDefault(); openQuoteGen(a.dataset.id); });
   wrap.querySelectorAll('.cotiz-del').forEach(b => b.onclick = () => cotizDelete(b.dataset.id));
   wrap.querySelectorAll('.cotiz-sq-add').forEach(b => b.onclick = () => cotizSupplierUpload(b.dataset.id));
+  wrap.querySelectorAll('.cotiz-cmp').forEach(b => b.onclick = () => openCotizCompare(b.dataset.id));
   wrap.querySelectorAll('.cotiz-sq-lbl').forEach(b => b.onclick = () => openSupplierView(b.dataset.id, b.dataset.sq));
   wrap.querySelectorAll('.cotiz-sq-x').forEach(b => b.onclick = () => cotizSupplierRemove(b.dataset.id, b.dataset.sq));
 }
@@ -3329,7 +3344,7 @@ function cotizExport(id) {
 }
 // Proveedores de ProfitGuard (para dropdowns/filtro), cacheados.
 let _pgProviders = [], _pgProvidersLoaded = false;
-async function pgProvidersLoad() { if (_pgProvidersLoaded) return; try { const j = await (await fetch(api('/api/pg-providers'))).json(); _pgProviders = (j && j.providers) || []; _pgProvidersLoaded = true; } catch (e) {} }
+async function pgProvidersLoad() { if (_pgProvidersLoaded) return; try { const j = await (await fetch(api('/api/pg-providers'))).json(); _pgProviders = (j && j.providers) || []; _pgProvidersLoaded = true; if (typeof cotizPopulateProvFilter === 'function') cotizPopulateProvFilter(); } catch (e) {} }
 
 // Subir respuesta de proveedor: abre el modal con dropdown de proveedor (de PG) + numeración de respuesta.
 let _supUpCotizId = null;
@@ -3404,6 +3419,47 @@ async function supViewDownload() {
   _qgEditId = null; _qgProdName = (sq.provider || 'Proveedor') + ' - ' + (c.prodName || ''); _qgRows = merged;
   await qgExcel(true);
   _qgEditId = prevEdit; _qgRows = prevRows;
+}
+// Comparar respuestas de proveedores de una cotización, producto por producto (por correlativo).
+let _ccCtx = null;
+function openCotizCompare(id) {
+  const c = _cotizAll.find(x => x.id === id); if (!c) return;
+  const sqs = c.supplierQuotes || []; if (sqs.length < 2) return;
+  _ccCtx = { id };
+  $('ccTitle').textContent = 'Comparar respuestas · ' + (c.name || '');
+  $('ccSub').textContent = sqs.length + ' respuestas de ' + new Set(sqs.map(s => s.provider)).size + ' proveedor(es)';
+  $('ccStatus').textContent = '';
+  const codes = (c.rows || []).map(r => r.code).filter(Boolean);
+  const descByCode = {}; (c.rows || []).forEach(r => { if (r.code) descByCode[r.code] = (r.description || '').split('\n')[0]; });
+  const label = s => (s.provider || 'Prov') + (s.respNum ? (' #' + s.respNum) : '');
+  let html = '';
+  for (const code of codes) {
+    const rows = sqs.map(s => ({ s, rr: (s.rows || []).find(x => x.code === code) || {} })).filter(x => x.rr.usdFob || x.rr.cbm || x.rr.weight);
+    if (rows.length < 2) continue;
+    const trs = rows.map(({ s, rr }) => `<tr><td><b>${escapeHtml(label(s))}</b></td><td class="n">${escapeHtml(rr.usdFob || '')}</td><td class="n">${escapeHtml(rr.yuanFob || '')}</td><td class="n">${escapeHtml(rr.weight || '')}</td><td>${escapeHtml([rr.boxH, rr.boxL, rr.boxW].filter(Boolean).join(' × '))}</td><td class="n">${escapeHtml(rr.pcsCtn || '')}</td><td class="n">${escapeHtml(rr.cbm || '')}</td></tr>`).join('');
+    html += `<div style="margin-top:14px"><h3 style="font-size:13px;margin:0 0 4px">${escapeHtml(code)} · ${escapeHtml(descByCode[code] || '')}</h3><div style="overflow-x:auto"><table class="tl-tab"><thead><tr><th>Proveedor</th><th class="n">USD FOB</th><th class="n">Yuan FOB</th><th class="n">Peso</th><th>Caja</th><th class="n">PCS/CTN</th><th class="n">CBM</th></tr></thead><tbody>${trs}</tbody></table></div></div>`;
+  }
+  $('ccBody').innerHTML = '<div id="ccAi"></div>' + (html || '<p class="muted" style="margin-top:10px">Las respuestas no comparten códigos de producto para comparar.</p>');
+  $('cotizCompareOverlay').classList.remove('hidden');
+}
+async function runCotizCompare() {
+  const c = _cotizAll.find(x => x.id === (_ccCtx && _ccCtx.id)); if (!c) return;
+  const sqs = c.supplierQuotes || [];
+  const codes = (c.rows || []).map(r => r.code).filter(Boolean);
+  const descByCode = {}; (c.rows || []).forEach(r => { if (r.code) descByCode[r.code] = (r.description || '').split('\n')[0]; });
+  const lines = [];
+  for (const code of codes) {
+    const parts = sqs.map(s => { const rr = (s.rows || []).find(x => x.code === code); if (!rr || !(rr.usdFob || rr.cbm)) return null; return `${s.provider}#${s.respNum || 1}: FOB US$${rr.usdFob || '?'} · peso ${rr.weight || '?'}kg · caja ${[rr.boxH, rr.boxL, rr.boxW].filter(Boolean).join('x') || '?'} · PCS/CTN ${rr.pcsCtn || '?'} · CBM ${rr.cbm || '?'}`; }).filter(Boolean);
+    if (parts.length >= 2) lines.push(code + ' (' + (descByCode[code] || '') + '):\n  ' + parts.join('\n  '));
+  }
+  if (!lines.length) { $('ccStatus').textContent = 'No hay productos comparables (mismos códigos).'; return; }
+  $('ccStatus').textContent = 'Comparando con IA…';
+  const prompt = 'Eres analista de sourcing de ET Brands (importa de China y vende en Chile). Compara PRODUCTO POR PRODUCTO (por su código) las respuestas de estos proveedores para la cotización "' + (c.name || '') + '". Pondera PRECIO FOB, PESO/CAJA/CBM (impacto en flete) y unidades por caja.\n\nDATOS:\n' + lines.join('\n\n') + '\n\nDevuelve SOLO un JSON válido: {"porProducto":[{"code":"552-1","mejor":"NombreProveedor#N","razon":"1 frase"}],"veredicto":"1-2 frases: qué proveedor conviene en general y por qué"}';
+  let j;
+  try { j = parseJSONLoose(await aiText(prompt, cfg, { maxTokens: 1400 })) || {}; } catch (e) { $('ccStatus').textContent = 'Error IA: ' + (e.message || e); return; }
+  const pp = (j.porProducto || []).map(x => `<tr><td><b>${escapeHtml(x.code || '')}</b></td><td>${escapeHtml(x.mejor || '')}</td><td>${escapeHtml(x.razon || '')}</td></tr>`).join('');
+  $('ccAi').innerHTML = (j.veredicto ? `<div class="p2ai"><b>🏆 Veredicto:</b> ${mdBold(escapeHtml(j.veredicto))}</div>`.replace('🏆 ', '') : '') + (pp ? `<div style="overflow-x:auto;margin-top:8px"><table class="tl-tab"><thead><tr><th>Producto</th><th>Mejor</th><th>Razón</th></tr></thead><tbody>${pp}</tbody></table></div>` : '');
+  $('ccStatus').textContent = '';
 }
 async function cotizSupplierRemove(id, sqId) {
   const c = _cotizAll.find(x => x.id === id); if (!c) return;
