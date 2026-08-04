@@ -253,6 +253,74 @@ export async function onRequest({ request, env }) {
         return json({ ok: true, processed: slice.length, offset, next, total: list.length, ts: store.ts });
       }
 
+      if (action === 'refreshFullAds') {   // Stock en Full + en camino + campaña de Product Ads (ML), sumando todas las publicaciones del SKU
+        if (!token) return json({ error: 'Falta el secret de ProfitGuard' }, 501);
+        const SELLER = '613899966', SITE = 'MLC', ADVERTISER = '78477';
+        const prod = JSON.parse((await kv.get('track_products')) || 'null');
+        const listAll = ((prod && prod.items) || []).filter(it => !it.kit && it.sku);
+        const offset = Math.max(parseInt(body.offset) || 0, 0);
+        const limit = Math.min(Math.max(parseInt(body.limit) || 6, 1), 15);
+        const slice = listAll.slice(offset, offset + limit);
+        const store = JSON.parse((await kv.get('track_metrics')) || 'null') || { ts: Date.now(), m: {} };
+        store.m = store.m || {};
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        // Passthrough GET con headers opcionales (advertising exige api-version).
+        const mlGet = async (path, query, hdrs) => {
+          for (let a = 0; a < 2; a++) {
+            const pb = { method: 'GET', path, query: query || {} };
+            if (hdrs) pb.headers = hdrs;
+            const r = await fetch(`${PG}/integrations/1/passthrough`, { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify(pb) });
+            const j = await r.json().catch(() => null); const b = j && (j.body != null ? j.body : null);
+            const rl = b && (b.error === 'Rate limit exceeded' || (b.message && /rate limit/i.test(b.message)));
+            if (rl && a === 0) { await sleep(3000); continue; }
+            if (!r.ok || (j && j.status && j.status >= 400)) return null;
+            return b;
+          }
+          return null;
+        };
+        // Mapa campaign_id → nombre (una sola vez por lote).
+        const campMap = {};
+        const campRaw = await mlGet(`/advertising/${SITE}/advertisers/${ADVERTISER}/product_ads/campaigns/search`, { limit: '200' }, { 'api-version': '2' });
+        for (const cc of ((campRaw && campRaw.results) || [])) campMap[cc.id] = cc.name;
+        let first = true; const dbg = body.debug ? { campaignsFound: Object.keys(campMap).length, items: [] } : null;
+        for (const it of slice) {
+          try {
+            const m = store.m[it.sku] || {}; m.summary = m.summary || {};
+            let ids = m.mlIds;
+            if (!Array.isArray(ids) || !ids.length) {
+              ids = [];
+              for (let pg = 0; pg < 4; pg++) { if (!first) await sleep(400); first = false; const s = await mlGet(`/users/${SELLER}/items/search`, { seller_sku: it.sku, limit: '50', offset: String(pg * 50) }); const res = (s && Array.isArray(s.results)) ? s.results : []; ids.push(...res); const tot = (s && s.paging && s.paging.total != null) ? s.paging.total : res.length; if (!res.length || (pg + 1) * 50 >= tot) break; }
+              m.mlIds = ids;
+            }
+            let full = 0, inbound = 0, anyFull = false, campaign = '';
+            for (const id of ids.slice(0, 15)) {
+              if (!first) await sleep(300); first = false;
+              const item = await mlGet('/items/' + id, { attributes: 'id,inventory_id,shipping,variations' });
+              const invIds = [];
+              if (item && item.inventory_id) invIds.push(item.inventory_id);
+              for (const v of ((item && item.variations) || [])) if (v.inventory_id) invIds.push(v.inventory_id);
+              const isFull = item && item.shipping && item.shipping.logistic_type === 'fulfillment';
+              if (isFull) {
+                for (const inv of invIds) {
+                  if (!first) await sleep(300); first = false;
+                  const st = await mlGet(`/inventories/${inv}/stock/fulfillment`);
+                  if (st && st.available_quantity != null) { anyFull = true; full += (st.available_quantity || 0); for (const d of (st.not_available_detail || [])) if (/transfer|internal_process/i.test(d.status || '')) inbound += (d.quantity || 0); }
+                }
+              }
+              if (!campaign) { const ad = await mlGet(`/advertising/${SITE}/product_ads/ads/${id}`, {}, { 'api-version': '2' }); const cid = ad && ad.campaign_id; if (cid) campaign = campMap[cid] || ('#' + cid); if (dbg) dbg.items.push({ id, logistic: item && item.shipping && item.shipping.logistic_type, inv: invIds, adCid: cid, adRaw: ad ? Object.keys(ad) : null }); }
+            }
+            m.summary.fullStock = anyFull ? full : 0;
+            m.summary.inboundStock = anyFull ? inbound : 0;
+            m.summary.adCampaign = campaign || null;
+            store.m[it.sku] = m;
+          } catch (e) { if (dbg) dbg.items.push({ err: String(e && e.message || e) }); }
+        }
+        store.ts = Date.now();
+        await kv.put('track_metrics', JSON.stringify(store));
+        const next = (offset + limit < listAll.length) ? (offset + limit) : null;
+        return json({ ok: true, processed: slice.length, offset, next, total: listAll.length, dbg });
+      }
+
       if (action === 'links') {   // publicaciones del producto + sus packs, por canal, con link directo a cada marketplace
         if (!token) return json({ error: 'Falta el secret de ProfitGuard' }, 501);
         const pid = parseInt(body.id) || 0;
