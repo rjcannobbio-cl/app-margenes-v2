@@ -185,9 +185,11 @@ export async function onRequest({ request, env }) {
         const SELLER = '613899966';   // ML User ID CL (ET Brands)
         const prod = JSON.parse((await kv.get('track_products')) || 'null');
         const list = ((prod && prod.items) || []).filter(it => !it.kit && it.sku);
+        // Modo dirigido: si viene body.skus (lista), procesa SOLO esos (para la 2ª pasada de pendientes). Si no, por lotes offset/limit.
+        const targeted = Array.isArray(body.skus) && body.skus.length;
         const offset = Math.max(parseInt(body.offset) || 0, 0);
         const limit = Math.min(Math.max(parseInt(body.limit) || 10, 1), 20);
-        const slice = list.slice(offset, offset + limit);
+        const slice = targeted ? (() => { const set = new Set(body.skus); return list.filter(it => set.has(it.sku)); })() : list.slice(offset, offset + limit);
         const store = JSON.parse((await kv.get('track_metrics')) || 'null') || { ts: Date.now(), m: {} };
         store.m = store.m || {};
         const today = new Date().toISOString().slice(0, 10);
@@ -249,7 +251,7 @@ export async function onRequest({ request, env }) {
         }
         store.ts = Date.now();
         await kv.put('track_metrics', JSON.stringify(store));
-        const next = (offset + limit < list.length) ? (offset + limit) : null;
+        const next = targeted ? null : ((offset + limit < list.length) ? (offset + limit) : null);
         return json({ ok: true, processed: slice.length, offset, next, total: list.length, ts: store.ts });
       }
 

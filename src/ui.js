@@ -1019,8 +1019,25 @@ async function trackRefreshFullAds(silent) {
   } catch (e) { if (!silent) trackStatus('Error de red (Full/ads): ' + e.message, true); }
   finally { _trackFullAdsBusy = false; }
 }
-// Métricas + visitas + stock Full/campañas encadenadas (lo que dispara el botón / el refresco en 2º plano).
-async function trackRefreshAll(silent) { await trackRefreshMetrics(silent); await trackRefreshVisits(silent); await trackRefreshFullAds(silent); }
+// 2ª pasada: reprocesa SOLO los productos "pendientes" (tienen ventas pero quedaron sin visitas → fueron saltados
+// en la pasada normal). Modo dirigido por SKUs; hasta 2 rondas hasta que no queden. No toca el loop de visitas.
+async function trackRefreshPending(silent) {
+  for (let round = 0; round < 2; round++) {
+    const list = ((_trackData && _trackData.products && _trackData.products.items) || []).filter(it => !it.kit && it.sku);
+    const pend = list.filter(it => { const s = (_trackMetrics[it.sku] || {}).summary; return s && (s.units || 0) > 0 && !(s.visits > 0); }).map(it => it.sku);
+    if (!pend.length) break;
+    if (!silent) trackStatus('2ª pasada: reintentando ' + pend.length + ' pendiente(s) de visitas…');
+    for (let i = 0; i < pend.length; i += 8) {
+      const chunk = pend.slice(i, i + 8);
+      try { await fetch(api('/api/track'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'refreshVisits', skus: chunk }) }); } catch (e) {}
+      if (!silent) trackStatus('Pendientes… ' + Math.min(i + 8, pend.length) + '/' + pend.length + (round ? ' · ronda ' + (round + 1) : ''));
+    }
+    await trackLoad();   // recalcula pendientes para la siguiente ronda
+  }
+  paintTrack();
+}
+// Métricas + visitas + 2ª pasada de pendientes + stock Full/campañas (lo que dispara el botón / el refresco en 2º plano).
+async function trackRefreshAll(silent) { await trackRefreshMetrics(silent); await trackRefreshVisits(silent); await trackRefreshPending(silent); await trackRefreshFullAds(silent); }
 // Import Excel: columnas SKU · Vel madura · 1a venta (Fecha 1ra venta.xlsx).
 async function trackImportFile(file) {
   try {
