@@ -70,7 +70,7 @@
   /* Tabla de Cotizaciones (listado) */
   .cotiz-tab input,.cotiz-tab select{width:100%;min-width:120px;background:var(--input);border:1px solid var(--line);border-radius:6px;color:var(--ink);font:inherit;font-size:12px;padding:4px 6px}
   .cotiz-tab input:focus,.cotiz-tab select:focus{background:var(--input-focus);border-color:var(--accent);outline:none}
-  .cotiz-sq-wrap{display:flex;flex-wrap:wrap;align-items:center;gap:5px;min-width:170px}
+  .cotiz-sq-wrap{display:flex;flex-direction:column;align-items:flex-start;gap:5px;min-width:170px}
   .cotiz-sq{display:inline-flex;align-items:center;gap:5px;background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:2px 9px;font-size:11px}
   .cotiz-sq-x{cursor:pointer;color:var(--faint);font-weight:700}
   .cotiz-sq-x:hover{color:var(--bad)}
@@ -661,6 +661,40 @@
   </div>
 </div>
 
+<!-- Modal: subir respuesta de proveedor (supplier quote) -->
+<div id="supUploadOverlay" class="modal-overlay hidden" style="z-index:203">
+  <div class="rdetail" style="max-width:640px">
+    <div class="rd-head">
+      <div><h2 style="font-size:18px;margin:0">Subir respuesta de proveedor</h2><div class="rd-l1 muted" id="supUpInquiry" style="font-size:11px;margin-top:2px"></div></div>
+      <button class="mini" id="supUpClose" type="button" title="Cerrar">✕</button>
+    </div>
+    <label>Proveedor</label>
+    <select id="supUpProvider" style="width:100%"></select>
+    <div class="hint" id="supUpRespNum" style="margin:6px 0 0"></div>
+    <label style="margin-top:12px;display:block">Excel de la respuesta del proveedor (.xlsx)</label>
+    <input type="file" id="supUpFile" accept=".xlsx,.xls">
+    <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
+      <button class="btn" id="supUpConfirm" type="button">Subir respuesta</button>
+      <button class="btn ghost" id="supUpCancel" type="button">Cancelar</button>
+      <span class="ai-status" id="supUpStatus"></span>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: ver una respuesta de proveedor -->
+<div id="supViewOverlay" class="modal-overlay hidden" style="z-index:203">
+  <div class="rdetail">
+    <div class="rd-head">
+      <div><h2 id="supViewTitle" style="font-size:18px;margin:0"></h2><div class="rd-l1 muted" id="supViewSub" style="font-size:11px;margin-top:2px"></div></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn ghost" id="supViewDownload" type="button">Descargar Excel</button>
+        <button class="mini" id="supViewClose" type="button" title="Cerrar">✕</button>
+      </div>
+    </div>
+    <div id="supViewBody"></div>
+  </div>
+</div>
+
 <!-- Modal: revisar quote importada antes de llevar al Historial -->
 <div id="quoteOverlay" class="modal-overlay hidden" style="z-index:200">
   <div class="rdetail" style="max-width:80vw">
@@ -802,6 +836,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=265200"></script>
+<script src="src/ui.js?v=265300"></script>
 </body>
 </html>

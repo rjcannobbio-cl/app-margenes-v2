@@ -3160,6 +3160,13 @@ function init() {
   { const b = $('btnCotizNew'); if (b) b.onclick = () => openQuoteGen(null); }
   { const b = $('btnCotizImport'); if (b) b.onclick = () => $('cotizFile').click(); }
   { const fi = $('cotizFile'); if (fi) fi.addEventListener('change', e => { const f = e.target.files[0]; if (f) cotizImport(f); e.target.value = ''; }); }
+  { const b = $('supUpClose'); if (b) b.onclick = () => $('supUploadOverlay').classList.add('hidden'); }
+  { const b = $('supUpCancel'); if (b) b.onclick = () => $('supUploadOverlay').classList.add('hidden'); }
+  { const o = $('supUploadOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
+  { const b = $('supUpConfirm'); if (b) b.onclick = supUpConfirm; }
+  { const b = $('supViewClose'); if (b) b.onclick = () => $('supViewOverlay').classList.add('hidden'); }
+  { const o = $('supViewOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
+  { const b = $('supViewDownload'); if (b) b.onclick = supViewDownload; }
   { const el = $('cotizFilter'); if (el) el.addEventListener('input', debounce(paintCotiz, 200)); }
   { const b = $('qgClose'); if (b) b.onclick = () => $('quoteGenOverlay').classList.add('hidden'); }
   { const o = $('quoteGenOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
@@ -3260,6 +3267,7 @@ function qgUpdateNamePreview() {
 
 async function renderCotiz() {
   if (!_cotizLoaded) { $('cotizDbWrap').innerHTML = '<p class="muted" style="padding:16px">Cargando…</p>'; await cotizLoad(); _cotizLoaded = true; }
+  pgProvidersLoad();   // proveedores de PG en 2º plano (para dropdowns/filtro)
   paintCotiz();
 }
 async function cotizLoad() { try { const j = await (await fetch(api('/api/quotes'))).json(); _cotizAll = Array.isArray(j) ? j : []; } catch (e) { _cotizAll = []; } }
@@ -3279,7 +3287,7 @@ function paintCotiz() {
   const rows = filtered.map(c => {
     const estado = c.estado || COTIZ_ESTADOS[0];
     const opts = COTIZ_ESTADOS.map(s => `<option${s === estado ? ' selected' : ''}>${escapeHtml(s)}</option>`).join('');
-    const sq = (c.supplierQuotes || []).map(s => `<span class="cotiz-sq" title="${at((s.fileName || '') + ' · ' + (s.rows || []).length + ' productos')}">${escapeHtml(s.label || 'Proveedor')}<span class="cotiz-sq-x" data-id="${escapeHtml(c.id)}" data-sq="${escapeHtml(s.id)}" title="Quitar">✕</span></span>`).join('');
+    const sq = (c.supplierQuotes || []).map(s => { const nm = s.provider || s.label || 'Proveedor'; const rn = s.respNum ? (' #' + s.respNum) : ''; return `<div class="cotiz-sq" title="${at((s.fileName || '') + ' · ' + (s.rows || []).length + ' productos')}"><span class="cotiz-sq-lbl" data-id="${escapeHtml(c.id)}" data-sq="${escapeHtml(s.id)}" style="cursor:pointer;color:#7db0ff">${escapeHtml(nm + rn)}</span><span class="cotiz-sq-x" data-id="${escapeHtml(c.id)}" data-sq="${escapeHtml(s.id)}" title="Quitar">✕</span></div>`; }).join('');
     return `<tr data-id="${escapeHtml(c.id)}">
       <td><input class="cotiz-prod" data-id="${escapeHtml(c.id)}" value="${at(c.prodName)}" placeholder="Producto"></td>
       <td style="white-space:nowrap">${ym(c.ts)}</td>
@@ -3299,6 +3307,7 @@ function paintCotiz() {
   wrap.querySelectorAll('.cotiz-edit').forEach(a => a.onclick = e => { e.preventDefault(); openQuoteGen(a.dataset.id); });
   wrap.querySelectorAll('.cotiz-del').forEach(b => b.onclick = () => cotizDelete(b.dataset.id));
   wrap.querySelectorAll('.cotiz-sq-add').forEach(b => b.onclick = () => cotizSupplierUpload(b.dataset.id));
+  wrap.querySelectorAll('.cotiz-sq-lbl').forEach(b => b.onclick = () => openSupplierView(b.dataset.id, b.dataset.sq));
   wrap.querySelectorAll('.cotiz-sq-x').forEach(b => b.onclick = () => cotizSupplierRemove(b.dataset.id, b.dataset.sq));
 }
 
@@ -3318,24 +3327,83 @@ function cotizExport(id) {
   _qgEditId = c.id; _qgProdName = c.prodName || ''; _qgRows = (c.rows || []).map(r => Object.assign(qgBlankRow(), r));
   qgExcel(true);
 }
-// Sube una respuesta de proveedor (Excel de la inquiry con precios) y la guarda en la cotización.
+// Proveedores de ProfitGuard (para dropdowns/filtro), cacheados.
+let _pgProviders = [], _pgProvidersLoaded = false;
+async function pgProvidersLoad() { if (_pgProvidersLoaded) return; try { const j = await (await fetch(api('/api/pg-providers'))).json(); _pgProviders = (j && j.providers) || []; _pgProvidersLoaded = true; } catch (e) {} }
+
+// Subir respuesta de proveedor: abre el modal con dropdown de proveedor (de PG) + numeración de respuesta.
+let _supUpCotizId = null;
 function cotizSupplierUpload(id) {
   const c = _cotizAll.find(x => x.id === id); if (!c) return;
-  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.xlsx,.xls';
-  inp.onchange = async () => {
-    const f = inp.files[0]; if (!f) return;
-    const label = prompt('Nombre del proveedor (para identificar esta respuesta):', f.name.replace(/\.xlsx?$/i, ''));
-    if (label === null) return;
-    let rows;
-    try { await loadXLSX(); const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' }); const ws = wb.Sheets[wb.SheetNames[0]]; rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }); }
-    catch (e) { alert('No se pudo leer el Excel: ' + (e.message || e)); return; }
-    const s = v => (v == null ? '' : String(v)).trim();
-    const parsed = rows.slice(2).filter(r => r && (s(r[0]) || s(r[2]))).map(r => ({ code: s(r[0]), quantity: s(r[7]), usdFob: s(r[8]), yuanFob: s(r[9]), weight: s(r[10]), boxH: s(r[11]), boxL: s(r[12]), boxW: s(r[13]), pcsCtn: s(r[14]), cbm: s(r[15]) }));
-    const sq = { id: 'sq' + Date.now() + Math.floor(Math.random() * 1000), label: (label || f.name).trim(), fileName: f.name, ts: Date.now(), rows: parsed };
-    await cotizPatch(id, { supplierQuotes: (c.supplierQuotes || []).concat([sq]) });
-    paintCotiz();
-  };
-  inp.click();
+  _supUpCotizId = id;
+  $('supUpInquiry').textContent = c.name || '';
+  const sel = $('supUpProvider');
+  sel.innerHTML = '<option value="">— elegir proveedor —</option>' + _pgProviders.map(p => `<option value="${escapeHtml(String(p.id))}">${escapeHtml(p.name)}</option>`).join('');
+  sel.onchange = supUpUpdateRespNum;
+  $('supUpFile').value = ''; $('supUpStatus').textContent = '';
+  supUpUpdateRespNum();
+  $('supUploadOverlay').classList.remove('hidden');
+}
+function supUpUpdateRespNum() {
+  const c = _cotizAll.find(x => x.id === _supUpCotizId); if (!c) return;
+  const pid = $('supUpProvider').value;
+  const provName = pid ? ((_pgProviders.find(p => String(p.id) === String(pid)) || {}).name || '') : '';
+  const n = (c.supplierQuotes || []).filter(s => String(s.providerId) === String(pid)).length + 1;
+  $('supUpRespNum').textContent = pid ? ('Será la respuesta N° ' + n + ' de ' + provName + ' para este inquiry.') : '';
+}
+async function supUpConfirm() {
+  const c = _cotizAll.find(x => x.id === _supUpCotizId); if (!c) return;
+  const pid = $('supUpProvider').value;
+  if (!pid) { $('supUpStatus').textContent = 'Elige el proveedor.'; return; }
+  const f = $('supUpFile').files[0]; if (!f) { $('supUpStatus').textContent = 'Sube el Excel de la respuesta.'; return; }
+  const provName = (_pgProviders.find(p => String(p.id) === String(pid)) || {}).name || ('#' + pid);
+  $('supUpStatus').textContent = 'Leyendo…';
+  let rows;
+  try { await loadXLSX(); const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' }); const ws = wb.Sheets[wb.SheetNames[0]]; rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }); }
+  catch (e) { $('supUpStatus').textContent = 'No se pudo leer: ' + (e.message || e); return; }
+  const s = v => (v == null ? '' : String(v)).trim();
+  const parsed = rows.slice(2).filter(r => r && (s(r[0]) || s(r[2]))).map(r => ({ code: s(r[0]), quantity: s(r[7]), usdFob: s(r[8]), yuanFob: s(r[9]), weight: s(r[10]), boxH: s(r[11]), boxL: s(r[12]), boxW: s(r[13]), pcsCtn: s(r[14]), cbm: s(r[15]) }));
+  const respNum = (c.supplierQuotes || []).filter(x => String(x.providerId) === String(pid)).length + 1;
+  const sq = { id: 'sq' + Date.now() + Math.floor(Math.random() * 1000), providerId: pid, provider: provName, respNum, label: provName, fileName: f.name, ts: Date.now(), rows: parsed };
+  await cotizPatch(_supUpCotizId, { supplierQuotes: (c.supplierQuotes || []).concat([sq]) });
+  $('supUploadOverlay').classList.add('hidden');
+  paintCotiz();
+}
+// Ver una respuesta de proveedor (tabla de datos) + descargar su Excel.
+let _supViewCtx = null;
+function openSupplierView(cotizId, sqId) {
+  const c = _cotizAll.find(x => x.id === cotizId); if (!c) return;
+  const sq = (c.supplierQuotes || []).find(x => x.id === sqId); if (!sq) return;
+  _supViewCtx = { cotizId, sqId };
+  $('supViewTitle').textContent = (sq.provider || sq.label || 'Proveedor') + (sq.respNum ? ' · Respuesta N° ' + sq.respNum : '');
+  $('supViewSub').textContent = (c.name || '') + ' · ' + (sq.fileName || '') + ' · ' + (sq.ts ? new Date(sq.ts).toLocaleString('es-CL') : '');
+  const descByCode = {}; (c.rows || []).forEach(r => { if (r.code) descByCode[r.code] = (r.description || '').split('\n')[0]; });
+  const rowsHtml = (sq.rows || []).map(r => `<tr>
+    <td style="white-space:nowrap"><b>${escapeHtml(r.code || '')}</b></td>
+    <td style="max-width:320px">${escapeHtml(descByCode[r.code] || '')}</td>
+    <td class="n">${escapeHtml(r.quantity || '')}</td>
+    <td class="n">${escapeHtml(r.usdFob || '')}</td>
+    <td class="n">${escapeHtml(r.yuanFob || '')}</td>
+    <td class="n">${escapeHtml(r.weight || '')}</td>
+    <td style="white-space:nowrap">${escapeHtml([r.boxH, r.boxL, r.boxW].filter(Boolean).join(' × '))}</td>
+    <td class="n">${escapeHtml(r.pcsCtn || '')}</td>
+    <td class="n">${escapeHtml(r.cbm || '')}</td>
+  </tr>`).join('');
+  $('supViewBody').innerHTML = `<div style="overflow-x:auto"><table class="tl-tab"><thead><tr><th>Código</th><th>Producto</th><th class="n">Cant.</th><th class="n">USD FOB</th><th class="n">Yuan FOB</th><th class="n">Peso</th><th>Caja (Al×La×An)</th><th class="n">PCS/CTN</th><th class="n">CBM</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`;
+  $('supViewOverlay').classList.remove('hidden');
+}
+async function supViewDownload() {
+  if (!_supViewCtx) return;
+  const c = _cotizAll.find(x => x.id === _supViewCtx.cotizId); if (!c) return;
+  const sq = (c.supplierQuotes || []).find(x => x.id === _supViewCtx.sqId); if (!sq) return;
+  const supByCode = {}; (sq.rows || []).forEach(r => { if (r.code) supByCode[r.code] = r; });
+  const merged = (c.rows || []).map(r => { const sv = supByCode[r.code] || {}; return Object.assign(qgBlankRow(), r, { quantity: sv.quantity || r.quantity || '', usdFob: sv.usdFob || '', yuanFob: sv.yuanFob || '', weight: sv.weight || '', boxH: sv.boxH || '', boxL: sv.boxL || '', boxW: sv.boxW || '', pcsCtn: sv.pcsCtn || '', cbm: sv.cbm || '' }); });
+  const inqCodes = new Set((c.rows || []).map(r => r.code));
+  (sq.rows || []).forEach(r => { if (r.code && !inqCodes.has(r.code)) merged.push(Object.assign(qgBlankRow(), r)); });
+  const prevEdit = _qgEditId, prevRows = _qgRows;
+  _qgEditId = null; _qgProdName = (sq.provider || 'Proveedor') + ' - ' + (c.prodName || ''); _qgRows = merged;
+  await qgExcel(true);
+  _qgEditId = prevEdit; _qgRows = prevRows;
 }
 async function cotizSupplierRemove(id, sqId) {
   const c = _cotizAll.find(x => x.id === id); if (!c) return;
