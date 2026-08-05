@@ -480,7 +480,7 @@
     <div class="hist-actions">
       <input type="text" id="closedFilter" class="hist-filter" placeholder="Filtrar: producto, SKU, proveedor, cotización, mes cierre (ej: Mayo)…">
       <button class="btn ghost" id="btnClosedExport" type="button">Exportar CSV</button>
-      <button class="btn ghost" id="btnClosedPriceCheck" type="button" title="Compara los precios Full/AON con el precio real en Mercado Libre (vía ProfitGuard). Marca con ! rojo los que difieren.">⟳ Chequear precios PG</button>
+      <button class="btn ghost" id="btnClosedPriceCheck" type="button" title="Compara el precio Full con el precio de lista real en Mercado Libre (vía ProfitGuard). Marca con ! rojo los que difieren. El AON se ignora (se gestiona en el portal de Meli).">⟳ Chequear precios PG</button>
       <span class="muted" id="closedCount"></span>
     </div>
     <div id="closedDbWrap" class="db-wrap"></div>
@@ -886,6 +886,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=266100"></script>
+<script src="src/ui.js?v=266200"></script>
 </body>
 </html>

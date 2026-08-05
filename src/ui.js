@@ -1683,19 +1683,16 @@ async function pubCreatedLoad() { try { const j = await (await fetch(api('/api/p
 // Chequeo de precios: precio real en ML (vía PG) por id de producto, para alertar diferencias con Full/AON.
 let _priceCheck = {}, _priceCheckTs = 0, _priceCheckBusy = false;
 async function priceCheckLoad() { try { const j = await (await fetch(api('/api/price-check'))).json(); _priceCheck = (j && j.m) || {}; _priceCheckTs = (j && j.ts) || 0; } catch (e) { _priceCheck = {}; } }
-// Alerta (! rojo) si el Full o el AON guardados difieren del precio real en Mercado Libre.
+// Alerta (! rojo) si el precio Full guardado difiere del precio de lista real en Mercado Libre.
+// El AON se IGNORA: en Meli las promos AON se cargan en su portal (no en PG), así que no deben gatillar advertencia.
 function closedPriceAlert(x) {
   const pc = _priceCheck[x.id]; if (!pc || pc.notFound) return '';
   const r = v => { const n = parseFloat(v); return isNaN(n) ? null : Math.round(n); };
-  const full = r(x.precioFull), aon = r(x.precioAON);
+  const full = r(x.precioFull);
   const mlList = pc.listPrice != null ? Math.round(pc.listPrice) : null;
-  const mlPrice = pc.price != null ? Math.round(pc.price) : null;
+  if (full == null || mlList == null || full === mlList) return '';
   const clp = n => '$' + n.toLocaleString('es-CL');
-  const diffs = [];
-  if (full != null && mlList != null && full !== mlList) diffs.push('Full app ' + clp(full) + ' ≠ ML ' + clp(mlList));
-  if (aon != null && mlPrice != null && aon !== mlPrice) diffs.push('AON app ' + clp(aon) + ' ≠ ML ' + clp(mlPrice));
-  if (!diffs.length) return '';
-  return `<span title="Precio distinto al de Mercado Libre — ${escapeHtml(diffs.join(' · '))}" style="color:#ef4444;font-weight:900;margin-right:5px;cursor:help">!</span>`;
+  return `<span title="Precio Full distinto al de Mercado Libre — app ${escapeHtml(clp(full))} ≠ ML ${escapeHtml(clp(mlList))}" style="color:#ef4444;font-weight:900;margin-right:5px;cursor:help">!</span>`;
 }
 async function closedPriceRefresh() {
   if (_priceCheckBusy) return; _priceCheckBusy = true;
