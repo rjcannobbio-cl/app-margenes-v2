@@ -5,12 +5,16 @@
    (para pintar el checkbox en la tabla); escribir exige el PIN.
 
    Rutas:
-     GET  /api/pubcreated                       → { pub:{id:{ok,ts}}, configured }
-     POST /api/pubcreated { id, ok, pin }        → set/unset (valida PIN)
+     GET  /api/pubcreated                                  → { pub:{id:{channels,ts}}, configured }
+     POST /api/pubcreated { id, channels:{ml,falabella,paris,ripley,walmart,shopify}, pin }  → set/unset (valida PIN)
+     POST /api/pubcreated { id, ok, pin }                  → compat: marca todos los canales
 
    PIN fijo por código: "tendencias" (herramienta interna).
-   KV: pub_created = { <productId>: { ok:true, ts } }
+   KV: pub_created = { <productId>: { channels:{<canal>:true,...}, ts } }
+   (formato antiguo { ok:true, ts } se interpreta como "todos los canales" al leer.)
    ============================================================ */
+
+const PUB_CHANNELS = ['ml', 'falabella', 'paris', 'ripley', 'walmart', 'shopify'];
 
 export async function onRequest({ request, env }) {
   const kv = env.MARGENES_KV;
@@ -28,8 +32,17 @@ export async function onRequest({ request, env }) {
       if (!id) return json({ error: 'falta id' }, 400);
       if (String(b.pin == null ? '' : b.pin) !== String(PIN)) return json({ error: 'PIN incorrecto' }, 403);
       const pub = JSON.parse((await kv.get('pub_created')) || '{}');
-      if (b.ok) pub[id] = { ok: true, ts: Date.now() };
-      else delete pub[id];
+      if (b.channels && typeof b.channels === 'object') {
+        const channels = {}; let any = false;
+        for (const k of PUB_CHANNELS) { if (b.channels[k]) { channels[k] = true; any = true; } }   // guarda solo los true (sparse)
+        if (any) pub[id] = { channels, ts: Date.now() };
+        else delete pub[id];                                                                        // sin canales → se quita
+      } else if (b.ok) {   // compat: marca todos los canales
+        const channels = {}; PUB_CHANNELS.forEach(k => channels[k] = true);
+        pub[id] = { channels, ts: Date.now() };
+      } else {
+        delete pub[id];
+      }
       await kv.put('pub_created', JSON.stringify(pub));
       return json({ ok: true, pub });
     }

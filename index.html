@@ -790,6 +790,22 @@
   </div>
 </div>
 
+<!-- Modal: publicaciones creadas por canal (Productos cerrados) -->
+<div id="pubModalOverlay" class="modal-overlay hidden" style="z-index:204">
+  <div class="rdetail" style="max-width:420px">
+    <div class="rd-head">
+      <div><h2 style="font-size:17px;margin:0">Publicaciones creadas</h2><div class="rd-l1 muted" id="pubModalProd" style="font-size:11px;margin-top:2px"></div></div>
+      <button class="mini" id="pubModalClose" type="button" title="Cerrar">✕</button>
+    </div>
+    <div id="pubModalBody"></div>
+    <div style="margin-top:16px;display:flex;gap:8px;align-items:center">
+      <button class="btn" id="pubModalSave" type="button">Guardar</button>
+      <button class="btn ghost" id="pubModalCancel" type="button">Cancelar</button>
+      <span class="ai-status" id="pubModalStatus" style="margin-left:auto"></span>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: revisión física de un producto nuevo -->
 <div id="trackReviewOverlay" class="modal-overlay hidden" style="z-index:203">
   <div class="rdetail" style="max-width:660px">
@@ -870,6 +886,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=266000"></script>
+<script src="src/ui.js?v=266100"></script>
 </body>
 </html>

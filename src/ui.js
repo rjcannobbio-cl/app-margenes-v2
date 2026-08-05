@@ -1551,7 +1551,13 @@ function paintDb(mode) {
   const authHead = isClosed ? '<th data-nosort title="Solo el dueño con la clave puede autorizar">Autorizado a vender</th>' : '';
   const authCell = x => { if (!isClosed) return ''; const on = !!(_sellAuth[x.id] && _sellAuth[x.id].ok); return `<td class="sell-auth-cell" style="text-align:center;white-space:nowrap"><input type="checkbox" class="sell-auth" data-id="${escapeHtml(x.id || '')}" ${on ? 'checked' : ''} title="Autorizar venta (requiere clave)"> <span style="font-size:11px;font-weight:700;color:${on ? 'var(--good)' : 'var(--muted)'}">${on ? 'Autorizado' : '—'}</span></td>`; };
   const pubHead = isClosed ? '<th data-nosort title="Solo el PM con la clave puede marcar">Publicaciones creadas</th>' : '';
-  const pubCell = x => { if (!isClosed) return ''; const on = !!(_pubCreated[x.id] && _pubCreated[x.id].ok); return `<td class="sell-auth-cell" style="text-align:center;white-space:nowrap"><input type="checkbox" class="pub-created" data-id="${escapeHtml(x.id || '')}" ${on ? 'checked' : ''} title="Marcar publicaciones creadas (requiere clave)"> <span style="font-size:11px;font-weight:700;color:${on ? 'var(--good)' : 'var(--muted)'}">${on ? 'Creadas' : '—'}</span></td>`; };
+  const pubCell = x => {
+    if (!isClosed) return '';
+    const st = pubState(x.id);
+    const lbl = st === 'all' ? 'Creadas' : st === 'partial' ? 'Parcialmente' : '—';
+    const col = st === 'all' ? 'var(--good)' : st === 'partial' ? 'var(--mid,#f0a830)' : 'var(--muted)';
+    return `<td class="sell-auth-cell pub-cell" data-id="${escapeHtml(x.id || '')}" data-st="${st}" style="text-align:center;white-space:nowrap;cursor:pointer" title="Editar publicaciones creadas por canal (requiere clave)"><input type="checkbox" class="pub-created" tabindex="-1" ${st === 'all' ? 'checked' : ''} style="pointer-events:none"> <span style="font-size:11px;font-weight:700;color:${col}">${lbl}</span></td>`;
+  };
 
   const packHead = packExpanded
     ? `<th class="pack-toggle" data-nosort title="Agrupar packaging">◂ Alto</th><th>Largo</th><th>Ancho</th><th>Peso</th>`
@@ -1618,7 +1624,7 @@ function paintDb(mode) {
     save(item); paintDb(mode);   // el arancel cambia el COGS y los márgenes
   }));
   wrap.querySelectorAll('input.sell-auth').forEach(cb => cb.onchange = onSellAuthToggle);
-  wrap.querySelectorAll('input.pub-created').forEach(cb => cb.onchange = onPubCreatedToggle);
+  wrap.querySelectorAll('.pub-cell').forEach(td => { if (td.dataset.st === 'partial') { const cb = td.querySelector('input.pub-created'); if (cb) cb.indeterminate = true; } td.onclick = () => openPubModal(td.dataset.id); });
   wrap.querySelectorAll('button[data-close]').forEach(b => b.onclick = (e) => { e.stopPropagation(); closeProduct(all.find(x => x.id === b.dataset.close)); });
   wrap.querySelectorAll('button[data-reopen]').forEach(b => b.onclick = (e) => { e.stopPropagation(); reopenProduct(all.find(x => x.id === b.dataset.reopen)); });
   wrap.querySelectorAll('button[data-del]').forEach(b => b.onclick = async (e) => {
@@ -1706,19 +1712,49 @@ async function closedPriceRefresh() {
     setTimeout(() => { if (btn) { btn.textContent = old; btn.disabled = false; } }, 4000);
   } finally { _priceCheckBusy = false; if (btn) btn.disabled = false; }
 }
-async function onPubCreatedToggle(e) {
-  const cb = e.target, id = cb.dataset.id, want = cb.checked;
-  if (!_pubPin) { const p = prompt('Clave del PM para marcar publicaciones creadas:'); if (p == null || p === '') { cb.checked = !want; return; } _pubPin = p; }
-  cb.disabled = true;
+// Publicaciones creadas por canal (integración). Estado: 'none' | 'partial' | 'all'.
+const PUB_CHANNELS = [['ml', 'Mercado Libre'], ['falabella', 'Falabella'], ['paris', 'Paris'], ['ripley', 'Ripley'], ['walmart', 'Walmart'], ['shopify', 'Shopify']];
+function pubChannelsOf(id) {
+  const rec = _pubCreated[id];
+  if (!rec) return {};
+  if (rec.channels) return rec.channels;
+  if (rec.ok) { const o = {}; PUB_CHANNELS.forEach(([k]) => o[k] = true); return o; }   // formato antiguo = todos
+  return {};
+}
+function pubState(id) {
+  const ch = pubChannelsOf(id);
+  const on = PUB_CHANNELS.filter(([k]) => ch[k]).length;
+  return on === 0 ? 'none' : on === PUB_CHANNELS.length ? 'all' : 'partial';
+}
+let _pubModalId = null, _pubModalDraft = {};
+function openPubModal(id) {
+  _pubModalId = id;
+  const ch = pubChannelsOf(id); _pubModalDraft = {}; PUB_CHANNELS.forEach(([k]) => _pubModalDraft[k] = !!ch[k]);
+  const item = (_closedAll || []).find(x => x.id === id);
+  { const el = $('pubModalProd'); if (el) el.textContent = item ? (item.nombre || '') : id; }
+  { const st = $('pubModalStatus'); if (st) st.textContent = ''; }
+  renderPubModal();
+  $('pubModalOverlay').classList.remove('hidden');
+}
+function renderPubModal() {
+  const body = $('pubModalBody'); if (!body) return;
+  body.innerHTML = '<p class="muted" style="font-size:12px;margin:0 0 12px">Marca los canales donde ya está creada la publicación. Si quedan algunos sin marcar, la columna mostrará “Parcialmente”.</p>' +
+    PUB_CHANNELS.map(([k, label]) => `<label style="display:flex;align-items:center;gap:8px;padding:7px 0;cursor:pointer;border-bottom:1px solid var(--line,#26324a)"><input type="checkbox" class="pub-ch" data-k="${k}" ${_pubModalDraft[k] ? 'checked' : ''}> <span style="font-weight:600">${escapeHtml(label)}</span></label>`).join('');
+  body.querySelectorAll('.pub-ch').forEach(cb => cb.onchange = () => { _pubModalDraft[cb.dataset.k] = cb.checked; });
+}
+async function pubModalSave() {
+  const id = _pubModalId; if (!id) return;
+  if (!_pubPin) { const p = prompt('Clave del PM para marcar publicaciones creadas:'); if (p == null || p === '') return; _pubPin = p; }
+  const st = $('pubModalStatus'); if (st) st.textContent = 'Guardando…';
   try {
-    const r = await fetch(api('/api/pubcreated'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, ok: want, pin: _pubPin }) });
+    const r = await fetch(api('/api/pubcreated'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, channels: _pubModalDraft, pin: _pubPin }) });
     const j = await r.json().catch(() => ({}));
-    if (r.status === 403) { alert('Clave incorrecta.'); _pubPin = null; cb.checked = !want; }
-    else if (!r.ok) { alert('Error: ' + (j.error || r.status)); cb.checked = !want; }
-    else _pubCreated = j.pub || _pubCreated;
-  } catch (err) { alert('Error de red.'); cb.checked = !want; }
-  cb.disabled = false;
-  if (!$('tabClosed').classList.contains('hidden')) paintClosed();
+    if (r.status === 403) { _pubPin = null; if (st) st.textContent = ''; alert('Clave incorrecta.'); return; }
+    if (!r.ok) { if (st) st.textContent = ''; alert('Error: ' + (j.error || r.status)); return; }
+    _pubCreated = j.pub || _pubCreated;
+    $('pubModalOverlay').classList.add('hidden');
+    if (!$('tabClosed').classList.contains('hidden')) paintClosed();
+  } catch (err) { if (st) st.textContent = ''; alert('Error de red.'); }
 }
 async function renderClosed() {
   _closedAll = await closedLoad();
@@ -3367,6 +3403,10 @@ function init() {
   { const b = $('trkActNew'); if (b) b.onclick = openTrackActModal; }
   { const b = $('trkRevClose'); if (b) b.onclick = () => $('trackReviewOverlay').classList.add('hidden'); }
   { const o = $('trackReviewOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
+  { const b = $('pubModalClose'); if (b) b.onclick = () => $('pubModalOverlay').classList.add('hidden'); }
+  { const b = $('pubModalCancel'); if (b) b.onclick = () => $('pubModalOverlay').classList.add('hidden'); }
+  { const b = $('pubModalSave'); if (b) b.onclick = pubModalSave; }
+  { const o = $('pubModalOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
   { const b = $('trkActClose'); if (b) b.onclick = () => $('trkActOverlay').classList.add('hidden'); }
   { const o = $('trkActOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
   { const b = $('trkActAdd'); if (b) b.onclick = () => trackActionAdd(_trackChartSku); }
