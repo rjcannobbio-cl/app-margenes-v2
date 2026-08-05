@@ -676,6 +676,12 @@
       <div><label>N° de respuesta de este proveedor</label><select id="supUpRespNum" style="width:100%"></select></div>
     </div>
     <div style="margin-bottom:6px"><label>Excel de la respuesta (.xlsx)</label><input type="file" id="supUpFile" accept=".xlsx,.xls"></div>
+    <div style="margin-bottom:6px"><label>…o link de Google Sheets (mismo formato del template)</label>
+      <div style="display:flex;gap:6px">
+        <input type="text" id="supUpLink" placeholder="Pega el link del Google Sheet (compartido como “cualquiera con el enlace: Lector”)" style="flex:1">
+        <button class="btn ghost" id="supUpLinkRead" type="button" style="white-space:nowrap">Leer link</button>
+      </div>
+    </div>
     <div class="hint" id="supUpRespHint" style="margin:0 0 6px"></div>
     <label class="check" style="margin:6px 0"><input type="checkbox" id="supUpToHist" checked> <span>Subir los productos al Historial</span></label>
     <div id="supUpPreview"></div>
@@ -887,6 +893,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=266500"></script>
+<script src="src/ui.js?v=266600"></script>
 </body>
 </html>

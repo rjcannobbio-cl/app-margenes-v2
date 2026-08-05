@@ -3418,6 +3418,7 @@ function init() {
   { const b = $('supUpCancel'); if (b) b.onclick = () => $('supUploadOverlay').classList.add('hidden'); }
   { const o = $('supUploadOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
   { const fi = $('supUpFile'); if (fi) fi.addEventListener('change', supUpParseFile); }
+  { const b = $('supUpLinkRead'); if (b) b.onclick = supUpParseLink; }
   { const b = $('supUpConfirm'); if (b) b.onclick = supUpConfirm; }
   { const b = $('supViewClose'); if (b) b.onclick = () => $('supViewOverlay').classList.add('hidden'); }
   { const o = $('supViewOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
@@ -3620,6 +3621,7 @@ function cotizSupplierUpload(id) {
   // N° de respuesta = lo elige el usuario (1..10)
   { const rn = $('supUpRespNum'); if (rn) { rn.innerHTML = Array.from({ length: 10 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join(''); rn.value = '1'; } }
   $('supUpFile').value = ''; $('supUpStatus').textContent = '';
+  { const l = $('supUpLink'); if (l) l.value = ''; } _supUpSourceLink = '';
   $('supUpPreview').innerHTML = ''; _supUpParsed = null;
   if ($('supUpToHist')) $('supUpToHist').checked = true;
   supUpUpdateRespNum();
@@ -3634,18 +3636,42 @@ function supUpUpdateRespNum() {
   { const rn = $('supUpRespNum'); if (rn && pid) rn.value = String(Math.min(yaTiene + 1, 10)); }
   { const h = $('supUpRespHint'); if (h) h.textContent = pid ? (provName + ' ya tiene ' + yaTiene + ' respuesta(s) cargada(s) para este inquiry. Indica el N° de esta respuesta.') : ''; }
 }
-// Lee el Excel de la respuesta y muestra el preview editable (precio venta / súper / uds pack) para el Historial.
-let _supUpParsed = null;
+// Lee la respuesta del proveedor (Excel subido O link de Google Sheets) y muestra el preview editable.
+let _supUpParsed = null, _supUpSourceLink = '';
 async function supUpParseFile() {
   const f = $('supUpFile').files[0];
-  if (!f) { $('supUpPreview').innerHTML = ''; _supUpParsed = null; return; }
+  if (!f) return;   // no borrar el preview si vino de un link
+  { const l = $('supUpLink'); if (l) l.value = ''; } _supUpSourceLink = '';
   $('supUpStatus').textContent = 'Leyendo…';
   let rows;
   try { await loadXLSX(); const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' }); const ws = wb.Sheets[wb.SheetNames[0]]; rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }); }
   catch (e) { $('supUpStatus').textContent = 'No se pudo leer: ' + (e.message || e); return; }
+  supUpBuildPreview(rows);
+}
+// Lee un Google Sheet público (mismo formato) vía el proxy /api/sheet-read.
+async function supUpParseLink() {
+  const link = (($('supUpLink') || {}).value || '').trim();
+  if (!link) { $('supUpStatus').textContent = 'Pega el link del Google Sheet.'; return; }
+  $('supUpStatus').textContent = 'Leyendo el Google Sheet…';
+  let rows;
+  try {
+    const base = api('/api/sheet-read'); const sep = base.includes('?') ? '&' : '?';
+    const r = await fetch(base + sep + 'url=' + encodeURIComponent(link));
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.error) { $('supUpStatus').textContent = 'No se pudo leer: ' + (j.error || r.status); return; }
+    await loadXLSX();
+    const wb = XLSX.read(j.csv, { type: 'string' }); const ws = wb.Sheets[wb.SheetNames[0]];
+    rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+  } catch (e) { $('supUpStatus').textContent = 'Error: ' + (e.message || e); return; }
+  { const fi = $('supUpFile'); if (fi) fi.value = ''; }   // el link tiene prioridad
+  _supUpSourceLink = link;
+  supUpBuildPreview(rows);
+}
+// Parsea el arreglo 2D (de Excel o CSV) y arma el preview editable (común a ambas fuentes).
+function supUpBuildPreview(rows) {
   const s = v => (v == null ? '' : String(v)).trim();
-  _supUpParsed = rows.slice(2).filter(r => r && (s(r[0]) || s(r[2]))).map(r => ({ code: s(r[0]), desc: s(r[2]).split('\n')[0], usdFob: s(r[8]), yuanFob: s(r[9]), weight: s(r[10]), boxH: s(r[11]), boxL: s(r[12]), boxW: s(r[13]), pcsCtn: s(r[14]), cbm: s(r[15]) }));
-  $('supUpStatus').textContent = '';
+  _supUpParsed = (rows || []).slice(2).filter(r => r && (s(r[0]) || s(r[2]))).map(r => ({ code: s(r[0]), desc: s(r[2]).split('\n')[0], usdFob: s(r[8]), yuanFob: s(r[9]), weight: s(r[10]), boxH: s(r[11]), boxL: s(r[12]), boxW: s(r[13]), pcsCtn: s(r[14]), cbm: s(r[15]) }));
+  $('supUpStatus').textContent = _supUpParsed.length ? '' : 'No se encontraron productos (revisa que el encabezado sean las 2 filas del template).';
   const c = _cotizAll.find(x => x.id === _supUpCotizId) || {};
   const descByCode = {}; (c.rows || []).forEach(r => { if (r.code) descByCode[r.code] = (r.description || '').split('\n')[0]; });
   // La descripción por defecto = la de la inquiry (o la del Excel); queda editable y se guarda en r.desc.
@@ -3676,11 +3702,12 @@ async function supUpConfirm() {
   const c = _cotizAll.find(x => x.id === _supUpCotizId); if (!c) return;
   const pid = $('supUpProvider').value;
   if (!pid) { $('supUpStatus').textContent = 'Elige el proveedor.'; return; }
-  if (!_supUpParsed || !_supUpParsed.length) { $('supUpStatus').textContent = 'Sube el Excel de la respuesta.'; return; }
+  if (!_supUpParsed || !_supUpParsed.length) { $('supUpStatus').textContent = 'Sube el Excel o lee un link de Google Sheets con la respuesta.'; return; }
   const provName = (_pgProviders.find(p => String(p.id) === String(pid)) || {}).name || ('#' + pid);
   const respNum = Math.max(1, parseInt(($('supUpRespNum') || {}).value) || 1);   // lo elige el usuario
   const rows = _supUpParsed.map(r => ({ code: r.code, quantity: '', usdFob: r.usdFob, yuanFob: r.yuanFob, weight: r.weight, boxH: r.boxH, boxL: r.boxL, boxW: r.boxW, pcsCtn: r.pcsCtn, cbm: r.cbm }));
-  const sq = { id: 'sq' + Date.now() + Math.floor(Math.random() * 1000), providerId: pid, provider: provName, respNum, label: provName, fileName: ($('supUpFile').files[0] || {}).name || '', ts: Date.now(), rows };
+  const fileName = _supUpSourceLink ? 'Google Sheet' : (($('supUpFile').files[0] || {}).name || '');
+  const sq = { id: 'sq' + Date.now() + Math.floor(Math.random() * 1000), providerId: pid, provider: provName, respNum, label: provName, fileName, sheetUrl: _supUpSourceLink || '', ts: Date.now(), rows };
   $('supUpStatus').textContent = 'Guardando…';
   await cotizPatch(_supUpCotizId, { supplierQuotes: (c.supplierQuotes || []).concat([sq]) });
   // Alta automática al Historial (con el preview: precio / súper / uds pack).
@@ -3706,7 +3733,7 @@ async function supUpConfirm() {
       if (!$('tabHist').classList.contains('hidden')) renderHistorial();
     }
   }
-  _supUpParsed = null;
+  _supUpParsed = null; _supUpSourceLink = '';
   $('supUploadOverlay').classList.add('hidden');
   paintCotiz();
 }
