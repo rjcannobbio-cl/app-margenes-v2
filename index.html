@@ -777,9 +777,10 @@
 <div id="trackPendingOverlay" class="modal-overlay hidden" style="z-index:201">
   <div class="rdetail">
     <div class="rd-head">
-      <div><h2 style="font-size:18px;margin:0">Acciones pendientes</h2><div class="rd-l1 muted" id="trackPendingCount" style="font-size:11px;margin-top:2px"></div></div>
+      <div><h2 id="trackPendingTitle" style="font-size:18px;margin:0">Acciones pendientes</h2><div class="rd-l1 muted" id="trackPendingCount" style="font-size:11px;margin-top:2px"></div></div>
       <div style="display:flex;gap:8px;align-items:center">
-        <button class="btn ghost" id="trackPendingExport" type="button" title="Exportar las acciones pendientes a Excel para enviarlas al equipo">Exportar Excel</button>
+        <button class="btn ghost" id="trackPendingToggle" type="button">Ver acciones finalizadas</button>
+        <button class="btn ghost" id="trackPendingExport" type="button" title="Exportar a Excel para enviarlas al equipo">Exportar Excel</button>
         <button class="mini" id="trackPendingClose" type="button" title="Cerrar">✕</button>
       </div>
     </div>
@@ -856,6 +857,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=265700"></script>
+<script src="src/ui.js?v=265800"></script>
 </body>
 </html>

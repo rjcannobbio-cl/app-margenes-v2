@@ -1206,41 +1206,55 @@ let _trackPendingData = [];
 async function trackPendingExport() {
   if (!_trackPendingData.length) return;
   await loadXLSX();
+  const done = _trackPendingMode === 'done';
   const fmt = ts => { if (!ts) return ''; const d = new Date(ts); return d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear(); };
-  const aoa = [['SKU', 'Título', 'Acción', 'Responsable', 'Descripción', 'Estado', 'Fecha creación']];
-  _trackPendingData.forEach(p => aoa.push([p.sku, p.name || '', p.a.type || '', p.a.responsable || '', p.a.desc || '', 'En espera', fmt(p.a.created)]));
+  const head = done
+    ? ['SKU', 'Título', 'Acción', 'Responsable', 'Descripción', 'Estado', 'Fecha creación', 'Fecha completado']
+    : ['SKU', 'Título', 'Acción', 'Responsable', 'Descripción', 'Estado', 'Fecha creación'];
+  const aoa = [head];
+  _trackPendingData.forEach(p => {
+    const row = [p.sku, p.name || '', p.a.type || '', p.a.responsable || '', p.a.desc || '', done ? 'Completado' : 'En espera', fmt(p.a.created)];
+    if (done) row.push(fmt(p.a.doneDate));
+    aoa.push(row);
+  });
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{ wch: 18 }, { wch: 34 }, { wch: 16 }, { wch: 18 }, { wch: 50 }, { wch: 12 }, { wch: 14 }];
-  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Pendientes');
+  ws['!cols'] = [{ wch: 18 }, { wch: 34 }, { wch: 16 }, { wch: 18 }, { wch: 50 }, { wch: 12 }, { wch: 14 }].concat(done ? [{ wch: 15 }] : []);
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, done ? 'Finalizadas' : 'Pendientes');
   const d = new Date(); const stamp = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-  XLSX.writeFile(wb, 'Acciones pendientes ' + stamp + '.xlsx');
+  XLSX.writeFile(wb, (done ? 'Acciones finalizadas ' : 'Acciones pendientes ') + stamp + '.xlsx');
 }
-function openTrackPending() {
+let _trackPendingMode = 'pending';
+function openTrackPending(mode) {
+  _trackPendingMode = mode === 'done' ? 'done' : 'pending';
+  const done = _trackPendingMode === 'done';
   const items = (_trackData && _trackData.products && _trackData.products.items) || [];
   const nameBySku = {}; items.forEach(it => { nameBySku[it.sku] = it.name || ''; });
-  const pend = [];
-  Object.keys(_trackActions || {}).forEach(sku => (_trackActions[sku] || []).forEach(a => { if (a.status !== 'done') pend.push({ sku, name: nameBySku[sku] || '', a }); }));
-  pend.sort((x, y) => (y.a.created || 0) - (x.a.created || 0));
-  _trackPendingData = pend;   // para exportar a Excel
-  $('trackPendingCount').textContent = pend.length + ' pendiente' + (pend.length === 1 ? '' : 's') + ' en ' + new Set(pend.map(p => p.sku)).size + ' producto(s)';
-  { const b = $('trackPendingExport'); if (b) b.style.display = pend.length ? '' : 'none'; }
+  const listA = [];
+  Object.keys(_trackActions || {}).forEach(sku => (_trackActions[sku] || []).forEach(a => { if (done ? a.status === 'done' : a.status !== 'done') listA.push({ sku, name: nameBySku[sku] || '', a }); }));
+  listA.sort((x, y) => done ? ((y.a.doneDate || 0) - (x.a.doneDate || 0)) : ((y.a.created || 0) - (x.a.created || 0)));
+  _trackPendingData = listA;   // para exportar a Excel
+  $('trackPendingTitle').textContent = done ? 'Acciones finalizadas' : 'Acciones pendientes';
+  $('trackPendingToggle').textContent = done ? 'Ver acciones pendientes' : 'Ver acciones finalizadas';
+  $('trackPendingCount').textContent = listA.length + (done ? ' finalizada' : ' pendiente') + (listA.length === 1 ? '' : 's') + ' en ' + new Set(listA.map(p => p.sku)).size + ' producto(s)';
+  { const b = $('trackPendingExport'); if (b) b.style.display = listA.length ? '' : 'none'; }
   const body = $('trackPendingBody');
   const fmt = ts => { if (!ts) return '–'; const d = new Date(ts); return d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear(); };
-  if (!pend.length) { body.innerHTML = '<p class="muted" style="padding:12px">No hay acciones pendientes.</p>'; }
+  if (!listA.length) { body.innerHTML = '<p class="muted" style="padding:12px">No hay acciones ' + (done ? 'finalizadas' : 'pendientes') + '.</p>'; }
   else {
-    const rows = pend.map(p => `<tr>
+    const rows = listA.map(p => `<tr>
       <td style="white-space:nowrap"><a href="#" class="tp-open" data-sku="${escapeHtml(p.sku)}" style="color:#7db0ff">${escapeHtml(p.sku)}</a></td>
       <td>${escapeHtml((p.name || '').slice(0, 80))}</td>
       <td style="white-space:nowrap">${escapeHtml(p.a.type || '')}</td>
       <td style="white-space:nowrap">${escapeHtml(p.a.responsable || '—')}</td>
       <td class="tp-desc-cell" data-sku="${escapeHtml(p.sku)}" data-id="${escapeHtml(p.a.id)}" style="max-width:360px;white-space:pre-wrap">${escapeHtml(p.a.desc || '')}</td>
-      <td style="white-space:nowrap">En espera</td>
+      <td style="white-space:nowrap">${done ? 'Completado' : 'En espera'}</td>
       <td style="white-space:nowrap">${fmt(p.a.created)}</td>
-      <td style="white-space:nowrap"><button class="btn ghost tp-done" data-sku="${escapeHtml(p.sku)}" data-id="${escapeHtml(p.a.id)}" type="button" style="padding:3px 10px;font-size:11px">Marcar como hecho</button><span class="tp-edit" data-sku="${escapeHtml(p.sku)}" data-id="${escapeHtml(p.a.id)}" title="Editar descripción" style="cursor:pointer;color:var(--faint);margin-left:8px">✎</span></td>
+      ${done ? `<td style="white-space:nowrap">${fmt(p.a.doneDate)}</td>` : ''}
+      <td style="white-space:nowrap">${done ? '<span class="muted">—</span>' : `<button class="btn ghost tp-done" data-sku="${escapeHtml(p.sku)}" data-id="${escapeHtml(p.a.id)}" type="button" style="padding:3px 10px;font-size:11px">Marcar como hecho</button><span class="tp-edit" data-sku="${escapeHtml(p.sku)}" data-id="${escapeHtml(p.a.id)}" title="Editar descripción" style="cursor:pointer;color:var(--faint);margin-left:8px">✎</span>`}</td>
     </tr>`).join('');
-    body.innerHTML = `<div style="overflow-x:auto"><table class="tl-tab"><thead><tr><th>SKU</th><th>Título</th><th>Acción</th><th>Responsable</th><th>Descripción</th><th>Estado</th><th>Fecha creación</th><th>Marcar como hecho</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-    body.querySelectorAll('.tp-done').forEach(b => b.onclick = async () => { await trackActionDone(b.dataset.sku, b.dataset.id); openTrackPending(); });
-    body.querySelectorAll('.tp-edit').forEach(b => b.onclick = () => { const a = (_trackActions[b.dataset.sku] || []).find(x => x.id === b.dataset.id); const cell = body.querySelector('.tp-desc-cell[data-sku="' + b.dataset.sku + '"][data-id="' + b.dataset.id + '"]'); if (a && cell) _inlineEditDesc(cell, a.desc || '', async v => { await trackActionEdit(b.dataset.sku, b.dataset.id, v); openTrackPending(); }, openTrackPending); });
+    body.innerHTML = `<div style="overflow-x:auto"><table class="tl-tab"><thead><tr><th>SKU</th><th>Título</th><th>Acción</th><th>Responsable</th><th>Descripción</th><th>Estado</th><th>Fecha creación</th>${done ? '<th>Fecha completado</th>' : ''}<th>${done ? '' : 'Marcar como hecho'}</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    body.querySelectorAll('.tp-done').forEach(b => b.onclick = async () => { await trackActionDone(b.dataset.sku, b.dataset.id); openTrackPending(_trackPendingMode); });
+    body.querySelectorAll('.tp-edit').forEach(b => b.onclick = () => { const a = (_trackActions[b.dataset.sku] || []).find(x => x.id === b.dataset.id); const cell = body.querySelector('.tp-desc-cell[data-sku="' + b.dataset.sku + '"][data-id="' + b.dataset.id + '"]'); if (a && cell) _inlineEditDesc(cell, a.desc || '', async v => { await trackActionEdit(b.dataset.sku, b.dataset.id, v); openTrackPending(_trackPendingMode); }, () => openTrackPending(_trackPendingMode)); });
     body.querySelectorAll('.tp-open').forEach(a => a.onclick = e => { e.preventDefault(); $('trackPendingOverlay').classList.add('hidden'); openTrackChart(a.dataset.sku); });
   }
   $('trackPendingOverlay').classList.remove('hidden');
@@ -1432,6 +1446,8 @@ function paintDb(mode) {
   // Autorización de venta (última columna, solo Productos cerrados). El check exige la clave.
   const authHead = isClosed ? '<th data-nosort title="Solo el dueño con la clave puede autorizar">Autorizado a vender</th>' : '';
   const authCell = x => { if (!isClosed) return ''; const on = !!(_sellAuth[x.id] && _sellAuth[x.id].ok); return `<td class="sell-auth-cell" style="text-align:center;white-space:nowrap"><input type="checkbox" class="sell-auth" data-id="${escapeHtml(x.id || '')}" ${on ? 'checked' : ''} title="Autorizar venta (requiere clave)"> <span style="font-size:11px;font-weight:700;color:${on ? 'var(--good)' : 'var(--muted)'}">${on ? 'Autorizado' : '—'}</span></td>`; };
+  const pubHead = isClosed ? '<th data-nosort title="Solo el PM con la clave puede marcar">Publicaciones creadas</th>' : '';
+  const pubCell = x => { if (!isClosed) return ''; const on = !!(_pubCreated[x.id] && _pubCreated[x.id].ok); return `<td class="sell-auth-cell" style="text-align:center;white-space:nowrap"><input type="checkbox" class="pub-created" data-id="${escapeHtml(x.id || '')}" ${on ? 'checked' : ''} title="Marcar publicaciones creadas (requiere clave)"> <span style="font-size:11px;font-weight:700;color:${on ? 'var(--good)' : 'var(--muted)'}">${on ? 'Creadas' : '—'}</span></td>`; };
 
   const packHead = packExpanded
     ? `<th class="pack-toggle" data-nosort title="Agrupar packaging">◂ Alto</th><th>Largo</th><th>Ancho</th><th>Peso</th>`
@@ -1464,12 +1480,13 @@ function paintDb(mode) {
       ${varCells(x)}
       ${actionCell(x)}
       ${authCell(x)}
+      ${pubCell(x)}
     </tr>`; }).join('');
   wrap.innerHTML = `<table class="histtab dbtab"><thead><tr>
     <th>Nombre</th><th>SKU</th>${closedInfoHead}<th>Proveedor</th><th>N° Cotización</th>
     ${packHead}<th>Costo FOB</th><th>Landed COGS</th>
     <th>Súper</th><th>Categoría ML</th><th class="co-only">HS</th><th class="co-only">Arancel %</th><th>Precio Meli</th><th>Margen Meli</th><th class="fbla-col">Precio Fala</th><th class="fbla-col">Margen Fala</th>
-    <th>Precio Full</th><th>Margen Full</th><th>Precio AON</th><th>Margen AON</th><th>Precio DOD</th><th>Margen DOD</th>${varHead}<th data-nosort></th>${authHead}
+    <th>Precio Full</th><th>Margen Full</th><th>Precio AON</th><th>Margen AON</th><th>Precio DOD</th><th>Margen DOD</th>${varHead}<th data-nosort></th>${authHead}${pubHead}
   </tr></thead><tbody>${rows}</tbody></table>`;
 
   const toggle = wrap.querySelector('.pack-toggle');
@@ -1497,6 +1514,7 @@ function paintDb(mode) {
     save(item); paintDb(mode);   // el arancel cambia el COGS y los márgenes
   }));
   wrap.querySelectorAll('input.sell-auth').forEach(cb => cb.onchange = onSellAuthToggle);
+  wrap.querySelectorAll('input.pub-created').forEach(cb => cb.onchange = onPubCreatedToggle);
   wrap.querySelectorAll('button[data-close]').forEach(b => b.onclick = (e) => { e.stopPropagation(); closeProduct(all.find(x => x.id === b.dataset.close)); });
   wrap.querySelectorAll('button[data-reopen]').forEach(b => b.onclick = (e) => { e.stopPropagation(); reopenProduct(all.find(x => x.id === b.dataset.reopen)); });
   wrap.querySelectorAll('button[data-del]').forEach(b => b.onclick = async (e) => {
@@ -1549,9 +1567,27 @@ async function onSellAuthToggle(e) {
   cb.disabled = false;
   if (!$('tabClosed').classList.contains('hidden')) paintClosed();
 }
+// Publicaciones creadas (solo el PM con el PIN "tendencias"). Mismo patrón que la autorización.
+let _pubCreated = {}, _pubPin = null;
+async function pubCreatedLoad() { try { const j = await (await fetch(api('/api/pubcreated'))).json(); _pubCreated = (j && j.pub) || {}; } catch (e) { _pubCreated = {}; } }
+async function onPubCreatedToggle(e) {
+  const cb = e.target, id = cb.dataset.id, want = cb.checked;
+  if (!_pubPin) { const p = prompt('Clave del PM para marcar publicaciones creadas:'); if (p == null || p === '') { cb.checked = !want; return; } _pubPin = p; }
+  cb.disabled = true;
+  try {
+    const r = await fetch(api('/api/pubcreated'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, ok: want, pin: _pubPin }) });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 403) { alert('Clave incorrecta.'); _pubPin = null; cb.checked = !want; }
+    else if (!r.ok) { alert('Error: ' + (j.error || r.status)); cb.checked = !want; }
+    else _pubCreated = j.pub || _pubCreated;
+  } catch (err) { alert('Error de red.'); cb.checked = !want; }
+  cb.disabled = false;
+  if (!$('tabClosed').classList.contains('hidden')) paintClosed();
+}
 async function renderClosed() {
   _closedAll = await closedLoad();
   await sellAuthLoad();
+  await pubCreatedLoad();
   _closedSig = JSON.stringify(_closedAll);
   paintClosed();
 }
@@ -3183,6 +3219,7 @@ function init() {
   { const b = $('btnTrackPending'); if (b) b.onclick = openTrackPending; }
   { const b = $('trackPendingClose'); if (b) b.onclick = () => $('trackPendingOverlay').classList.add('hidden'); }
   { const b = $('trackPendingExport'); if (b) b.onclick = trackPendingExport; }
+  { const b = $('trackPendingToggle'); if (b) b.onclick = () => openTrackPending(_trackPendingMode === 'done' ? 'pending' : 'done'); }
   { const o = $('trackPendingOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
   { const el = $('trackFilter'); if (el) el.addEventListener('input', debounce(paintTrack, 200)); }
   { const b = $('trackClose'); if (b) b.onclick = () => $('trackOverlay').classList.add('hidden'); }
