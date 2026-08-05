@@ -3552,14 +3552,20 @@ function paintCotiz() {
   if (!filtered.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Sin resultados para “' + escapeHtml($('cotizFilter').value) + '”.</p>'; return; }
   const ym = ts => { if (!ts) return '—'; const d = new Date(ts); return d.getFullYear() + '/' + String(d.getMonth() + 1).padStart(2, '0'); };
   const at = s => escapeHtml(s || '').replace(/"/g, '&quot;');
+  const optsFor = e => COTIZ_ESTADOS.map(s => `<option${s === e ? ' selected' : ''}>${escapeHtml(s)}</option>`).join('');
   const rows = filtered.map(c => {
-    const estado = c.estado || COTIZ_ESTADOS[0];
-    const opts = COTIZ_ESTADOS.map(s => `<option${s === estado ? ' selected' : ''}>${escapeHtml(s)}</option>`).join('');
+    // Un estado por PROVEEDOR PARTICIPANTE (= el que tiene respuesta cargada, providerId único), con su nombre al lado.
+    const provs = []; const seenP = new Set();
+    (c.supplierQuotes || []).forEach(s => { const pid = String(s.providerId); if (!seenP.has(pid)) { seenP.add(pid); provs.push({ pid, name: s.provider || s.label || ('#' + pid) }); } });
+    const byProv = c.estadoByProvider || {};
+    const estadoCellHtml = provs.length
+      ? provs.map(p => { const e = (byProv[p.pid] != null && byProv[p.pid] !== '') ? byProv[p.pid] : (c.estado || COTIZ_ESTADOS[0]); return `<div style="display:flex;align-items:center;gap:8px;margin:3px 0"><span style="font-size:11px;font-weight:700;white-space:nowrap" title="Proveedor con respuesta cargada">${escapeHtml(p.name)}</span><select class="cotiz-estado-prov" data-id="${escapeHtml(c.id)}" data-pid="${at(p.pid)}" style="min-width:200px">${optsFor(e)}</select></div>`; }).join('')
+      : `<select class="cotiz-estado" data-id="${escapeHtml(c.id)}" style="min-width:210px" title="Sin respuestas de proveedor aún — estado general de la inquiry">${optsFor(c.estado || COTIZ_ESTADOS[0])}</select>`;
     const sq = (c.supplierQuotes || []).map(s => { const nm = s.provider || s.label || 'Proveedor'; const rn = s.respNum ? (' #' + s.respNum) : ''; return `<div class="cotiz-sq" title="${at((s.fileName || '') + ' · ' + (s.rows || []).length + ' productos')}"><span class="cotiz-sq-lbl" data-id="${escapeHtml(c.id)}" data-sq="${escapeHtml(s.id)}" style="cursor:pointer;color:#7db0ff">${escapeHtml(nm + rn)}</span><span class="cotiz-sq-x" data-id="${escapeHtml(c.id)}" data-sq="${escapeHtml(s.id)}" title="Quitar">✕</span></div>`; }).join('');
     return `<tr data-id="${escapeHtml(c.id)}">
       <td><input class="cotiz-prod" data-id="${escapeHtml(c.id)}" value="${at(c.prodName)}" placeholder="Producto"></td>
       <td style="white-space:nowrap">${ym(c.ts)}</td>
-      <td><select class="cotiz-estado" data-id="${escapeHtml(c.id)}" style="min-width:210px">${opts}</select></td>
+      <td>${estadoCellHtml}</td>
       <td style="white-space:nowrap">N-${c.num != null ? c.num : '—'}</td>
       <td style="white-space:nowrap"><a href="#" class="cotiz-inq" data-id="${escapeHtml(c.id)}" style="color:#7db0ff;text-decoration:underline">Inquiry</a> · <a href="#" class="cotiz-edit" data-id="${escapeHtml(c.id)}" style="color:var(--muted);font-size:11px">editar</a></td>
       <td><div class="cotiz-sq-wrap">${sq}<button class="btn ghost cotiz-sq-add" data-id="${escapeHtml(c.id)}" type="button" style="padding:2px 9px;font-size:11px">＋ Subir</button></div></td>
@@ -3571,6 +3577,7 @@ function paintCotiz() {
   wrap.innerHTML = `<table class="tl-tab cotiz-tab"><thead><tr><th>Producto</th><th>Año/Mes</th><th>Estado</th><th>Inquiry N°</th><th>Inquiry</th><th>Supplier quotes</th><th>Comparar</th><th>Remark</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
   wrap.querySelectorAll('.cotiz-prod').forEach(el => el.onchange = () => cotizPatch(el.dataset.id, { prodName: el.value.trim() }));
   wrap.querySelectorAll('.cotiz-estado').forEach(el => el.onchange = () => cotizPatch(el.dataset.id, { estado: el.value }));
+  wrap.querySelectorAll('.cotiz-estado-prov').forEach(el => el.onchange = () => { const c = _cotizAll.find(x => x.id === el.dataset.id); if (!c) return; const byProv = Object.assign({}, c.estadoByProvider || {}); byProv[el.dataset.pid] = el.value; cotizPatch(el.dataset.id, { estadoByProvider: byProv }); });
   wrap.querySelectorAll('.cotiz-remark').forEach(el => el.onchange = () => cotizPatch(el.dataset.id, { remark: el.value }));
   wrap.querySelectorAll('.cotiz-inq').forEach(a => a.onclick = e => { e.preventDefault(); cotizExport(a.dataset.id); });
   wrap.querySelectorAll('.cotiz-edit').forEach(a => a.onclick = e => { e.preventDefault(); openQuoteGen(a.dataset.id); });
