@@ -778,7 +778,10 @@
   <div class="rdetail">
     <div class="rd-head">
       <div><h2 style="font-size:18px;margin:0">Acciones pendientes</h2><div class="rd-l1 muted" id="trackPendingCount" style="font-size:11px;margin-top:2px"></div></div>
-      <button class="mini" id="trackPendingClose" type="button" title="Cerrar">✕</button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn ghost" id="trackPendingExport" type="button" title="Exportar las acciones pendientes a Excel para enviarlas al equipo">Exportar Excel</button>
+        <button class="mini" id="trackPendingClose" type="button" title="Cerrar">✕</button>
+      </div>
     </div>
     <div id="trackPendingBody"></div>
   </div>
@@ -793,6 +796,8 @@
     </div>
     <label style="font-weight:600;font-size:12px;display:block;margin-bottom:6px">Tipo de acción</label>
     <div id="trkActChips" class="rd-metrics" style="flex-wrap:wrap;gap:6px;margin-bottom:16px"></div>
+    <label style="font-weight:600;font-size:12px;display:block;margin-bottom:6px">Responsable</label>
+    <select id="trkActResp" style="width:100%;margin-bottom:16px"></select>
     <label style="font-weight:600;font-size:12px;display:block;margin-bottom:6px">¿Qué cambio se hará?</label>
     <textarea id="trkActDesc" rows="5" placeholder="Describe el cambio" style="width:100%;box-sizing:border-box"></textarea>
     <div style="margin-top:16px;display:flex;gap:8px;align-items:center">
@@ -851,6 +856,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=265600"></script>
+<script src="src/ui.js?v=265700"></script>
 </body>
 </html>

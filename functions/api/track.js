@@ -393,6 +393,7 @@ export async function onRequest({ request, env }) {
           id: 'a' + Date.now() + Math.floor(Math.random() * 1000),
           type: String(body.type).slice(0, 60),
           desc: String(body.desc || '').slice(0, 3000),
+          responsable: String(body.responsable || '').slice(0, 60),
           created: Date.now(), status: 'pending', doneDate: null
         };
         list.push(item); store[body.sku] = list;

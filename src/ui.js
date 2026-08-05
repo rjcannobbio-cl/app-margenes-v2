@@ -828,6 +828,7 @@ let _trackMetricsTs = 0;
 async function trackLoad() { try { const j = await (await fetch(api('/api/track'))).json(); _trackData = (j && !j.error) ? j : { products: null, meta: {} }; _trackMetrics = (j && j.metrics && j.metrics.m) || {}; _trackMetricsTs = (j && j.metrics && j.metrics.ts) || 0; _trackActions = (j && j.actions) || {}; } catch (e) { _trackData = { products: null, meta: {} }; } }
 let _trackActions = {};   // {sku:[{id,type,desc,created,status,doneDate}]}
 const TRACK_ACTION_TYPES = ['ADS', 'DOD', 'REL', 'AON', 'Cambio imágenes', 'Cambio SEO', 'Clips', 'Descuentos Mayoristas', 'CMR', 'Ficha técnica', 'Enviar a full'];
+const TRACK_RESPONSABLES = ['Comercial', 'Diseños', 'Desarrollo de producto', 'Planning'];
 async function renderTrack() {
   if (!_trackData) { $('trackDbWrap').innerHTML = '<p class="muted" style="padding:16px">Cargando…</p>'; await trackLoad(); }
   paintTrack();
@@ -1098,6 +1099,7 @@ function openTrackActModal() {
   _trkActSelType = '';
   if ($('trkActDesc')) $('trkActDesc').value = '';
   if ($('trkActStatus')) $('trkActStatus').textContent = '';
+  { const rs = $('trkActResp'); if (rs) { rs.innerHTML = TRACK_RESPONSABLES.map(r => `<option>${escapeHtml(r)}</option>`).join(''); rs.value = TRACK_RESPONSABLES[0]; } }
   const it = ((_trackData && _trackData.products && _trackData.products.items) || []).find(x => x.sku === _trackChartSku);
   $('trkActProd').textContent = (it && it.name ? it.name + ' · ' : '') + _trackChartSku;
   renderTrackActChips();
@@ -1163,6 +1165,7 @@ function paintTrackActions(sku) {
     const done = a.status === 'done';
     return `<tr>
       <td style="white-space:nowrap">${escapeHtml(a.type || '')}</td>
+      <td style="white-space:nowrap">${escapeHtml(a.responsable || '—')}</td>
       <td class="trk-act-desc-cell" data-id="${escapeHtml(a.id)}" style="max-width:340px;white-space:pre-wrap">${escapeHtml(a.desc || '')}</td>
       <td style="white-space:nowrap">${done ? 'Completado' : 'En espera'}</td>
       <td style="white-space:nowrap">${fmt(a.created)}</td>
@@ -1170,7 +1173,7 @@ function paintTrackActions(sku) {
       <td style="white-space:nowrap">${done ? '<span class="muted">—</span>' : `<button class="btn ghost trk-act-done" data-id="${escapeHtml(a.id)}" type="button" style="padding:3px 10px;font-size:11px">Marcar como hecho</button>`}<span class="trk-act-edit" data-id="${escapeHtml(a.id)}" title="Editar descripción" style="cursor:pointer;color:var(--faint);margin-left:8px">✎</span><span class="trk-act-del" data-id="${escapeHtml(a.id)}" title="Eliminar" style="cursor:pointer;color:var(--faint);margin-left:8px">✕</span></td>
     </tr>`;
   }).join('');
-  el.innerHTML = `<div style="overflow-x:auto"><table class="tl-tab"><thead><tr><th>Acción</th><th>Descripción</th><th>Estado</th><th>Fecha creación</th><th>Fecha ejecución</th><th>Marcar como hecho</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  el.innerHTML = `<div style="overflow-x:auto"><table class="tl-tab"><thead><tr><th>Acción</th><th>Responsable</th><th>Descripción</th><th>Estado</th><th>Fecha creación</th><th>Fecha ejecución</th><th>Marcar como hecho</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   el.querySelectorAll('.trk-act-done').forEach(b => b.onclick = () => trackActionDone(sku, b.dataset.id));
   el.querySelectorAll('.trk-act-edit').forEach(b => b.onclick = () => trackActionEditInline(sku, b.dataset.id, () => paintTrackActions(sku)));
   el.querySelectorAll('.trk-act-del').forEach(b => b.onclick = () => trackActionDelete(sku, b.dataset.id));
@@ -1198,13 +1201,29 @@ function _inlineEditDesc(cell, curDesc, onSave, onCancel) {
 }
 
 // Panel: TODOS los accionables pendientes de TODOS los SKUs.
+let _trackPendingData = [];
+// Exporta las acciones pendientes a un Excel (mismo detalle que la tabla) para enviarle al equipo.
+async function trackPendingExport() {
+  if (!_trackPendingData.length) return;
+  await loadXLSX();
+  const fmt = ts => { if (!ts) return ''; const d = new Date(ts); return d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear(); };
+  const aoa = [['SKU', 'Título', 'Acción', 'Responsable', 'Descripción', 'Estado', 'Fecha creación']];
+  _trackPendingData.forEach(p => aoa.push([p.sku, p.name || '', p.a.type || '', p.a.responsable || '', p.a.desc || '', 'En espera', fmt(p.a.created)]));
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 18 }, { wch: 34 }, { wch: 16 }, { wch: 18 }, { wch: 50 }, { wch: 12 }, { wch: 14 }];
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Pendientes');
+  const d = new Date(); const stamp = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  XLSX.writeFile(wb, 'Acciones pendientes ' + stamp + '.xlsx');
+}
 function openTrackPending() {
   const items = (_trackData && _trackData.products && _trackData.products.items) || [];
   const nameBySku = {}; items.forEach(it => { nameBySku[it.sku] = it.name || ''; });
   const pend = [];
   Object.keys(_trackActions || {}).forEach(sku => (_trackActions[sku] || []).forEach(a => { if (a.status !== 'done') pend.push({ sku, name: nameBySku[sku] || '', a }); }));
   pend.sort((x, y) => (y.a.created || 0) - (x.a.created || 0));
+  _trackPendingData = pend;   // para exportar a Excel
   $('trackPendingCount').textContent = pend.length + ' pendiente' + (pend.length === 1 ? '' : 's') + ' en ' + new Set(pend.map(p => p.sku)).size + ' producto(s)';
+  { const b = $('trackPendingExport'); if (b) b.style.display = pend.length ? '' : 'none'; }
   const body = $('trackPendingBody');
   const fmt = ts => { if (!ts) return '–'; const d = new Date(ts); return d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear(); };
   if (!pend.length) { body.innerHTML = '<p class="muted" style="padding:12px">No hay acciones pendientes.</p>'; }
@@ -1213,12 +1232,13 @@ function openTrackPending() {
       <td style="white-space:nowrap"><a href="#" class="tp-open" data-sku="${escapeHtml(p.sku)}" style="color:#7db0ff">${escapeHtml(p.sku)}</a></td>
       <td>${escapeHtml((p.name || '').slice(0, 80))}</td>
       <td style="white-space:nowrap">${escapeHtml(p.a.type || '')}</td>
+      <td style="white-space:nowrap">${escapeHtml(p.a.responsable || '—')}</td>
       <td class="tp-desc-cell" data-sku="${escapeHtml(p.sku)}" data-id="${escapeHtml(p.a.id)}" style="max-width:360px;white-space:pre-wrap">${escapeHtml(p.a.desc || '')}</td>
       <td style="white-space:nowrap">En espera</td>
       <td style="white-space:nowrap">${fmt(p.a.created)}</td>
       <td style="white-space:nowrap"><button class="btn ghost tp-done" data-sku="${escapeHtml(p.sku)}" data-id="${escapeHtml(p.a.id)}" type="button" style="padding:3px 10px;font-size:11px">Marcar como hecho</button><span class="tp-edit" data-sku="${escapeHtml(p.sku)}" data-id="${escapeHtml(p.a.id)}" title="Editar descripción" style="cursor:pointer;color:var(--faint);margin-left:8px">✎</span></td>
     </tr>`).join('');
-    body.innerHTML = `<div style="overflow-x:auto"><table class="tl-tab"><thead><tr><th>SKU</th><th>Título</th><th>Acción</th><th>Descripción</th><th>Estado</th><th>Fecha creación</th><th>Marcar como hecho</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    body.innerHTML = `<div style="overflow-x:auto"><table class="tl-tab"><thead><tr><th>SKU</th><th>Título</th><th>Acción</th><th>Responsable</th><th>Descripción</th><th>Estado</th><th>Fecha creación</th><th>Marcar como hecho</th></tr></thead><tbody>${rows}</tbody></table></div>`;
     body.querySelectorAll('.tp-done').forEach(b => b.onclick = async () => { await trackActionDone(b.dataset.sku, b.dataset.id); openTrackPending(); });
     body.querySelectorAll('.tp-edit').forEach(b => b.onclick = () => { const a = (_trackActions[b.dataset.sku] || []).find(x => x.id === b.dataset.id); const cell = body.querySelector('.tp-desc-cell[data-sku="' + b.dataset.sku + '"][data-id="' + b.dataset.id + '"]'); if (a && cell) _inlineEditDesc(cell, a.desc || '', async v => { await trackActionEdit(b.dataset.sku, b.dataset.id, v); openTrackPending(); }, openTrackPending); });
     body.querySelectorAll('.tp-open').forEach(a => a.onclick = e => { e.preventDefault(); $('trackPendingOverlay').classList.add('hidden'); openTrackChart(a.dataset.sku); });
@@ -1229,10 +1249,11 @@ async function trackActionAdd(sku) {
   if (!sku) return;
   const type = _trkActSelType;
   const desc = ($('trkActDesc').value || '').trim();
+  const responsable = ($('trkActResp') && $('trkActResp').value) || '';
   if (!type) { $('trkActStatus').textContent = 'Elige un tipo de acción.'; return; }
   $('trkActStatus').textContent = 'Guardando…';
   let j;
-  try { j = await (await fetch(api('/api/track'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'actionAdd', sku, type, desc }) })).json(); }
+  try { j = await (await fetch(api('/api/track'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'actionAdd', sku, type, desc, responsable }) })).json(); }
   catch (e) { $('trkActStatus').textContent = 'Error: ' + (e.message || e); return; }
   if (j.error) { $('trkActStatus').textContent = 'Error: ' + j.error; return; }
   if (j.list) _trackActions[sku] = j.list;
@@ -3161,6 +3182,7 @@ function init() {
   { const b = $('btnTrackRefreshMetrics'); if (b) b.onclick = () => trackRefreshAll(false); }
   { const b = $('btnTrackPending'); if (b) b.onclick = openTrackPending; }
   { const b = $('trackPendingClose'); if (b) b.onclick = () => $('trackPendingOverlay').classList.add('hidden'); }
+  { const b = $('trackPendingExport'); if (b) b.onclick = trackPendingExport; }
   { const o = $('trackPendingOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
   { const el = $('trackFilter'); if (el) el.addEventListener('input', debounce(paintTrack, 200)); }
   { const b = $('trackClose'); if (b) b.onclick = () => $('trackOverlay').classList.add('hidden'); }
