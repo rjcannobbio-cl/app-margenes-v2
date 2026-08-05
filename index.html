@@ -673,9 +673,10 @@
     </div>
     <div class="row2" style="margin-bottom:6px">
       <div><label>Proveedor</label><select id="supUpProvider" style="width:100%"></select></div>
-      <div><label>Excel de la respuesta (.xlsx)</label><input type="file" id="supUpFile" accept=".xlsx,.xls"></div>
+      <div><label>N° de respuesta de este proveedor</label><select id="supUpRespNum" style="width:100%"></select></div>
     </div>
-    <div class="hint" id="supUpRespNum" style="margin:0 0 6px"></div>
+    <div style="margin-bottom:6px"><label>Excel de la respuesta (.xlsx)</label><input type="file" id="supUpFile" accept=".xlsx,.xls"></div>
+    <div class="hint" id="supUpRespHint" style="margin:0 0 6px"></div>
     <label class="check" style="margin:6px 0"><input type="checkbox" id="supUpToHist" checked> <span>Subir los productos al Historial</span></label>
     <div id="supUpPreview"></div>
     <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
@@ -886,6 +887,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=266400"></script>
+<script src="src/ui.js?v=266500"></script>
 </body>
 </html>

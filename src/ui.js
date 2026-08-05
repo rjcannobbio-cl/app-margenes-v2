@@ -3617,6 +3617,8 @@ function cotizSupplierUpload(id) {
   const sel = $('supUpProvider');
   sel.innerHTML = '<option value="">— elegir proveedor —</option>' + _pgProviders.map(p => `<option value="${escapeHtml(String(p.id))}">${escapeHtml(p.name)}</option>`).join('');
   sel.onchange = supUpUpdateRespNum;
+  // N° de respuesta = lo elige el usuario (1..10)
+  { const rn = $('supUpRespNum'); if (rn) { rn.innerHTML = Array.from({ length: 10 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join(''); rn.value = '1'; } }
   $('supUpFile').value = ''; $('supUpStatus').textContent = '';
   $('supUpPreview').innerHTML = ''; _supUpParsed = null;
   if ($('supUpToHist')) $('supUpToHist').checked = true;
@@ -3627,8 +3629,10 @@ function supUpUpdateRespNum() {
   const c = _cotizAll.find(x => x.id === _supUpCotizId); if (!c) return;
   const pid = $('supUpProvider').value;
   const provName = pid ? ((_pgProviders.find(p => String(p.id) === String(pid)) || {}).name || '') : '';
-  const n = (c.supplierQuotes || []).filter(s => String(s.providerId) === String(pid)).length + 1;
-  $('supUpRespNum').textContent = pid ? ('Será la respuesta N° ' + n + ' de ' + provName + ' para este inquiry.') : '';
+  const yaTiene = pid ? (c.supplierQuotes || []).filter(s => String(s.providerId) === String(pid)).length : 0;
+  // sugiere el siguiente número como default, pero el usuario puede cambiarlo
+  { const rn = $('supUpRespNum'); if (rn && pid) rn.value = String(Math.min(yaTiene + 1, 10)); }
+  { const h = $('supUpRespHint'); if (h) h.textContent = pid ? (provName + ' ya tiene ' + yaTiene + ' respuesta(s) cargada(s) para este inquiry. Indica el N° de esta respuesta.') : ''; }
 }
 // Lee el Excel de la respuesta y muestra el preview editable (precio venta / súper / uds pack) para el Historial.
 let _supUpParsed = null;
@@ -3644,16 +3648,29 @@ async function supUpParseFile() {
   $('supUpStatus').textContent = '';
   const c = _cotizAll.find(x => x.id === _supUpCotizId) || {};
   const descByCode = {}; (c.rows || []).forEach(r => { if (r.code) descByCode[r.code] = (r.description || '').split('\n')[0]; });
+  // La descripción por defecto = la de la inquiry (o la del Excel); queda editable y se guarda en r.desc.
+  _supUpParsed.forEach(r => { if (!r.desc) r.desc = descByCode[r.code] || ''; });
+  const iv = (cls, i, val, w, ph) => `<input type="text" class="${cls}" data-i="${i}" value="${escapeHtml(val || '')}" placeholder="${ph || ''}" style="width:${w}px">`;
   const trs = _supUpParsed.map((r, i) => `<tr>
     <td style="white-space:nowrap"><b>${escapeHtml(r.code)}</b></td>
-    <td style="max-width:220px">${escapeHtml(descByCode[r.code] || r.desc || '')}</td>
-    <td class="n">${escapeHtml(r.usdFob || '')}</td>
-    <td class="n">${escapeHtml(r.weight || '')}</td>
-    <td><input type="number" class="supup-precio" data-i="${i}" placeholder="Precio venta" style="width:110px"></td>
+    <td><input type="text" class="supup-desc" data-i="${i}" value="${escapeHtml(r.desc || '')}" placeholder="Producto" style="width:210px"></td>
+    <td>${iv('supup-fob', i, r.usdFob, 80, 'FOB')}</td>
+    <td>${iv('supup-weight', i, r.weight, 66, 'kg')}</td>
+    <td>${iv('supup-boxh', i, r.boxH, 60, 'Alto')}</td>
+    <td>${iv('supup-boxl', i, r.boxL, 60, 'Largo')}</td>
+    <td>${iv('supup-boxw', i, r.boxW, 60, 'Ancho')}</td>
+    <td>${iv('supup-pcs', i, r.pcsCtn, 60, 'PCS')}</td>
+    <td>${iv('supup-cbm', i, r.cbm, 66, 'CBM')}</td>
+    <td><input type="number" class="supup-precio" data-i="${i}" placeholder="Precio venta" style="width:100px"></td>
     <td style="text-align:center"><input type="checkbox" class="supup-super" data-i="${i}"></td>
-    <td><input type="number" class="supup-pack" data-i="${i}" placeholder="1" min="1" style="width:60px"></td>
+    <td><input type="number" class="supup-pack" data-i="${i}" placeholder="1" min="1" style="width:56px"></td>
   </tr>`).join('');
-  $('supUpPreview').innerHTML = `<div class="hint" style="margin-bottom:4px">Completa precio de venta, súper y (opcional) unidades por pack para el Historial:</div><div style="overflow-x:auto"><table class="tl-tab"><thead><tr><th>Código</th><th>Producto</th><th class="n">FOB US$</th><th class="n">Peso</th><th>Precio venta</th><th>Súper</th><th>Uds/pack</th></tr></thead><tbody>${trs}</tbody></table></div>`;
+  $('supUpPreview').innerHTML = `<div class="hint" style="margin-bottom:4px">Revisa y corrige los datos interpretados (producto, FOB, peso, dimensiones de packaging). Completa precio de venta, súper y (opcional) unidades por pack para el Historial:</div><div style="overflow-x:auto"><table class="tl-tab"><thead><tr><th>Código</th><th>Producto</th><th class="n">FOB US$</th><th class="n">Peso</th><th class="n">Alto</th><th class="n">Largo</th><th class="n">Ancho</th><th class="n">PCS/CTN</th><th class="n">CBM</th><th>Precio venta</th><th>Súper</th><th>Uds/pack</th></tr></thead><tbody>${trs}</tbody></table></div>`;
+  // Edición en vivo → refleja en _supUpParsed (lo interpretado es modificable antes de confirmar).
+  const bind = (cls, key) => $('supUpPreview').querySelectorAll('.' + cls).forEach(inp => inp.oninput = () => { const r = _supUpParsed[+inp.dataset.i]; if (r) r[key] = inp.value; });
+  bind('supup-desc', 'desc'); bind('supup-fob', 'usdFob'); bind('supup-weight', 'weight');
+  bind('supup-boxh', 'boxH'); bind('supup-boxl', 'boxL'); bind('supup-boxw', 'boxW');
+  bind('supup-pcs', 'pcsCtn'); bind('supup-cbm', 'cbm');
 }
 async function supUpConfirm() {
   const c = _cotizAll.find(x => x.id === _supUpCotizId); if (!c) return;
@@ -3661,7 +3678,7 @@ async function supUpConfirm() {
   if (!pid) { $('supUpStatus').textContent = 'Elige el proveedor.'; return; }
   if (!_supUpParsed || !_supUpParsed.length) { $('supUpStatus').textContent = 'Sube el Excel de la respuesta.'; return; }
   const provName = (_pgProviders.find(p => String(p.id) === String(pid)) || {}).name || ('#' + pid);
-  const respNum = (c.supplierQuotes || []).filter(x => String(x.providerId) === String(pid)).length + 1;
+  const respNum = Math.max(1, parseInt(($('supUpRespNum') || {}).value) || 1);   // lo elige el usuario
   const rows = _supUpParsed.map(r => ({ code: r.code, quantity: '', usdFob: r.usdFob, yuanFob: r.yuanFob, weight: r.weight, boxH: r.boxH, boxL: r.boxL, boxW: r.boxW, pcsCtn: r.pcsCtn, cbm: r.cbm }));
   const sq = { id: 'sq' + Date.now() + Math.floor(Math.random() * 1000), providerId: pid, provider: provName, respNum, label: provName, fileName: ($('supUpFile').files[0] || {}).name || '', ts: Date.now(), rows };
   $('supUpStatus').textContent = 'Guardando…';
@@ -3675,7 +3692,7 @@ async function supUpConfirm() {
       const packN = Math.max(1, parseInt(($('supUpPreview').querySelector('.supup-pack[data-i="' + i + '"]') || {}).value) || 1);
       const precio = (parseFloat(inp.value) || 0) * packN;
       const sup = !!($('supUpPreview').querySelector('.supup-super[data-i="' + i + '"]') || {}).checked;
-      const nombre = (descByCode[r.code] || r.desc || r.code) + (packN > 1 ? (' (Pack x' + packN + ')') : '');
+      const nombre = (r.desc || descByCode[r.code] || r.code) + (packN > 1 ? (' (Pack x' + packN + ')') : '');
       items.push({
         id: newId(), ts: Date.now(), fecha: new Date().toISOString().slice(0, 19).replace('T', ' '),
         nombre, proveedor: provName, cotizacion: c.name || '', skuProveedor: r.code,
