@@ -38,7 +38,8 @@ export async function onRequest({ request, env }) {
       const meta = JSON.parse((await kv.get('track_meta')) || '{}');
       const metrics = JSON.parse((await kv.get('track_metrics')) || 'null');
       const actions = JSON.parse((await kv.get('track_actions')) || '{}');
-      return json({ products, meta, metrics, actions });
+      const review = JSON.parse((await kv.get('track_review')) || '{}');
+      return json({ products, meta, metrics, actions, review });
     }
     if (request.method === 'POST') {
       const body = await request.json().catch(() => ({}));
@@ -426,6 +427,64 @@ export async function onRequest({ request, env }) {
         store[body.sku] = (store[body.sku] || []).filter(x => x.id !== body.id);
         await kv.put('track_actions', JSON.stringify(store));
         return json({ ok: true, list: store[body.sku] });
+      }
+
+      // ---- Revisión física (productos nuevos que llegan a bodega) ----
+      // track_review = { [sku]: { initiated, approved, reviewedAt, actions:[{id,type,desc,responsable,created,status,doneDate}] } }
+      // Estado (derivado en el front): sin registro=NO · approved sin acciones o todas hechas=SÍ · con acciones pendientes=EN PROCESO.
+      const newRevAct = (a, i) => ({
+        id: 'r' + Date.now() + '-' + (i || 0) + '-' + Math.floor(Math.random() * 100000),
+        type: String((a && a.type) || '').slice(0, 60),
+        desc: String((a && a.desc) || '').slice(0, 3000),
+        responsable: String((a && a.responsable) || '').slice(0, 60),
+        created: Date.now(), status: 'pending', doneDate: null
+      });
+      if (action === 'reviewInit') {   // da el visto bueno (approved) o crea el listado inicial de accionables
+        if (!body.sku) return json({ error: 'falta sku' }, 400);
+        const store = JSON.parse((await kv.get('track_review')) || '{}');
+        const approved = !!body.approved;
+        const acts = Array.isArray(body.actions) ? body.actions : [];
+        store[body.sku] = { initiated: true, approved, reviewedAt: Date.now(), actions: approved ? [] : acts.map(newRevAct) };
+        await kv.put('track_review', JSON.stringify(store));
+        return json({ ok: true, rec: store[body.sku] });
+      }
+      if (action === 'reviewActionAdd') {   // agrega un accionable de revisión (pasa a EN PROCESO)
+        if (!body.sku || !body.type) return json({ error: 'falta sku/type' }, 400);
+        const store = JSON.parse((await kv.get('track_review')) || '{}');
+        const rec = store[body.sku] || { initiated: true, approved: false, reviewedAt: Date.now(), actions: [] };
+        rec.initiated = true; rec.approved = false; rec.actions = rec.actions || [];
+        rec.actions.push(newRevAct(body, rec.actions.length));
+        store[body.sku] = rec;
+        await kv.put('track_review', JSON.stringify(store));
+        return json({ ok: true, rec });
+      }
+      if (action === 'reviewActionDone') {
+        if (!body.sku || !body.id) return json({ error: 'falta sku/id' }, 400);
+        const store = JSON.parse((await kv.get('track_review')) || '{}');
+        const rec = store[body.sku]; if (rec && rec.actions) { const it = rec.actions.find(x => x.id === body.id); if (it) { it.status = 'done'; it.doneDate = Date.now(); } }
+        await kv.put('track_review', JSON.stringify(store));
+        return json({ ok: true, rec: store[body.sku] || null });
+      }
+      if (action === 'reviewActionEdit') {
+        if (!body.sku || !body.id) return json({ error: 'falta sku/id' }, 400);
+        const store = JSON.parse((await kv.get('track_review')) || '{}');
+        const rec = store[body.sku]; if (rec && rec.actions) { const it = rec.actions.find(x => x.id === body.id); if (it) it.desc = String(body.desc || '').slice(0, 3000); }
+        await kv.put('track_review', JSON.stringify(store));
+        return json({ ok: true, rec: store[body.sku] || null });
+      }
+      if (action === 'reviewActionDelete') {
+        if (!body.sku || !body.id) return json({ error: 'falta sku/id' }, 400);
+        const store = JSON.parse((await kv.get('track_review')) || '{}');
+        const rec = store[body.sku]; if (rec && rec.actions) rec.actions = rec.actions.filter(x => x.id !== body.id);
+        await kv.put('track_review', JSON.stringify(store));
+        return json({ ok: true, rec: store[body.sku] || null });
+      }
+      if (action === 'reviewReset') {   // vuelve a NO (borra la revisión del SKU)
+        if (!body.sku) return json({ error: 'falta sku' }, 400);
+        const store = JSON.parse((await kv.get('track_review')) || '{}');
+        delete store[body.sku];
+        await kv.put('track_review', JSON.stringify(store));
+        return json({ ok: true, rec: null });
       }
 
       return json({ error: 'acción no soportada' }, 400);

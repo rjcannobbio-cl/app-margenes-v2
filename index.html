@@ -480,6 +480,7 @@
     <div class="hist-actions">
       <input type="text" id="closedFilter" class="hist-filter" placeholder="Filtrar: producto, SKU, proveedor, cotización, mes cierre (ej: Mayo)…">
       <button class="btn ghost" id="btnClosedExport" type="button">Exportar CSV</button>
+      <button class="btn ghost" id="btnClosedPriceCheck" type="button" title="Compara los precios Full/AON con el precio real en Mercado Libre (vía ProfitGuard). Marca con ! rojo los que difieren.">⟳ Chequear precios PG</button>
       <span class="muted" id="closedCount"></span>
     </div>
     <div id="closedDbWrap" class="db-wrap"></div>
@@ -523,6 +524,7 @@
       <button class="btn ghost" id="btnTrackRefreshProducts" type="button" title="Re-lee los productos categoría D desde ProfitGuard (semanal)">Actualizar productos D</button>
       <button class="btn ghost" id="btnTrackRefreshMetrics" type="button" title="Ventas/margen/TACOS (PG) + visitas/conversión (ML). Las visitas tardan por el rate limit de ML.">Actualizar métricas y visitas</button>
       <button class="btn ghost" id="btnTrackPending" type="button" title="Todos los accionables pendientes de todos los productos">Ver acciones pendientes</button>
+      <button class="btn ghost" id="btnTrackReviewPending" type="button" title="Todos los accionables de revisión física pendientes de todos los productos">Ver acciones de revisión física pendientes</button>
       <span class="muted" id="trackCount"></span>
       <span class="muted" id="trackStatus" style="flex-basis:100%;margin-top:4px"></span>
     </div>
@@ -788,6 +790,17 @@
   </div>
 </div>
 
+<!-- Modal: revisión física de un producto nuevo -->
+<div id="trackReviewOverlay" class="modal-overlay hidden" style="z-index:203">
+  <div class="rdetail" style="max-width:660px">
+    <div class="rd-head">
+      <div><h2 style="font-size:17px;margin:0">Revisión física</h2><div class="rd-l1 muted" id="trkRevProd" style="font-size:11px;margin-top:2px"></div></div>
+      <button class="mini" id="trkRevClose" type="button" title="Cerrar">✕</button>
+    </div>
+    <div id="trkRevBody"></div>
+  </div>
+</div>
+
 <!-- Modal (sobre el popup de Seguimiento): nueva acción -->
 <div id="trkActOverlay" class="modal-overlay hidden" style="z-index:202">
   <div class="rdetail" style="max-width:540px">
@@ -857,6 +870,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=265800"></script>
+<script src="src/ui.js?v=265900"></script>
 </body>
 </html>

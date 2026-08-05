@@ -825,10 +825,27 @@ let _trackSort = 'fs-desc';                 // por defecto: 1ª venta más recie
 const WK_MS = 7 * 864e5;
 function trackStatus(msg, err) { const el = $('trackStatus'); if (!el) return; el.textContent = msg || ''; el.style.color = err ? 'var(--bad)' : 'var(--muted)'; }
 let _trackMetricsTs = 0;
-async function trackLoad() { try { const j = await (await fetch(api('/api/track'))).json(); _trackData = (j && !j.error) ? j : { products: null, meta: {} }; _trackMetrics = (j && j.metrics && j.metrics.m) || {}; _trackMetricsTs = (j && j.metrics && j.metrics.ts) || 0; _trackActions = (j && j.actions) || {}; } catch (e) { _trackData = { products: null, meta: {} }; } }
+async function trackLoad() { try { const j = await (await fetch(api('/api/track'))).json(); _trackData = (j && !j.error) ? j : { products: null, meta: {} }; _trackMetrics = (j && j.metrics && j.metrics.m) || {}; _trackMetricsTs = (j && j.metrics && j.metrics.ts) || 0; _trackActions = (j && j.actions) || {}; _trackReview = (j && j.review) || {}; } catch (e) { _trackData = { products: null, meta: {} }; } }
 let _trackActions = {};   // {sku:[{id,type,desc,created,status,doneDate}]}
+let _trackReview = {};    // {sku:{initiated,approved,reviewedAt,actions:[...]}} — revisión física
 const TRACK_ACTION_TYPES = ['ADS', 'DOD', 'REL', 'AON', 'Cambio imágenes', 'Cambio SEO', 'Clips', 'Descuentos Mayoristas', 'CMR', 'Ficha técnica', 'Enviar a full'];
+const REVIEW_TYPES = ['Medidas', 'Peso', 'Funcionalidad', 'Descripción', 'Fotos', 'Título', 'Color', 'Calidad', 'Empaque', 'Otro'];
 const TRACK_RESPONSABLES = ['Comercial', 'Diseños', 'Desarrollo de producto', 'Planning'];
+// Estado de la revisión física de un SKU: 'no' (sin revisar) · 'process' (con accionables pendientes) · 'ok' (visto bueno o todo hecho).
+function reviewStatus(sku) {
+  const rec = _trackReview[sku];
+  if (!rec || !rec.initiated) return 'no';
+  const acts = rec.actions || [];
+  if (rec.approved && !acts.length) return 'ok';
+  if (acts.length && acts.every(a => a.status === 'done')) return 'ok';
+  return 'process';
+}
+function reviewBadge(sku) {
+  const st = reviewStatus(sku);
+  const map = { no: ['NO', 'var(--bad)'], process: ['EN PROCESO', 'var(--mid)'], ok: ['SÍ', 'var(--good)'] };
+  const m = map[st];
+  return `<span class="trk-review-badge" data-sku="${escapeHtml(sku)}" style="cursor:pointer;font-weight:800;color:${m[1]};white-space:nowrap" title="Revisión física — clic para revisar / ver accionables">${m[0]}</span>`;
+}
 async function renderTrack() {
   if (!_trackData) { $('trackDbWrap').innerHTML = '<p class="muted" style="padding:16px">Cargando…</p>'; await trackLoad(); }
   paintTrack();
@@ -912,7 +929,8 @@ function paintTrack() {
   }
   h1 += '<th rowspan="2" title="12 semanas desde la 1ª venta">Maduro</th>'
     + '<th rowspan="2" title="Sí = ya alcanzó la vel. madura en una ventana de 5 sem (✦ = aún antes de madurar) · En curso = joven, aún puede lograrlo · No = maduro y no lo logró">Cumple vel.</th>'
-    + '<th rowspan="2" title="Sí = hubo una ventana de 5 sem que cumple velocidad Y margen ≥30% A LA VEZ (✦ = aún antes de madurar) · En curso = joven, aún puede lograrlo · No = maduro sin lograrlo. Vende el volumen objetivo al margen objetivo simultáneamente.">Cumple margen</th>';
+    + '<th rowspan="2" title="Sí = hubo una ventana de 5 sem que cumple velocidad Y margen ≥30% A LA VEZ (✦ = aún antes de madurar) · En curso = joven, aún puede lograrlo · No = maduro sin lograrlo. Vende el volumen objetivo al margen objetivo simultáneamente.">Cumple margen</th>'
+    + '<th rowspan="2" title="Revisión física del producto recibido en bodega (medidas, peso, funcionalidad, concordancia con la ficha). NO → clic para dar visto bueno o listar accionables.">Revisado físicamente</th>';
   const body = rows.map(it => {
     const der = trackDerived(it, meta[it.sku]);
     let tds = '';
@@ -932,6 +950,7 @@ function paintTrack() {
       <td style="text-align:center">${yn(der.firstSale ? der.maduro : null)}</td>
       <td style="text-align:center">${cumpleCell(der.cumpleVel, der.maduro)}</td>
       <td style="text-align:center">${cumpleCell(der.cumpleMargen, der.maduro)}</td>
+      <td style="text-align:center">${reviewBadge(it.sku)}</td>
     </tr>`;
   }).join('');
   const fdate = ts => ts ? new Date(ts).toLocaleDateString('es-CL') : '—';
@@ -946,6 +965,7 @@ function paintTrack() {
   wrap.querySelectorAll('.trk-vm').forEach(inp => { inp.onclick = e => e.stopPropagation(); inp.onchange = () => trackSaveMeta(inp.dataset.sku, { velMadura: inp.value === '' ? null : parseFloat(inp.value) }); });
   wrap.querySelectorAll('tbody tr[data-sku]').forEach(tr => { tr.style.cursor = 'pointer'; tr.onclick = () => openTrackChart(tr.dataset.sku); });
   wrap.querySelectorAll('.trk-linkcell').forEach(td => td.onclick = e => { e.stopPropagation(); openTrackLinks(td.dataset.id, td.dataset.sku, td.dataset.name); });
+  wrap.querySelectorAll('.trk-review-badge').forEach(el => el.onclick = e => { e.stopPropagation(); openTrackReview(el.dataset.sku); });
   enableTableSort(wrap.querySelector('table'), 'track');   // ordenar por cualquier otra columna (mayor a menor)
 }
 async function trackSaveMeta(sku, patch) {
@@ -1219,21 +1239,30 @@ async function trackPendingExport() {
   });
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols'] = [{ wch: 18 }, { wch: 34 }, { wch: 16 }, { wch: 18 }, { wch: 50 }, { wch: 12 }, { wch: 14 }].concat(done ? [{ wch: 15 }] : []);
+  const rev = _trackPendingSrc === 'review';
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, done ? 'Finalizadas' : 'Pendientes');
   const d = new Date(); const stamp = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-  XLSX.writeFile(wb, (done ? 'Acciones finalizadas ' : 'Acciones pendientes ') + stamp + '.xlsx');
+  const base = rev ? (done ? 'Revisión física finalizadas ' : 'Revisión física pendientes ') : (done ? 'Acciones finalizadas ' : 'Acciones pendientes ');
+  XLSX.writeFile(wb, base + stamp + '.xlsx');
 }
-let _trackPendingMode = 'pending';
-function openTrackPending(mode) {
+let _trackPendingMode = 'pending', _trackPendingSrc = 'actions';
+function openTrackPending(mode, src) {
   _trackPendingMode = mode === 'done' ? 'done' : 'pending';
+  if (src) _trackPendingSrc = src;
+  const isReview = _trackPendingSrc === 'review';
   const done = _trackPendingMode === 'done';
   const items = (_trackData && _trackData.products && _trackData.products.items) || [];
   const nameBySku = {}; items.forEach(it => { nameBySku[it.sku] = it.name || ''; });
   const listA = [];
-  Object.keys(_trackActions || {}).forEach(sku => (_trackActions[sku] || []).forEach(a => { if (done ? a.status === 'done' : a.status !== 'done') listA.push({ sku, name: nameBySku[sku] || '', a }); }));
+  if (isReview) {
+    Object.keys(_trackReview || {}).forEach(sku => { const rec = _trackReview[sku]; ((rec && rec.actions) || []).forEach(a => { if (done ? a.status === 'done' : a.status !== 'done') listA.push({ sku, name: nameBySku[sku] || '', a }); }); });
+  } else {
+    Object.keys(_trackActions || {}).forEach(sku => (_trackActions[sku] || []).forEach(a => { if (done ? a.status === 'done' : a.status !== 'done') listA.push({ sku, name: nameBySku[sku] || '', a }); }));
+  }
   listA.sort((x, y) => done ? ((y.a.doneDate || 0) - (x.a.doneDate || 0)) : ((y.a.created || 0) - (x.a.created || 0)));
   _trackPendingData = listA;   // para exportar a Excel
-  $('trackPendingTitle').textContent = done ? 'Acciones finalizadas' : 'Acciones pendientes';
+  const pref = isReview ? 'Revisión física — ' : '';
+  $('trackPendingTitle').textContent = pref + (done ? 'acciones finalizadas' : 'acciones pendientes');
   $('trackPendingToggle').textContent = done ? 'Ver acciones pendientes' : 'Ver acciones finalizadas';
   $('trackPendingCount').textContent = listA.length + (done ? ' finalizada' : ' pendiente') + (listA.length === 1 ? '' : 's') + ' en ' + new Set(listA.map(p => p.sku)).size + ' producto(s)';
   { const b = $('trackPendingExport'); if (b) b.style.display = listA.length ? '' : 'none'; }
@@ -1253,8 +1282,8 @@ function openTrackPending(mode) {
       <td style="white-space:nowrap">${done ? '<span class="muted">—</span>' : `<button class="btn ghost tp-done" data-sku="${escapeHtml(p.sku)}" data-id="${escapeHtml(p.a.id)}" type="button" style="padding:3px 10px;font-size:11px">Marcar como hecho</button><span class="tp-edit" data-sku="${escapeHtml(p.sku)}" data-id="${escapeHtml(p.a.id)}" title="Editar descripción" style="cursor:pointer;color:var(--faint);margin-left:8px">✎</span>`}</td>
     </tr>`).join('');
     body.innerHTML = `<div style="overflow-x:auto"><table class="tl-tab"><thead><tr><th>SKU</th><th>Título</th><th>Acción</th><th>Responsable</th><th>Descripción</th><th>Estado</th><th>Fecha creación</th>${done ? '<th>Fecha completado</th>' : ''}<th>${done ? '' : 'Marcar como hecho'}</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-    body.querySelectorAll('.tp-done').forEach(b => b.onclick = async () => { await trackActionDone(b.dataset.sku, b.dataset.id); openTrackPending(_trackPendingMode); });
-    body.querySelectorAll('.tp-edit').forEach(b => b.onclick = () => { const a = (_trackActions[b.dataset.sku] || []).find(x => x.id === b.dataset.id); const cell = body.querySelector('.tp-desc-cell[data-sku="' + b.dataset.sku + '"][data-id="' + b.dataset.id + '"]'); if (a && cell) _inlineEditDesc(cell, a.desc || '', async v => { await trackActionEdit(b.dataset.sku, b.dataset.id, v); openTrackPending(_trackPendingMode); }, () => openTrackPending(_trackPendingMode)); });
+    body.querySelectorAll('.tp-done').forEach(b => b.onclick = async () => { if (isReview) await reviewActionDone(b.dataset.sku, b.dataset.id); else await trackActionDone(b.dataset.sku, b.dataset.id); openTrackPending(_trackPendingMode); });
+    body.querySelectorAll('.tp-edit').forEach(b => b.onclick = () => { const listSrc = isReview ? ((_trackReview[b.dataset.sku] || {}).actions || []) : (_trackActions[b.dataset.sku] || []); const a = listSrc.find(x => x.id === b.dataset.id); const cell = body.querySelector('.tp-desc-cell[data-sku="' + b.dataset.sku + '"][data-id="' + b.dataset.id + '"]'); if (a && cell) _inlineEditDesc(cell, a.desc || '', async v => { if (isReview) await reviewActionEdit(b.dataset.sku, b.dataset.id, v); else await trackActionEdit(b.dataset.sku, b.dataset.id, v); openTrackPending(_trackPendingMode); }, () => openTrackPending(_trackPendingMode)); });
     body.querySelectorAll('.tp-open').forEach(a => a.onclick = e => { e.preventDefault(); $('trackPendingOverlay').classList.add('hidden'); openTrackChart(a.dataset.sku); });
   }
   $('trackPendingOverlay').classList.remove('hidden');
@@ -1284,6 +1313,81 @@ async function trackActionDelete(sku, id) {
   paintTrackActions(sku);
 }
 let _trackWeeksRange = null;   // null = todas (desde 1ª venta) | 5 | 10 | 20
+/* ---------------- Revisión física (popup) ---------------- */
+let _trkRevSku = null, _trkRevRows = [];
+function openTrackReview(sku) {
+  _trkRevSku = sku; _trkRevRows = [];
+  const it = ((_trackData && _trackData.products && _trackData.products.items) || []).find(x => x.sku === sku);
+  const el = $('trkRevProd'); if (el) el.textContent = (it ? (it.name || '') : '') + ' · ' + sku;
+  renderTrackReview();
+  $('trackReviewOverlay').classList.remove('hidden');
+}
+function renderTrackReview() {
+  const sku = _trkRevSku, body = $('trkRevBody'); if (!body) return;
+  const rec = _trackReview[sku]; const st = reviewStatus(sku);
+  const fmt = ts => { if (!ts) return ''; const d = new Date(ts); return d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear(); };
+  const typeOpts = (sel) => REVIEW_TYPES.map(t => `<option ${t === sel ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('');
+  const respOpts = (sel) => TRACK_RESPONSABLES.map(r => `<option ${r === sel ? 'selected' : ''}>${escapeHtml(r)}</option>`).join('');
+  if (st === 'no') {
+    const rowsHtml = _trkRevRows.length ? _trkRevRows.map((r, i) => `<tr>
+      <td><select class="trv-type" data-i="${i}">${typeOpts(r.type)}</select></td>
+      <td><select class="trv-resp" data-i="${i}">${respOpts(r.responsable)}</select></td>
+      <td><input type="text" class="trv-desc" data-i="${i}" value="${escapeHtml(r.desc || '')}" placeholder="¿Qué cambio se hará?" style="width:100%;box-sizing:border-box"></td>
+      <td><span class="trv-del" data-i="${i}" title="Quitar" style="cursor:pointer;color:var(--faint)">✕</span></td>
+    </tr>`).join('') : '<tr><td colspan="4" class="muted" style="padding:8px">Aún no agregaste accionables.</td></tr>';
+    body.innerHTML = `
+      <p class="muted" style="font-size:12px;margin:0 0 12px">Revisión física del producto recibido: mediciones, peso, funcionalidad y concordancia con la descripción, fotos, título y colores prometidos.</p>
+      <div style="margin-bottom:14px"><button class="btn" id="trvApprove" type="button">✓ Dar visto bueno (sin cambios)</button></div>
+      <div style="border-top:1px solid var(--line,#26324a);padding-top:12px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px">…o listar los accionables y responsables</div>
+        <div style="overflow-x:auto"><table class="tl-tab"><thead><tr><th>Tipo</th><th>Responsable</th><th>Descripción</th><th></th></tr></thead><tbody>${rowsHtml}</tbody></table></div>
+        <div style="margin-top:10px;display:flex;gap:8px">
+          <button class="btn ghost" id="trvAddRow" type="button">＋ Agregar acción</button>
+          <button class="btn" id="trvSave" type="button" ${_trkRevRows.length ? '' : 'disabled'}>Guardar accionables</button>
+        </div>
+      </div>`;
+    $('trvApprove').onclick = async () => { await reviewInit(sku, true, []); renderTrackReview(); paintTrack(); };
+    $('trvAddRow').onclick = () => { _trkRevRows.push({ type: REVIEW_TYPES[0], responsable: TRACK_RESPONSABLES[0], desc: '' }); renderTrackReview(); };
+    body.querySelectorAll('.trv-type').forEach(s => s.onchange = () => { _trkRevRows[+s.dataset.i].type = s.value; });
+    body.querySelectorAll('.trv-resp').forEach(s => s.onchange = () => { _trkRevRows[+s.dataset.i].responsable = s.value; });
+    body.querySelectorAll('.trv-desc').forEach(inp => inp.oninput = () => { _trkRevRows[+inp.dataset.i].desc = inp.value; });
+    body.querySelectorAll('.trv-del').forEach(x => x.onclick = () => { _trkRevRows.splice(+x.dataset.i, 1); renderTrackReview(); });
+    { const sv = $('trvSave'); if (sv) sv.onclick = async () => { const rows = _trkRevRows.filter(r => (r.desc || '').trim() || r.type); if (!rows.length) return; await reviewInit(sku, false, rows); _trkRevRows = []; renderTrackReview(); paintTrack(); }; }
+  } else {
+    const acts = (rec && rec.actions) || [];
+    const stateLbl = st === 'ok' ? '<span style="color:var(--good);font-weight:800">SÍ · Revisado</span>' : '<span style="color:var(--mid);font-weight:800">EN PROCESO</span>';
+    const approvedNote = (rec && rec.approved && !acts.length) ? '<div class="muted" style="font-size:12px;margin-top:4px">Visto bueno: producto conforme, sin cambios.</div>' : '';
+    const sorted = acts.slice().sort((a, b) => ((a.status === 'done' ? 1 : 0) - (b.status === 'done' ? 1 : 0)) || ((b.created || 0) - (a.created || 0)));
+    const rowsHtml = acts.length ? sorted.map(a => `<tr>
+      <td style="white-space:nowrap">${escapeHtml(a.type || '')}</td>
+      <td style="white-space:nowrap">${escapeHtml(a.responsable || '—')}</td>
+      <td style="white-space:pre-wrap;max-width:300px">${escapeHtml(a.desc || '')}</td>
+      <td style="white-space:nowrap">${a.status === 'done'
+        ? '<span style="color:var(--good);font-weight:700">✓ ' + fmt(a.doneDate) + '</span>'
+        : '<button class="btn ghost trv-done" data-id="' + escapeHtml(a.id) + '" type="button" style="padding:3px 10px;font-size:11px">Marcar hecho</button>'}<span class="trv-adel" data-id="${escapeHtml(a.id)}" title="Eliminar acción" style="cursor:pointer;color:var(--faint);margin-left:8px">✕</span></td>
+    </tr>`).join('') : '<tr><td colspan="4" class="muted" style="padding:8px">Sin accionables.</td></tr>';
+    body.innerHTML = `
+      <div style="margin-bottom:10px">Estado: ${stateLbl}${approvedNote}</div>
+      <div style="overflow-x:auto"><table class="tl-tab"><thead><tr><th>Tipo</th><th>Responsable</th><th>Descripción</th><th>Estado</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>
+      <div style="margin-top:12px;border-top:1px solid var(--line,#26324a);padding-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <select id="trvNewType" style="min-width:130px">${typeOpts()}</select>
+        <select id="trvNewResp" style="min-width:150px">${respOpts()}</select>
+        <input type="text" id="trvNewDesc" placeholder="Nuevo accionable…" style="flex:1;min-width:160px">
+        <button class="btn ghost" id="trvNewAdd" type="button">＋ Agregar</button>
+      </div>
+      <div style="margin-top:12px"><button class="btn ghost" id="trvReopen" type="button" title="Vuelve a NO y borra la revisión">Reabrir revisión (volver a NO)</button></div>`;
+    body.querySelectorAll('.trv-done').forEach(b => b.onclick = async () => { await reviewActionDone(sku, b.dataset.id); renderTrackReview(); paintTrack(); });
+    body.querySelectorAll('.trv-adel').forEach(x => x.onclick = async () => { if (!confirm('¿Eliminar este accionable de revisión?')) return; await reviewActionDelete(sku, x.dataset.id); renderTrackReview(); paintTrack(); });
+    $('trvNewAdd').onclick = async () => { const t = $('trvNewType').value, rr = $('trvNewResp').value, ds = $('trvNewDesc').value.trim(); if (!ds) { $('trvNewDesc').focus(); return; } await reviewActionAdd(sku, t, ds, rr); renderTrackReview(); paintTrack(); };
+    $('trvReopen').onclick = async () => { if (!confirm('¿Reabrir la revisión física? Se borran los accionables y vuelve a NO.')) return; await reviewReset(sku); renderTrackReview(); paintTrack(); };
+  }
+}
+async function reviewInit(sku, approved, rows) { try { const j = await (await fetch(api('/api/track'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'reviewInit', sku, approved, actions: rows }) })).json(); if (j.rec) _trackReview[sku] = j.rec; } catch (e) {} }
+async function reviewActionAdd(sku, type, desc, responsable) { try { const j = await (await fetch(api('/api/track'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'reviewActionAdd', sku, type, desc, responsable }) })).json(); if (j.rec) _trackReview[sku] = j.rec; } catch (e) {} }
+async function reviewActionDone(sku, id) { try { const j = await (await fetch(api('/api/track'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'reviewActionDone', sku, id }) })).json(); if (j.rec) _trackReview[sku] = j.rec; } catch (e) {} }
+async function reviewActionEdit(sku, id, desc) { try { const j = await (await fetch(api('/api/track'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'reviewActionEdit', sku, id, desc }) })).json(); if (j.rec) _trackReview[sku] = j.rec; } catch (e) {} }
+async function reviewActionDelete(sku, id) { try { const j = await (await fetch(api('/api/track'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'reviewActionDelete', sku, id }) })).json(); if (j.rec) _trackReview[sku] = j.rec; else delete _trackReview[sku]; } catch (e) {} }
+async function reviewReset(sku) { try { await fetch(api('/api/track'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'reviewReset', sku }) }); delete _trackReview[sku]; } catch (e) {} }
 function paintTrackChart() {
   const it = ((_trackData && _trackData.products && _trackData.products.items) || []).find(x => x.sku === _trackChartSku); if (!it) return;
   let wd = trackWeeksData(it, _trackMetrics[_trackChartSku]);
@@ -1458,7 +1562,7 @@ function paintDb(mode) {
 
   const rows = filtered.map((x, i) => { const o = deriveOutputs(x); return `
     <tr data-i="${i}" title="Clic para cargar este producto en la calculadora">
-      <td title="${escapeHtml(x.nombre || '')}">${escapeHtml((x.nombre || '').slice(0, 80))}${(x.nombre || '').length > 80 ? '…' : ''}</td>
+      <td title="${escapeHtml(x.nombre || '')}">${isClosed ? closedPriceAlert(x) : ''}${escapeHtml((x.nombre || '').slice(0, 80))}${(x.nombre || '').length > 80 ? '…' : ''}</td>
       <td title="SKU del proveedor">${escapeHtml(x.skuProveedor || '')}</td>
       ${closedInfoCells(x)}
       <td>${escapeHtml(x.proveedor || '')}</td>
@@ -1570,6 +1674,38 @@ async function onSellAuthToggle(e) {
 // Publicaciones creadas (solo el PM con el PIN "tendencias"). Mismo patrón que la autorización.
 let _pubCreated = {}, _pubPin = null;
 async function pubCreatedLoad() { try { const j = await (await fetch(api('/api/pubcreated'))).json(); _pubCreated = (j && j.pub) || {}; } catch (e) { _pubCreated = {}; } }
+// Chequeo de precios: precio real en ML (vía PG) por id de producto, para alertar diferencias con Full/AON.
+let _priceCheck = {}, _priceCheckTs = 0, _priceCheckBusy = false;
+async function priceCheckLoad() { try { const j = await (await fetch(api('/api/price-check'))).json(); _priceCheck = (j && j.m) || {}; _priceCheckTs = (j && j.ts) || 0; } catch (e) { _priceCheck = {}; } }
+// Alerta (! rojo) si el Full o el AON guardados difieren del precio real en Mercado Libre.
+function closedPriceAlert(x) {
+  const pc = _priceCheck[x.id]; if (!pc || pc.notFound) return '';
+  const r = v => { const n = parseFloat(v); return isNaN(n) ? null : Math.round(n); };
+  const full = r(x.precioFull), aon = r(x.precioAON);
+  const mlList = pc.listPrice != null ? Math.round(pc.listPrice) : null;
+  const mlPrice = pc.price != null ? Math.round(pc.price) : null;
+  const clp = n => '$' + n.toLocaleString('es-CL');
+  const diffs = [];
+  if (full != null && mlList != null && full !== mlList) diffs.push('Full app ' + clp(full) + ' ≠ ML ' + clp(mlList));
+  if (aon != null && mlPrice != null && aon !== mlPrice) diffs.push('AON app ' + clp(aon) + ' ≠ ML ' + clp(mlPrice));
+  if (!diffs.length) return '';
+  return `<span title="Precio distinto al de Mercado Libre — ${escapeHtml(diffs.join(' · '))}" style="color:#ef4444;font-weight:900;margin-right:5px;cursor:help">!</span>`;
+}
+async function closedPriceRefresh() {
+  if (_priceCheckBusy) return; _priceCheckBusy = true;
+  const btn = $('btnClosedPriceCheck'); const old = btn ? btn.textContent : '';
+  const items = _closedAll.map(x => ({ id: x.id, skus: [x.skuCierre, x.skuProveedor, x.sku].filter(Boolean) })).filter(o => o.id && o.skus.length);
+  try {
+    for (let i = 0; i < items.length; i += 5) {
+      const chunk = items.slice(i, i + 5);
+      if (btn) { btn.disabled = true; btn.textContent = 'Chequeando precios… ' + Math.min(i + 5, items.length) + '/' + items.length; }
+      try { const j = await (await fetch(api('/api/price-check'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'refresh', items: chunk }) })).json(); if (j && j.m) Object.assign(_priceCheck, j.m); } catch (e) {}
+      paintClosed();   // refresca las alertas a medida que llegan
+    }
+    if (btn) btn.textContent = '✓ Precios chequeados';
+    setTimeout(() => { if (btn) { btn.textContent = old; btn.disabled = false; } }, 4000);
+  } finally { _priceCheckBusy = false; if (btn) btn.disabled = false; }
+}
 async function onPubCreatedToggle(e) {
   const cb = e.target, id = cb.dataset.id, want = cb.checked;
   if (!_pubPin) { const p = prompt('Clave del PM para marcar publicaciones creadas:'); if (p == null || p === '') { cb.checked = !want; return; } _pubPin = p; }
@@ -1588,6 +1724,7 @@ async function renderClosed() {
   _closedAll = await closedLoad();
   await sellAuthLoad();
   await pubCreatedLoad();
+  await priceCheckLoad();
   _closedSig = JSON.stringify(_closedAll);
   paintClosed();
 }
@@ -3208,6 +3345,7 @@ function init() {
   $('btnHistExport').onclick = exportHistorialCSV;
   $('histFilter').addEventListener('input', debounce(renderHistorial, 200));
   $('btnClosedExport').onclick = exportClosedCSV;
+  { const b = $('btnClosedPriceCheck'); if (b) b.onclick = closedPriceRefresh; }
   $('closedFilter').addEventListener('input', debounce(paintClosed, 200));
   $('btnResearchExport').onclick = exportResearchCSV;
   $('btnResearchImport').onclick = () => $('researchFile').click();
@@ -3216,7 +3354,8 @@ function init() {
   // Seguimiento de productos nuevos
   { const b = $('btnTrackRefreshProducts'); if (b) b.onclick = trackRefreshProducts; }
   { const b = $('btnTrackRefreshMetrics'); if (b) b.onclick = () => trackRefreshAll(false); }
-  { const b = $('btnTrackPending'); if (b) b.onclick = openTrackPending; }
+  { const b = $('btnTrackPending'); if (b) b.onclick = () => openTrackPending('pending', 'actions'); }
+  { const b = $('btnTrackReviewPending'); if (b) b.onclick = () => openTrackPending('pending', 'review'); }
   { const b = $('trackPendingClose'); if (b) b.onclick = () => $('trackPendingOverlay').classList.add('hidden'); }
   { const b = $('trackPendingExport'); if (b) b.onclick = trackPendingExport; }
   { const b = $('trackPendingToggle'); if (b) b.onclick = () => openTrackPending(_trackPendingMode === 'done' ? 'pending' : 'done'); }
@@ -3226,6 +3365,8 @@ function init() {
   { const o = $('trackOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
   // Accionables del popup de Seguimiento (alta vía modal sobre el popup)
   { const b = $('trkActNew'); if (b) b.onclick = openTrackActModal; }
+  { const b = $('trkRevClose'); if (b) b.onclick = () => $('trackReviewOverlay').classList.add('hidden'); }
+  { const o = $('trackReviewOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
   { const b = $('trkActClose'); if (b) b.onclick = () => $('trkActOverlay').classList.add('hidden'); }
   { const o = $('trkActOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
   { const b = $('trkActAdd'); if (b) b.onclick = () => trackActionAdd(_trackChartSku); }
