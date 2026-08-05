@@ -3556,7 +3556,7 @@ function paintCotiz() {
   const rows = filtered.map(c => {
     // Un estado por PROVEEDOR PARTICIPANTE (= el que tiene respuesta cargada, providerId único), con su nombre al lado.
     const provs = []; const seenP = new Set();
-    (c.supplierQuotes || []).forEach(s => { const pid = String(s.providerId); if (!seenP.has(pid)) { seenP.add(pid); provs.push({ pid, name: s.provider || s.label || ('#' + pid) }); } });
+    (c.supplierQuotes || []).forEach(s => { const hasId = s.providerId != null && s.providerId !== ''; const pid = hasId ? String(s.providerId) : ('name:' + (s.provider || s.label || s.id || '?')); if (!seenP.has(pid)) { seenP.add(pid); provs.push({ pid, name: s.provider || s.label || (hasId ? ('#' + s.providerId) : 'Proveedor') }); } });
     const byProv = c.estadoByProvider || {};
     const estadoCellHtml = provs.length
       ? provs.map(p => { const e = (byProv[p.pid] != null && byProv[p.pid] !== '') ? byProv[p.pid] : (c.estado || COTIZ_ESTADOS[0]); return `<div style="display:flex;align-items:center;gap:8px;margin:3px 0"><span style="font-size:11px;font-weight:700;white-space:nowrap" title="Proveedor con respuesta cargada">${escapeHtml(p.name)}</span><select class="cotiz-estado-prov" data-id="${escapeHtml(c.id)}" data-pid="${at(p.pid)}" style="min-width:200px">${optsFor(e)}</select></div>`; }).join('')
