@@ -1262,7 +1262,7 @@ function openTrackPending(mode, src) {
   listA.sort((x, y) => done ? ((y.a.doneDate || 0) - (x.a.doneDate || 0)) : ((y.a.created || 0) - (x.a.created || 0)));
   _trackPendingData = listA;   // para exportar a Excel
   const pref = isReview ? 'Revisión física — ' : '';
-  $('trackPendingTitle').textContent = pref + (done ? 'acciones finalizadas' : 'acciones pendientes');
+  { const phrase = pref + (done ? 'acciones finalizadas' : 'acciones pendientes'); $('trackPendingTitle').textContent = phrase.charAt(0).toUpperCase() + phrase.slice(1); }
   $('trackPendingToggle').textContent = done ? 'Ver acciones pendientes' : 'Ver acciones finalizadas';
   $('trackPendingCount').textContent = listA.length + (done ? ' finalizada' : ' pendiente') + (listA.length === 1 ? '' : 's') + ' en ' + new Set(listA.map(p => p.sku)).size + ' producto(s)';
   { const b = $('trackPendingExport'); if (b) b.style.display = listA.length ? '' : 'none'; }
