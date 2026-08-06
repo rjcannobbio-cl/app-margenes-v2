@@ -609,6 +609,8 @@
         <option value="">— selecciona —</option>
         <option>2025</option><option>2026</option><option>2027</option><option>2028</option><option>2029</option><option>2030</option>
       </select>
+      <label>Inquiry y respuesta asociada</label>
+      <select id="modalInquiry"><option value="">— elegir inquiry y respuesta —</option></select>
       <div id="modalErr" class="ai-status err" style="margin-top:8px"></div>
     </div>
     <div class="modal-actions">
@@ -668,10 +670,15 @@
 <div id="cotizNoInqOverlay" class="modal-overlay hidden" style="z-index:203">
   <div class="rdetail" style="max-width:520px">
     <div class="rd-head">
-      <div><h2 style="font-size:18px;margin:0">Importar cotización sin inquiry</h2><div class="rd-l1 muted" style="font-size:11px;margin-top:2px">Sube el link del Google Sheet (cotización ya llena, mismo formato del template). Se le asigna N° de inquiry y se cargan los datos; la columna Inquiry queda vacía.</div></div>
+      <div><h2 style="font-size:18px;margin:0">Importar cotización sin inquiry</h2></div>
       <button class="mini" id="cotizNoInqClose" type="button" title="Cerrar">✕</button>
     </div>
     <div style="margin-bottom:8px"><label>Nombre del producto (opcional)</label><input type="text" id="cotizNoInqName" placeholder="Ej: Termolaminadora A4" style="width:100%;box-sizing:border-box"></div>
+    <div style="margin-bottom:8px"><label>Proveedor de la cotización</label>
+      <select id="cotizNoInqProv" style="width:100%"></select>
+      <input type="text" id="cotizNoInqNewProv" placeholder="Nombre del nuevo proveedor" style="display:none;width:100%;box-sizing:border-box">
+      <a href="#" id="cotizNoInqProvBack" style="display:none;font-size:11px;color:var(--muted)">← elegir de la lista</a>
+    </div>
     <div style="margin-bottom:8px"><label>Link de Google Sheets</label><input type="text" id="cotizNoInqLink" placeholder="Pega el link (compartido como “cualquiera con el enlace: Lector”)" style="width:100%;box-sizing:border-box"></div>
     <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
       <button class="btn" id="cotizNoInqGo" type="button">Leer e importar</button>
@@ -912,6 +919,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=267000"></script>
+<script src="src/ui.js?v=267100"></script>
 </body>
 </html>

@@ -1566,9 +1566,18 @@ function paintDb(mode) {
     ? `<td>${cell(x.alto)}</td><td>${cell(x.largo)}</td><td>${cell(x.ancho)}</td><td>${cell(x.peso)}</td>`
     : `<td>${escapeHtml(packSummary(x))}</td>`;
 
+  // Referencia a la respuesta asociada (Diseño la usa como última cotización); solo en Cerrados.
+  const closedInqRef = x => {
+    const ref = x.inquiryRef; if (!isClosed || !ref) return '';
+    const label = 'N-' + (ref.num != null ? ref.num : '?') + ' · ' + (ref.provider || '') + ' #' + (ref.respNum || 1);
+    const inner = ref.sheetUrl ? `<a href="${escapeHtml(ref.sheetUrl)}" target="_blank" rel="noopener" style="color:#7db0ff">${escapeHtml(label)}</a>` : escapeHtml(label);
+    return `<div style="font-size:10px;color:var(--muted);margin-top:2px" title="Respuesta asociada (referencia para Diseño)">📋 ${inner}</div>`;
+  };
+  const fechaHead = '<th>Fecha carga</th>';
+  const fechaCell = x => `<td style="white-space:nowrap">${x.ts ? new Date(x.ts).toLocaleDateString('es-CL') : escapeHtml(x.fecha || '')}</td>`;
   const rows = filtered.map((x, i) => { const o = deriveOutputs(x); return `
     <tr data-i="${i}" title="Clic para cargar este producto en la calculadora">
-      <td title="${escapeHtml(x.nombre || '')}">${isClosed ? closedPriceAlert(x) : ''}${escapeHtml((x.nombre || '').slice(0, 80))}${(x.nombre || '').length > 80 ? '…' : ''}</td>
+      <td title="${escapeHtml(x.nombre || '')}">${isClosed ? closedPriceAlert(x) : ''}${escapeHtml((x.nombre || '').slice(0, 80))}${(x.nombre || '').length > 80 ? '…' : ''}${closedInqRef(x)}</td>
       <td title="SKU del proveedor">${escapeHtml(x.skuProveedor || '')}</td>
       ${closedInfoCells(x)}
       <td>${escapeHtml(x.proveedor || '')}</td>
@@ -1591,18 +1600,19 @@ function paintDb(mode) {
       ${actionCell(x)}
       ${authCell(x)}
       ${pubCell(x)}
+      ${fechaCell(x)}
     </tr>`; }).join('');
   wrap.innerHTML = `<table class="histtab dbtab"><thead><tr>
     <th>Nombre</th><th>SKU</th>${closedInfoHead}<th>Proveedor</th><th>N° Cotización</th>
     ${packHead}<th>Costo FOB</th><th>Landed COGS</th>
     <th>Súper</th><th>Categoría ML</th><th class="co-only">HS</th><th class="co-only">Arancel %</th><th>Precio Meli</th><th>Margen Meli</th><th class="fbla-col">Precio Fala</th><th class="fbla-col">Margen Fala</th>
-    <th>Precio Full</th><th>Margen Full</th><th>Precio AON</th><th>Margen AON</th><th>Precio DOD</th><th>Margen DOD</th>${varHead}<th data-nosort></th>${authHead}${pubHead}
+    <th>Precio Full</th><th>Margen Full</th><th>Precio AON</th><th>Margen AON</th><th>Precio DOD</th><th>Margen DOD</th>${varHead}<th data-nosort></th>${authHead}${pubHead}${fechaHead}
   </tr></thead><tbody>${rows}</tbody></table>`;
 
   const toggle = wrap.querySelector('.pack-toggle');
   if (toggle) toggle.onclick = (e) => { e.stopPropagation(); packExpanded = !packExpanded; rerender(); };
   wrap.querySelectorAll('tr[data-i]').forEach(tr => tr.onclick = (e) => {
-    if (e.target.closest('button') || e.target.closest('.pack-toggle') || e.target.closest('input') || e.target.closest('.sell-auth-cell')) return;
+    if (e.target.closest('button') || e.target.closest('.pack-toggle') || e.target.closest('input') || e.target.closest('.sell-auth-cell') || e.target.closest('a')) return;
     showTab('calc'); loadFromHist(filtered[parseInt(tr.dataset.i, 10)], mode);
   });
   // Precio Full / DOD editables → recalculan su margen (Meli) y persisten en la base del país.
@@ -1764,9 +1774,11 @@ async function renderClosed() {
 // Mueve un producto de Historial → Productos cerrados.
 async function closeProduct(item) {
   if (!item) return;
+  if (typeof cotizLoad === 'function') { try { await cotizLoad(); } catch (e) {} }   // para el desplegable de inquiry+respuesta
   const r = await askConfirm('¿Estás seguro de que quieres comprar este producto?', 'Sí, comprar', true);
   if (!r) return;
   item.skuCierre = r.sku; item.mesCierre = r.mes; item.anioCierre = r.anio;   // datos del cierre
+  if (r.inquiryRef) item.inquiryRef = r.inquiryRef;   // respuesta asociada (referencia para Diseño)
   await closedAdd(item);      // lo agrega a Cerrados
   await histDel(item.id);     // lo saca del Historial
   _histAll = _histAll.filter(x => x.id !== item.id);
@@ -1788,13 +1800,33 @@ async function reopenProduct(item) {
 }
 // Modal de confirmación reutilizable. Sin withFields → Promise<boolean>.
 // Con withFields → pide SKU + Mes de cierre (obligatorios) y resuelve {sku, mes} o false.
+// Opciones de inquiry+respuesta (una por cada respuesta de proveedor cargada) para asociar al cierre.
+let _closeInqRefs = {};
+function inquiryRespOptions() {
+  const opts = [];
+  (_cotizAll || []).forEach(c => (c.supplierQuotes || []).forEach(s => {
+    const ref = { inquiryId: c.id, num: c.num, prodName: c.prodName || '', provider: s.provider || s.label || '', sqId: s.id, respNum: s.respNum || 1, sheetUrl: s.sheetUrl || '' };
+    opts.push({ value: c.id + '|' + s.id, label: 'N-' + (c.num != null ? c.num : '?') + ' · ' + (c.prodName || '(sin nombre)') + ' · ' + ref.provider + ' · Resp #' + ref.respNum, ref });
+  }));
+  opts.sort((a, b) => (b.ref.num || 0) - (a.ref.num || 0) || (a.ref.provider || '').localeCompare(b.ref.provider || '', 'es') || (a.ref.respNum - b.ref.respNum));
+  return opts;
+}
 function askConfirm(msg, okLabel, withFields) {
   return new Promise(res => {
     $('modalMsg').textContent = msg;
     $('modalOk').textContent = okLabel || 'Sí';
     const fields = $('modalFields');
-    if (withFields) { $('modalSku').value = ''; $('modalMes').value = ''; $('modalAnio').value = ''; $('modalErr').textContent = ''; fields.classList.remove('hidden'); }
-    else fields.classList.add('hidden');
+    let hasInq = false;
+    if (withFields) {
+      $('modalSku').value = ''; $('modalMes').value = ''; $('modalAnio').value = ''; $('modalErr').textContent = ''; fields.classList.remove('hidden');
+      const inq = $('modalInquiry');
+      if (inq) {
+        const opts = inquiryRespOptions(); hasInq = opts.length > 0;
+        _closeInqRefs = {}; opts.forEach(o => _closeInqRefs[o.value] = o.ref);
+        inq.innerHTML = '<option value="">' + (hasInq ? '— elegir inquiry y respuesta —' : 'No hay respuestas cargadas todavía') + '</option>' + opts.map(o => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join('');
+        inq.value = '';
+      }
+    } else fields.classList.add('hidden');
     $('modalOverlay').classList.remove('hidden');
     if (withFields) setTimeout(() => $('modalSku').focus(), 30);
     const done = v => { $('modalOverlay').classList.add('hidden'); fields.classList.add('hidden'); $('modalOk').onclick = null; $('modalCancel').onclick = null; $('modalOverlay').onclick = null; res(v); };
@@ -1802,7 +1834,9 @@ function askConfirm(msg, okLabel, withFields) {
       if (withFields) {
         const sku = $('modalSku').value.trim(), mes = $('modalMes').value, anio = $('modalAnio').value;
         if (!sku || !mes || !anio) { $('modalErr').textContent = 'Completa SKU, Mes y Año de cierre.'; return; }
-        done({ sku, mes, anio });
+        const inqVal = $('modalInquiry') ? $('modalInquiry').value : '';
+        if (hasInq && !inqVal) { $('modalErr').textContent = 'Selecciona la inquiry y respuesta asociada.'; return; }
+        done({ sku, mes, anio, inquiryRef: _closeInqRefs[inqVal] || null });
       } else done(true);
     };
     $('modalCancel').onclick = () => done(false);
@@ -3922,13 +3956,52 @@ async function cotizImportForId(id, file) {
   alert('✔ Cotización “' + (c.name || '') + '” actualizada con ' + newRows.length + ' producto(s).');
 }
 // Importa una cotización YA LLENA desde un link de Google Sheets, SIN inquiry (columna Inquiry vacía). El server asigna el N°.
-function openCotizNoInquiry() {
+async function openCotizNoInquiry() {
   $('cotizNoInqName').value = ''; $('cotizNoInqLink').value = ''; $('cotizNoInqStatus').textContent = '';
+  // proveedor (obligatorio) — mismo patrón que subir respuesta (PG + custom + "＋ Agregar")
+  { const np = $('cotizNoInqNewProv'); if (np) { np.style.display = 'none'; np.value = ''; } }
+  { const bk = $('cotizNoInqProvBack'); if (bk) { bk.style.display = 'none'; bk.onclick = cotizNoInqProvBack; } }
+  const sel = $('cotizNoInqProv'); if (sel) sel.style.display = '';
+  if (typeof pgProvidersLoad === 'function') { try { await pgProvidersLoad(); } catch (e) {} }
+  await customProvidersLoad();
+  if (sel) { sel.innerHTML = supUpProviderOptions(); sel.onchange = cotizNoInqProvChange; }
   $('cotizNoInqOverlay').classList.remove('hidden');
+}
+function cotizNoInqProvChange() {
+  const sel = $('cotizNoInqProv');
+  if (sel.value === '__add__') {
+    sel.style.display = 'none';
+    { const np = $('cotizNoInqNewProv'); if (np) { np.style.display = ''; np.focus(); } }
+    { const bk = $('cotizNoInqProvBack'); if (bk) bk.style.display = ''; }
+  }
+}
+function cotizNoInqProvBack(e) {
+  if (e) e.preventDefault();
+  { const sel = $('cotizNoInqProv'); if (sel) { sel.style.display = ''; sel.value = ''; } }
+  { const np = $('cotizNoInqNewProv'); if (np) { np.style.display = 'none'; np.value = ''; } }
+  { const bk = $('cotizNoInqProvBack'); if (bk) bk.style.display = 'none'; }
 }
 async function cotizNoInquiryGo() {
   const link = (($('cotizNoInqLink') || {}).value || '').trim();
   if (!link) { $('cotizNoInqStatus').textContent = 'Pega el link del Google Sheet.'; return; }
+  // proveedor obligatorio (elegido o nuevo)
+  const npEl = $('cotizNoInqNewProv'); const addMode = npEl && npEl.style.display !== 'none';
+  let pid, provName;
+  if (addMode) {
+    const name = (npEl.value || '').trim();
+    if (!name) { $('cotizNoInqStatus').textContent = 'Escribe el nombre del proveedor.'; npEl.focus(); return; }
+    $('cotizNoInqStatus').textContent = 'Guardando proveedor…';
+    try {
+      const r = await fetch(api('/api/custom-providers'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.provider) { $('cotizNoInqStatus').textContent = 'No se pudo guardar el proveedor: ' + (j.error || r.status); return; }
+      pid = j.provider.id; provName = j.provider.name; _customProviders = j.providers || _customProviders;
+    } catch (e) { $('cotizNoInqStatus').textContent = 'Error de red al guardar el proveedor.'; return; }
+  } else {
+    pid = ($('cotizNoInqProv') || {}).value;
+    if (!pid || pid === '__add__') { $('cotizNoInqStatus').textContent = 'Elige el proveedor de la cotización.'; return; }
+    provName = (findProvider(pid) || {}).name || ('#' + pid);
+  }
   $('cotizNoInqStatus').textContent = 'Leyendo…';
   let rows;
   try {
@@ -3944,7 +4017,10 @@ async function cotizNoInquiryGo() {
   if (!newRows.length) { $('cotizNoInqStatus').textContent = 'El sheet no tiene filas de productos (revisa el formato del template).'; return; }
   const s = v => (v == null ? '' : String(v)).trim();
   const prodName = (($('cotizNoInqName') || {}).value || '').trim() || ((s(dataRows[0][2]).split('\n')[0] || s(dataRows[0][3]).split('\n')[0] || 'Cotización importada').slice(0, 60));
-  const rec = { id: 'q' + Date.now() + Math.floor(Math.random() * 1000), prodName, rows: newRows, noInquiry: true, sheetUrl: link, ts: Date.now() };
+  // La cotización importada = la respuesta (única) del proveedor. Queda seleccionable en el cierre del Historial.
+  const sqRows = newRows.map(r => ({ code: r.code, quantity: r.quantity || '', usdFob: r.usdFob, yuanFob: r.yuanFob, weight: r.weight, boxH: r.boxH, boxL: r.boxL, boxW: r.boxW, pcsCtn: r.pcsCtn, cbm: r.cbm }));
+  const sq = { id: 'sq' + Date.now() + Math.floor(Math.random() * 1000), providerId: pid, provider: provName, respNum: 1, label: provName, fileName: 'Google Sheet', sheetUrl: link, ts: Date.now(), rows: sqRows };
+  const rec = { id: 'q' + Date.now() + Math.floor(Math.random() * 1000), prodName, rows: newRows, supplierQuotes: [sq], noInquiry: true, sheetUrl: link, ts: Date.now() };
   $('cotizNoInqStatus').textContent = 'Guardando…';
   try {
     const rr = await fetch(api('/api/quotes'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(rec) });
