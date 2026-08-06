@@ -169,7 +169,7 @@ function _tsParseNum(s) {
   else { const p = s.split('.'); if (p.length > 1 && p[p.length - 1].length === 3) s = s.replace(/\./g, ''); }  // "1.234" → miles
   const n = parseFloat(s); return isNaN(n) ? null : n;
 }
-function _tsCellText(tr, col) { const c = tr.cells[col]; if (!c) return ''; const f = c.querySelector('input,select'); return (f ? f.value : c.textContent).trim(); }
+function _tsCellText(tr, col) { const c = tr.cells[col]; if (!c) return ''; if (c.dataset && c.dataset.sortval != null) return c.dataset.sortval; const f = c.querySelector('input,select'); return (f ? f.value : c.textContent).trim(); }
 function _tsIsEmpty(v) { return v === '' || v === '–' || v === '—' || v === '-'; }
 // Mapa de cada TH a su índice de columna (respetando colspan/rowspan de encabezados de 2 filas).
 function _tsHeaderMap(table) {
@@ -1574,7 +1574,7 @@ function paintDb(mode) {
     return `<div style="font-size:10px;color:var(--muted);margin-top:2px" title="Respuesta asociada (referencia para Diseño)">📋 ${inner}</div>`;
   };
   const fechaHead = '<th>Fecha carga</th>';
-  const fechaCell = x => `<td style="white-space:nowrap">${x.ts ? new Date(x.ts).toLocaleDateString('es-CL') : escapeHtml(x.fecha || '')}</td>`;
+  const fechaCell = x => `<td data-sortval="${x.ts || ''}" style="white-space:nowrap">${x.ts ? new Date(x.ts).toLocaleDateString('es-CL') : escapeHtml(x.fecha || '')}</td>`;
   const rows = filtered.map((x, i) => { const o = deriveOutputs(x); return `
     <tr data-i="${i}" title="Clic para cargar este producto en la calculadora">
       <td title="${escapeHtml(x.nombre || '')}">${isClosed ? closedPriceAlert(x) : ''}${escapeHtml((x.nombre || '').slice(0, 80))}${(x.nombre || '').length > 80 ? '…' : ''}${closedInqRef(x)}</td>
@@ -1819,12 +1819,12 @@ function askConfirm(msg, okLabel, withFields) {
     let hasInq = false;
     if (withFields) {
       $('modalSku').value = ''; $('modalMes').value = ''; $('modalAnio').value = ''; $('modalErr').textContent = ''; fields.classList.remove('hidden');
-      const inq = $('modalInquiry');
-      if (inq) {
+      const inq = $('modalInquiry'), dl = $('modalInquiryList');
+      if (inq && dl) {
         const opts = inquiryRespOptions(); hasInq = opts.length > 0;
-        _closeInqRefs = {}; opts.forEach(o => _closeInqRefs[o.value] = o.ref);
-        inq.innerHTML = '<option value="">' + (hasInq ? '— elegir inquiry y respuesta —' : 'No hay respuestas cargadas todavía') + '</option>' + opts.map(o => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join('');
-        inq.value = '';
+        _closeInqRefs = {}; opts.forEach(o => _closeInqRefs[o.label] = o.ref);   // se busca por el texto (label)
+        dl.innerHTML = opts.map(o => `<option value="${escapeHtml(o.label)}"></option>`).join('');
+        inq.value = ''; inq.placeholder = hasInq ? 'Escribe para filtrar…' : 'No hay respuestas cargadas todavía';
       }
     } else fields.classList.add('hidden');
     $('modalOverlay').classList.remove('hidden');
@@ -1834,9 +1834,10 @@ function askConfirm(msg, okLabel, withFields) {
       if (withFields) {
         const sku = $('modalSku').value.trim(), mes = $('modalMes').value, anio = $('modalAnio').value;
         if (!sku || !mes || !anio) { $('modalErr').textContent = 'Completa SKU, Mes y Año de cierre.'; return; }
-        const inqVal = $('modalInquiry') ? $('modalInquiry').value : '';
-        if (hasInq && !inqVal) { $('modalErr').textContent = 'Selecciona la inquiry y respuesta asociada.'; return; }
-        done({ sku, mes, anio, inquiryRef: _closeInqRefs[inqVal] || null });
+        const inqVal = $('modalInquiry') ? $('modalInquiry').value.trim() : '';
+        const inqRef = _closeInqRefs[inqVal] || null;
+        if (hasInq && !inqRef) { $('modalErr').textContent = 'Elige una inquiry+respuesta de la lista (el texto debe coincidir exactamente).'; return; }
+        done({ sku, mes, anio, inquiryRef: inqRef });
       } else done(true);
     };
     $('modalCancel').onclick = () => done(false);
@@ -2356,7 +2357,7 @@ function paintResearch() {
   const oppCell = x => { const s = oppScore(x, ref); if (s == null) return '<td style="text-align:center" class="muted" title="Sin P2: corre el análisis para obtener el score">–</td>'; const col = s >= 66 ? 'var(--good)' : s >= 40 ? 'var(--mid)' : 'var(--bad)'; return `<td style="text-align:center;font-weight:800;color:${col}" title="Opportunity Score 0-100">${s}</td>`; };
   const sortVal = x => { switch (_researchSort.key) { case 'prio': return ({ alta: 3, media: 2, baja: 1 })[x.prioridad] || 0; case 'opp': { const s = oppScore(x, ref); return s == null ? -1 : s; } case 'yoy': { const y = yoy12(x.serie); return y == null ? -1e9 : y; } case 'ticket': return parseFloat(x.ticket) || 0; case 'comp': return parseFloat(x.competidores) || 0; case 'cuota': return researchCuota(x) || 0; default: return parseFloat(x.ventasGmv) || 0; } };
   const met = _resMetricsCollapsed;
-  const routeCell = x => { const p = _catPathCache[x.id]; if (p && p.length) { const t = p.join(' > '); return `<td style="font-size:11px;color:var(--muted)" title="${escapeHtml(t)}">${escapeHtml(t)}</td>`; } const fb = [x.l1, x.leaf].filter(Boolean).join(' > '); return `<td style="font-size:11px;color:var(--faint)" title="Resolviendo ruta…">${escapeHtml(fb)}</td>`; };
+  const routeCell = x => { const p = _catPathCache[x.id]; const resolved = !!(p && p.length); const full = resolved ? p.join(' > ') : [x.l1, x.leaf].filter(Boolean).join(' > '); const disp = full.length > 80 ? full.slice(0, 80) + '…' : full; return `<td style="font-size:11px;color:${resolved ? 'var(--muted)' : 'var(--faint)'};white-space:nowrap" title="${escapeHtml(full)}">${escapeHtml(disp)}</td>`; };
   const sortedAll = filtered.slice().sort((a, b) => _researchSort.dir * (sortVal(a) - sortVal(b)));
   const shown = capped ? sortedAll.slice(0, RESEARCH_ROW_CAP) : sortedAll;
   const rows = shown.map(x => {
@@ -2434,7 +2435,8 @@ function openResearchDetail(item) {
   const rDay = new Date().toISOString().slice(0, 10);
   const rankUrl = 'https://app.nubimetrics.com/market/sellerranking#?category=' + catPath + '&range=' + rDay;
   $('rdRanking').href = rankUrl;
-  $('rdTrends').href = rankUrl;
+  // "Lo más buscado del mes" → landing de Tendencias (bytrends) con el id de la categoría HOJA.
+  $('rdTrends').href = 'https://app.nubimetrics.com/market/bytrends#?category=' + (item.id || '');
   document.querySelectorAll('.rd-mbtn').forEach(b => b.classList.toggle('active', b.dataset.metric === 'gmv'));
   populateRdRange(item);
   renderRdChart();
