@@ -3412,8 +3412,12 @@ function init() {
   { const o = $('trackLinksOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
   // Cotizaciones (inquiries)
   { const b = $('btnCotizNew'); if (b) b.onclick = () => openQuoteGen(null); }
-  { const b = $('btnCotizImport'); if (b) b.onclick = () => $('cotizFile').click(); }
-  { const fi = $('cotizFile'); if (fi) fi.addEventListener('change', e => { const f = e.target.files[0]; if (f) cotizImport(f); e.target.value = ''; }); }
+  { const b = $('btnCotizNoInq'); if (b) b.onclick = openCotizNoInquiry; }
+  { const b = $('cotizNoInqClose'); if (b) b.onclick = () => $('cotizNoInqOverlay').classList.add('hidden'); }
+  { const b = $('cotizNoInqCancel'); if (b) b.onclick = () => $('cotizNoInqOverlay').classList.add('hidden'); }
+  { const b = $('cotizNoInqGo'); if (b) b.onclick = cotizNoInquiryGo; }
+  { const o = $('cotizNoInqOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
+  { const fi = $('cotizFile'); if (fi) fi.addEventListener('change', e => { const f = e.target.files[0]; if (f && _cotizImportTargetId) cotizImportForId(_cotizImportTargetId, f); e.target.value = ''; _cotizImportTargetId = null; }); }
   { const b = $('supUpClose'); if (b) b.onclick = () => $('supUploadOverlay').classList.add('hidden'); }
   { const b = $('supUpCancel'); if (b) b.onclick = () => $('supUploadOverlay').classList.add('hidden'); }
   { const o = $('supUploadOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
@@ -3554,7 +3558,7 @@ function paintCotiz() {
   if (pf) filtered = filtered.filter(c => (c.supplierQuotes || []).some(s => String(s.providerId) === String(pf)));   // solo inquiries con respuesta de ese proveedor
   $('cotizCount').textContent = ((q || pf) ? filtered.length + '/' + all.length : all.length) + ' cotización' + ((q || pf ? filtered.length : all.length) === 1 ? '' : 'es');
   const wrap = $('cotizDbWrap');
-  if (!all.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Aún no hay cotizaciones. Crea una con “Generar nueva cotización”.</p>'; return; }
+  if (!all.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Aún no hay cotizaciones. Crea una con “Generar nueva inquiry”.</p>'; return; }
   if (!filtered.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Sin resultados para “' + escapeHtml($('cotizFilter').value) + '”.</p>'; return; }
   const ym = ts => { if (!ts) return '—'; const d = new Date(ts); return d.getFullYear() + '/' + String(d.getMonth() + 1).padStart(2, '0'); };
   const at = s => escapeHtml(s || '').replace(/"/g, '&quot;');
@@ -3575,7 +3579,7 @@ function paintCotiz() {
       <td style="white-space:nowrap">${ym(c.ts)}</td>
       <td>${estadoCellHtml}</td>
       <td style="white-space:nowrap">N-${c.num != null ? c.num : '—'}</td>
-      <td style="white-space:nowrap"><a href="#" class="cotiz-inq" data-id="${escapeHtml(c.id)}" style="color:#7db0ff;text-decoration:underline">Inquiry</a> · <a href="#" class="cotiz-edit" data-id="${escapeHtml(c.id)}" style="color:var(--muted);font-size:11px">editar</a></td>
+      <td style="white-space:nowrap">${c.noInquiry ? '<span class="muted" style="font-size:11px">—</span>' : `<a href="#" class="cotiz-inq" data-id="${escapeHtml(c.id)}" style="color:#7db0ff;text-decoration:underline">Inquiry</a> · <a href="#" class="cotiz-edit" data-id="${escapeHtml(c.id)}" style="color:var(--muted);font-size:11px">editar</a> · <a href="#" class="cotiz-imp" data-id="${escapeHtml(c.id)}" style="color:var(--muted);font-size:11px" title="Sube el Excel editado por el equipo para reemplazar los datos de esta inquiry">Importar excel editado</a>`}</td>
       <td><div class="cotiz-sq-wrap">${sq}<button class="btn ghost cotiz-sq-add" data-id="${escapeHtml(c.id)}" type="button" style="padding:2px 9px;font-size:11px">＋ Subir</button></div></td>
       <td style="white-space:nowrap">${(c.supplierQuotes || []).length >= 2 ? `<button class="btn ghost cotiz-cmp" data-id="${escapeHtml(c.id)}" type="button" style="padding:3px 10px;font-size:11px">Comparar</button>` : '<span class="muted" style="font-size:11px">—</span>'}</td>
       <td><input class="cotiz-remark" data-id="${escapeHtml(c.id)}" value="${at(c.remark)}" placeholder="—"></td>
@@ -3589,6 +3593,7 @@ function paintCotiz() {
   wrap.querySelectorAll('.cotiz-remark').forEach(el => el.onchange = () => cotizPatch(el.dataset.id, { remark: el.value }));
   wrap.querySelectorAll('.cotiz-inq').forEach(a => a.onclick = e => { e.preventDefault(); cotizExport(a.dataset.id); });
   wrap.querySelectorAll('.cotiz-edit').forEach(a => a.onclick = e => { e.preventDefault(); openQuoteGen(a.dataset.id); });
+  wrap.querySelectorAll('.cotiz-imp').forEach(a => a.onclick = e => { e.preventDefault(); _cotizImportTargetId = a.dataset.id; $('cotizFile').click(); });
   wrap.querySelectorAll('.cotiz-del').forEach(b => b.onclick = () => cotizDelete(b.dataset.id));
   wrap.querySelectorAll('.cotiz-sq-add').forEach(b => b.onclick = () => cotizSupplierUpload(b.dataset.id));
   wrap.querySelectorAll('.cotiz-cmp').forEach(b => b.onclick = () => openCotizCompare(b.dataset.id));
@@ -3873,30 +3878,14 @@ async function cotizDelete(id) {
 
 // Reemplaza una cotización con el Excel editado por el equipo. Matchea por NOMBRE exacto
 // (nombre del archivo = nombre de la cotización) y conserva las fotos de cada producto por su código.
-async function cotizImport(file) {
-  const nm = file.name.replace(/\.xlsx?$/i, '').trim();
-  if (!_cotizLoaded) await cotizLoad();
-  const c = _cotizAll.find(x => (x.name || '').trim() === nm);
-  if (!c) {
-    alert('No hay ninguna cotización guardada con el nombre exacto:\n\n“' + nm + '”\n\nEl nombre del archivo debe coincidir EXACTO con el de la cotización (ej: «Inquiry N-552 - Guitarra Eléctrica.xlsx»).\nSi al descargar el navegador le agregó «(1)», quítalo antes de subir.');
-    return;
-  }
-  let rows;
-  try {
-    await loadXLSX();
-    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-  } catch (e) { alert('No se pudo leer el Excel: ' + (e.message || e)); return; }
-  // Cabecera en filas 1-2 → datos desde la fila 3 (índice 2). Columnas 0-based del template:
-  // 0 Código · 1 foto · 2 desc EN · 3 desc ES · 4 logo · 5 packaging · 6 extras · 7 qty · 8 USD FOB · 9 Yuan FOB · 10 peso · 11 H · 12 L · 13 W · 14 PCS/CTN · 15 CBM · 16 link
+// Convierte el arreglo 2D (Excel/CSV, template 17 cols) en filas de cotización, conservando fotos por código.
+function cotizRowsFrom2D(rows, byCode) {
   const s = v => (v == null ? '' : String(v)).trim();
-  const byCode = {}; (c.rows || []).forEach(r => { if (r.code) byCode[r.code] = r; });
-  const dataRows = rows.slice(2).filter(r => r && (s(r[0]) || s(r[2]) || s(r[3])));
-  if (!dataRows.length) { alert('El Excel no tiene filas de productos. Usa el archivo generado por la app (con la fila de códigos).'); return; }
+  // Cabecera en filas 1-2 → datos desde la fila 3 (índice 2). 0 Código·2 desc EN·3 desc ES·4 logo·5 pack·6 extras·7 qty·8 FOB USD·9 Yuan·10 peso·11 H·12 L·13 W·14 PCS/CTN·15 CBM·16 link
+  const dataRows = (rows || []).slice(2).filter(r => r && (s(r[0]) || s(r[2]) || s(r[3])));
   const newRows = dataRows.map(r => {
     const code = s(r[0]);
-    const base = (code && byCode[code]) ? byCode[code] : qgBlankRow();   // conserva fotos del producto por su código
+    const base = (code && byCode && byCode[code]) ? byCode[code] : qgBlankRow();
     return Object.assign({}, base, {
       code: code || base.code,
       description: s(r[2]), descripcionEs: s(r[3]), logo: s(r[4]), packaging: s(r[5]), extras: s(r[6]),
@@ -3905,6 +3894,23 @@ async function cotizImport(file) {
       sourceLink: s(r[16]) || base.sourceLink || ''
     });
   });
+  return { dataRows, newRows };
+}
+// Importa el Excel editado a UNA inquiry concreta (id conocido, sin match por nombre de archivo).
+let _cotizImportTargetId = null;
+async function cotizImportForId(id, file) {
+  const c = _cotizAll.find(x => x.id === id);
+  if (!c) { alert('No se encontró la cotización.'); return; }
+  let rows;
+  try {
+    await loadXLSX();
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+  } catch (e) { alert('No se pudo leer el Excel: ' + (e.message || e)); return; }
+  const byCode = {}; (c.rows || []).forEach(r => { if (r.code) byCode[r.code] = r; });
+  const { newRows } = cotizRowsFrom2D(rows, byCode);
+  if (!newRows.length) { alert('El Excel no tiene filas de productos. Usa el archivo generado por la app (con la fila de códigos).'); return; }
   const rec = Object.assign({}, c, { rows: newRows });
   try {
     const rr = await fetch(api('/api/quotes'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(rec) });
@@ -3913,7 +3919,41 @@ async function cotizImport(file) {
     const idx = _cotizAll.findIndex(x => x.id === saved.id); if (idx >= 0) _cotizAll[idx] = saved; else _cotizAll.push(saved);
   } catch (e) { alert('Error guardando: ' + (e.message || e)); return; }
   paintCotiz();
-  alert('✔ Cotización “' + nm + '” actualizada con ' + newRows.length + ' producto(s).');
+  alert('✔ Cotización “' + (c.name || '') + '” actualizada con ' + newRows.length + ' producto(s).');
+}
+// Importa una cotización YA LLENA desde un link de Google Sheets, SIN inquiry (columna Inquiry vacía). El server asigna el N°.
+function openCotizNoInquiry() {
+  $('cotizNoInqName').value = ''; $('cotizNoInqLink').value = ''; $('cotizNoInqStatus').textContent = '';
+  $('cotizNoInqOverlay').classList.remove('hidden');
+}
+async function cotizNoInquiryGo() {
+  const link = (($('cotizNoInqLink') || {}).value || '').trim();
+  if (!link) { $('cotizNoInqStatus').textContent = 'Pega el link del Google Sheet.'; return; }
+  $('cotizNoInqStatus').textContent = 'Leyendo…';
+  let rows;
+  try {
+    const base = api('/api/sheet-read'); const sep = base.includes('?') ? '&' : '?';
+    const r = await fetch(base + sep + 'url=' + encodeURIComponent(link));
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.error) { $('cotizNoInqStatus').textContent = 'No se pudo leer: ' + (j.error || r.status); return; }
+    await loadXLSX();
+    const wb = XLSX.read(j.csv, { type: 'string' }); const ws = wb.Sheets[wb.SheetNames[0]];
+    rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+  } catch (e) { $('cotizNoInqStatus').textContent = 'Error: ' + (e.message || e); return; }
+  const { dataRows, newRows } = cotizRowsFrom2D(rows, null);
+  if (!newRows.length) { $('cotizNoInqStatus').textContent = 'El sheet no tiene filas de productos (revisa el formato del template).'; return; }
+  const s = v => (v == null ? '' : String(v)).trim();
+  const prodName = (($('cotizNoInqName') || {}).value || '').trim() || ((s(dataRows[0][2]).split('\n')[0] || s(dataRows[0][3]).split('\n')[0] || 'Cotización importada').slice(0, 60));
+  const rec = { id: 'q' + Date.now() + Math.floor(Math.random() * 1000), prodName, rows: newRows, noInquiry: true, sheetUrl: link, ts: Date.now() };
+  $('cotizNoInqStatus').textContent = 'Guardando…';
+  try {
+    const rr = await fetch(api('/api/quotes'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(rec) });
+    if (!rr.ok) throw new Error('HTTP ' + rr.status);
+    const jj = await rr.json(); const saved = (jj && jj.item) || rec;
+    const idx = _cotizAll.findIndex(x => x.id === saved.id); if (idx >= 0) _cotizAll[idx] = saved; else _cotizAll.push(saved);
+  } catch (e) { $('cotizNoInqStatus').textContent = 'Error guardando: ' + (e.message || e); return; }
+  $('cotizNoInqOverlay').classList.add('hidden');
+  paintCotiz();
 }
 
 function openQuoteGen(id) {
