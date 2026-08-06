@@ -489,6 +489,15 @@
   <div id="tabResearch" class="hidden">
     <div class="hist-actions">
       <input type="text" id="researchFilter" class="hist-filter" placeholder="Filtrar: categoría L1 u hoja…">
+      <select id="researchEstadoFilter" class="hist-filter" style="max-width:230px" title="Filtrar por estado de investigación">
+        <option value="__activas">Activas (En análisis + En cotización)</option>
+        <option value="Por Analizar">Por Analizar</option>
+        <option value="En análisis">En análisis</option>
+        <option value="En cotización">En cotización</option>
+        <option value="Descartado">Descartado</option>
+        <option value="Cerrado">Cerrado</option>
+        <option value="__todos">Todos los estados</option>
+      </select>
       <button class="btn ghost" id="btnResearchFilter" type="button" title="Filtrar por ventas, crecimiento, ticket, cuota, canibalización y L1">Filtrar</button>
       <button class="btn ghost hidden" id="btnResearchClear" type="button" title="Quitar todos los filtros">Limpiar filtros</button>
       <button class="btn" id="btnResearchImport" type="button">Importar datos (Nubimetrics)</button>
@@ -919,6 +928,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=267100"></script>
+<script src="src/ui.js?v=267200"></script>
 </body>
 </html>

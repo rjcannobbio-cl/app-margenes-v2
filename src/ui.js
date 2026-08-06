@@ -2328,17 +2328,23 @@ function openOppBreakdown(item) {
 function paintResearch() {
   const q = normalize(($('researchFilter') && $('researchFilter').value) || '');
   const conVentas = _researchAll.filter(x => (parseFloat(x.ventasGmv) || 0) > 0);   // omite categorías con 0 ventas
-  const afFilter = researchFiltersActive() ? conVentas.filter(researchPassesFilter) : conVentas;
+  // Filtro por ESTADO (default: activas = En análisis + En cotización).
+  const ef = ($('researchEstadoFilter') && $('researchEstadoFilter').value) || '__activas';
+  const byEstado = ef === '__todos' ? conVentas
+    : ef === '__activas' ? conVentas.filter(x => estOf(x) === 'En análisis' || estOf(x) === 'En cotización')
+      : conVentas.filter(x => estOf(x) === ef);
+  const afFilter = researchFiltersActive() ? byEstado.filter(researchPassesFilter) : byEstado;
   const filtered = q ? afFilter.filter(x => normalize([x.l1, x.leaf].join(' ')).includes(q)) : afFilter;
-  const narrowed = q || researchFiltersActive();
+  const narrowed = q || researchFiltersActive() || ef !== '__todos';
   { const c = $('btnResearchClear'); if (c) c.classList.toggle('hidden', !researchFiltersActive()); }
+  const capped = filtered.length > RESEARCH_ROW_CAP;
   $('researchCount').textContent = (narrowed ? filtered.length + '/' + conVentas.length : conVentas.length) +
     ' categoría' + ((narrowed ? filtered.length : conVentas.length) === 1 ? '' : 's') + ' con ventas' +
-    (researchFiltersActive() ? ' · filtrado' : '') + (_researchBackend ? ' · compartido' : ' · solo local');
+    (narrowed ? ' · filtrado' : '') + (capped ? ' · mostrando ' + RESEARCH_ROW_CAP : '') + (_researchBackend ? ' · compartido' : ' · solo local');
   const wrap = $('researchDbWrap');
   if (!_researchAll.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Aún no hay datos. Recolecta desde Nubimetrics (script recolector) y usa “Importar datos”.</p>'; return; }
   if (!conVentas.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Ninguna categoría con ventas > 0.</p>'; return; }
-  if (!filtered.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">Sin resultados.</p>'; return; }
+  if (!filtered.length) { wrap.innerHTML = '<p class="muted" style="padding:16px">' + (ef === '__activas' ? 'No hay categorías en análisis / en cotización. Cambia el filtro de estado a “Por Analizar” para encontrar y marcar categorías.' : 'Sin resultados.') + '</p>'; return; }
   const intfmt = v => (v != null && v !== '' && !isNaN(v)) ? Math.round(v).toLocaleString('es-CL') : '–';
   // ordenar por cuota x seller descendente (categoría más atractiva primero)
   const yoyCell = x => { const y = yoy12(x.serie); if (y == null) return '<td class="mcell muted">–</td>'; const col = y >= 0 ? 'var(--good)' : 'var(--bad)'; return `<td class="mcell" style="color:${col};font-weight:600">${y >= 0 ? '+' : ''}${y.toFixed(1)}%</td>`; };
@@ -2349,8 +2355,14 @@ function paintResearch() {
   const ref = oppRef();
   const oppCell = x => { const s = oppScore(x, ref); if (s == null) return '<td style="text-align:center" class="muted" title="Sin P2: corre el análisis para obtener el score">–</td>'; const col = s >= 66 ? 'var(--good)' : s >= 40 ? 'var(--mid)' : 'var(--bad)'; return `<td style="text-align:center;font-weight:800;color:${col}" title="Opportunity Score 0-100">${s}</td>`; };
   const sortVal = x => { switch (_researchSort.key) { case 'prio': return ({ alta: 3, media: 2, baja: 1 })[x.prioridad] || 0; case 'opp': { const s = oppScore(x, ref); return s == null ? -1 : s; } case 'yoy': { const y = yoy12(x.serie); return y == null ? -1e9 : y; } case 'ticket': return parseFloat(x.ticket) || 0; case 'comp': return parseFloat(x.competidores) || 0; case 'cuota': return researchCuota(x) || 0; default: return parseFloat(x.ventasGmv) || 0; } };
-  const rows = filtered.slice().sort((a, b) => _researchSort.dir * (sortVal(a) - sortVal(b))).map(x => {
+  const met = _resMetricsCollapsed;
+  const routeCell = x => { const p = _catPathCache[x.id]; if (p && p.length) { const t = p.join(' > '); return `<td style="font-size:11px;color:var(--muted)" title="${escapeHtml(t)}">${escapeHtml(t)}</td>`; } const fb = [x.l1, x.leaf].filter(Boolean).join(' > '); return `<td style="font-size:11px;color:var(--faint)" title="Resolviendo ruta…">${escapeHtml(fb)}</td>`; };
+  const sortedAll = filtered.slice().sort((a, b) => _researchSort.dir * (sortVal(a) - sortVal(b)));
+  const shown = capped ? sortedAll.slice(0, RESEARCH_ROW_CAP) : sortedAll;
+  const rows = shown.map(x => {
     const cuota = researchCuota(x);
+    const metCells = met ? '<td class="mcell muted" title="Expande “Métricas generales”">–</td>'
+      : `<td></td><td class="mcell">${fmtCLP(x.ticket)}</td><td class="mcell">${intfmt(x.competidores)}</td><td class="mcell">${cuota != null ? fmtCLP(cuota) : '–'}</td>`;
     return `<tr data-id="${escapeHtml(x.id || '')}">
       <td>${escapeHtml(x.l1 || '')}</td>
       <td>${escapeHtml(x.leaf || '')}</td>
@@ -2361,20 +2373,50 @@ function paintResearch() {
       ${canibCell(x)}
       <td class="mcell">${fmtCLP(x.ventasGmv)}</td>
       ${yoyCell(x)}
-      <td class="mcell">${fmtCLP(x.ticket)}</td>
-      <td class="mcell">${intfmt(x.competidores)}</td>
-      <td class="mcell">${cuota != null ? fmtCLP(cuota) : '–'}</td>
+      ${metCells}
+      ${routeCell(x)}
     </tr>`; }).join('');
   const arrow = k => _researchSort.key === k ? `<span style="color:var(--accent)">${_researchSort.dir === -1 ? ' ▼' : ' ▲'}</span>` : ' <span style="opacity:.35;font-size:10px">⇅</span>';
+  const metHead = met
+    ? '<th class="res-metgrp" data-nosort style="cursor:pointer" title="Expandir: Ticket medio, Vendedores, Cuota x seller">Métricas generales ▸</th>'
+    : '<th class="res-metgrp" data-nosort style="cursor:pointer" title="Colapsar métricas generales">▾</th><th data-sort="ticket" style="cursor:pointer">Ticket medio (12m)' + arrow('ticket') + '</th><th data-sort="comp" style="cursor:pointer" title="Cantidad de vendedores profesionales (12m). Clic para ordenar.">Vendedores' + arrow('comp') + '</th><th data-sort="cuota" style="cursor:pointer">Cuota x seller' + arrow('cuota') + '</th>';
   wrap.innerHTML = `<table class="histtab dbtab restab-compact" style="min-width:1140px"><thead><tr>
-    <th>Categoría L1</th><th>Categoría hoja</th><th data-sort="prio" style="cursor:pointer" title="Prioridad de investigación que define el equipo (editable). Clic para ordenar (mayor a menor).">Prioridad${arrow('prio')}</th><th title="Estado de la investigación (editable)">Estado</th><th data-sort="opp" style="cursor:pointer" title="Opportunity Score 0-100 (solo con P2): diferenciabilidad IA 35% + tamaño + competencia (menos vendedores) + crecimiento + ticket + estacionalidad. Clic para ordenar.">Opportunity${arrow('opp')}</th><th title="Categorías con análisis P2 guardado">P2</th><th title="Categorías donde ET Brands ya tiene productos publicados">Canibalización</th><th data-sort="gmv" style="cursor:pointer">Ventas prom (GMV, 12m)${arrow('gmv')}</th><th data-sort="yoy" style="cursor:pointer" title="Crecimiento del GMV: últimos 12 meses vs los 12 previos. Clic para ordenar.">Crec. YoY (12m)${arrow('yoy')}</th><th data-sort="ticket" style="cursor:pointer">Ticket medio (12m)${arrow('ticket')}</th><th data-sort="comp" style="cursor:pointer" title="Cantidad de vendedores profesionales (12m). Clic para ordenar.">Vendedores${arrow('comp')}</th><th data-sort="cuota" style="cursor:pointer">Cuota x seller${arrow('cuota')}</th>
+    <th>Categoría L1</th><th>Categoría hoja</th><th data-sort="prio" style="cursor:pointer" title="Prioridad de investigación que define el equipo (editable). Clic para ordenar (mayor a menor).">Prioridad${arrow('prio')}</th><th title="Estado de la investigación (editable)">Estado</th><th data-sort="opp" style="cursor:pointer" title="Opportunity Score 0-100 (solo con P2): diferenciabilidad IA 35% + tamaño + competencia (menos vendedores) + crecimiento + ticket + estacionalidad. Clic para ordenar.">Opportunity${arrow('opp')}</th><th title="Categorías con análisis P2 guardado">P2</th><th title="Categorías donde ET Brands ya tiene productos publicados">Canibalización</th><th data-sort="gmv" style="cursor:pointer">Ventas prom (GMV, 12m)${arrow('gmv')}</th><th data-sort="yoy" style="cursor:pointer" title="Crecimiento del GMV: últimos 12 meses vs los 12 previos. Clic para ordenar.">Crec. YoY (12m)${arrow('yoy')}</th>${metHead}<th>Ruta completa</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
   wrap.querySelectorAll('th[data-sort]').forEach(th => { th.onclick = () => { const k = th.dataset.sort; if (_researchSort.key === k) _researchSort.dir *= -1; else { _researchSort.key = k; _researchSort.dir = -1; } paintResearch(); }; });
+  { const g = wrap.querySelector('.res-metgrp'); if (g) g.onclick = () => { _resMetricsCollapsed = !_resMetricsCollapsed; paintResearch(); }; }
+  resolveCatPaths(shown.slice(0, 80).map(x => x.id));   // resuelve la ruta de las primeras filas visibles (cacheado; el resto usa L1 > hoja)
   wrap.querySelectorAll('select.research-prio').forEach(sel => { sel.onclick = e => e.stopPropagation(); sel.onchange = () => { const item = _researchAll.find(x => x.id === sel.dataset.id); if (item) { item.prioridad = sel.value; researchSavePrio(); paintResearch(); } }; });
   wrap.querySelectorAll('select.research-estado').forEach(sel => { sel.onclick = e => e.stopPropagation(); sel.onchange = () => { const item = _researchAll.find(x => x.id === sel.dataset.id); if (item) { item.estadoInv = sel.value; researchSavePrio(); } }; });
   wrap.querySelectorAll('tbody tr[data-id]').forEach(tr => { tr.title = 'Clic para ver el reporte de la categoría'; tr.onclick = () => openResearchDetail(_researchAll.find(x => x.id === tr.dataset.id)); });
 }
 const INV_ESTADOS = ['Por Analizar', 'En análisis', 'En cotización', 'Descartado', 'Cerrado'];
+const estOf = x => x.estadoInv || 'Por Analizar';   // estado efectivo (vacío = Por Analizar)
+let _resMetricsCollapsed = true;                     // "Métricas generales" colapsadas por defecto
+const RESEARCH_ROW_CAP = 800;                        // tope de filas renderizadas (evita que se pegue con miles)
+// Ruta completa de categoría (breadcrumb de ML), resuelta bajo demanda y cacheada (localStorage).
+let _catPathCache = {};
+try { _catPathCache = JSON.parse(localStorage.getItem('catpaths') || '{}'); } catch (e) { _catPathCache = {}; }
+function catPathSave() { try { localStorage.setItem('catpaths', JSON.stringify(_catPathCache)); } catch (e) {} }
+let _catPathBusy = false;
+async function resolveCatPaths(ids) {
+  if (_catPathBusy) return;
+  const miss = [...new Set(ids.filter(id => id && !_catPathCache[id]))];
+  if (!miss.length) return;
+  _catPathBusy = true; let changed = false;
+  for (let i = 0; i < miss.length; i += 6) {
+    await Promise.all(miss.slice(i, i + 6).map(async id => {
+      try {
+        const r = await fetch(api('/api/ml'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: '/categories/' + id, query: {} }) });
+        const j = await r.json().catch(() => ({})); const b = j && (j.body != null ? j.body : j);
+        const pfr = b && b.path_from_root;
+        if (pfr && pfr.length) { _catPathCache[id] = pfr.map(p => p.name); changed = true; }
+      } catch (e) {}
+    }));
+  }
+  _catPathBusy = false;
+  if (changed) { catPathSave(); paintResearch(); }
+}
 let _resPrioT = null;
 function researchSavePrio() { clearTimeout(_resPrioT); _resPrioT = setTimeout(() => { researchReplace(_researchAll).catch(() => {}); }, 600); }
 
@@ -3418,6 +3460,7 @@ function init() {
   $('btnResearchImport').onclick = () => $('researchFile').click();
   $('researchFile').addEventListener('change', e => { const f = e.target.files[0]; if (f) importResearchJSON(f); e.target.value = ''; });
   $('researchFilter').addEventListener('input', debounce(paintResearch, 200));
+  { const s = $('researchEstadoFilter'); if (s) s.onchange = paintResearch; }
   // Seguimiento de productos nuevos
   { const b = $('btnTrackRefreshProducts'); if (b) b.onclick = trackRefreshProducts; }
   { const b = $('btnTrackRefreshMetrics'); if (b) b.onclick = () => trackRefreshAll(false); }
