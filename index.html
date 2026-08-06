@@ -672,7 +672,11 @@
       <button class="mini" id="supUpClose" type="button" title="Cerrar">✕</button>
     </div>
     <div class="row2" style="margin-bottom:6px">
-      <div><label>Proveedor</label><select id="supUpProvider" style="width:100%"></select></div>
+      <div><label>Proveedor</label>
+        <select id="supUpProvider" style="width:100%"></select>
+        <input type="text" id="supUpNewProv" placeholder="Nombre del nuevo proveedor" style="display:none;width:100%;box-sizing:border-box">
+        <a href="#" id="supUpProvBack" style="display:none;font-size:11px;color:var(--muted)">← elegir de la lista</a>
+      </div>
       <div><label>N° de respuesta de este proveedor</label><select id="supUpRespNum" style="width:100%"></select></div>
     </div>
     <div style="margin-bottom:6px"><label>Link de Google Sheets (respuesta del proveedor, mismo formato del template)</label>
@@ -892,6 +896,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=266800"></script>
+<script src="src/ui.js?v=266900"></script>
 </body>
 </html>

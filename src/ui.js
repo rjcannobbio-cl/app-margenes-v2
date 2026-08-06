@@ -3531,13 +3531,19 @@ async function renderCotiz() {
 }
 async function cotizLoad() { try { const j = await (await fetch(api('/api/quotes'))).json(); _cotizAll = Array.isArray(j) ? j : []; } catch (e) { _cotizAll = []; } }
 
-const COTIZ_ESTADOS = ['Cotización pendiente de revisión', 'Esperando respuesta', 'Respuesta a proveedor pendiente', 'En proceso de cierre', 'Factura finalizada', 'Descartado'];
+const COTIZ_ESTADOS = ['Pendiente de aprobación', 'Cotización pendiente de revisión', 'Esperando respuesta', 'Respuesta a proveedor pendiente', 'En proceso de cierre', 'Factura finalizada', 'Descartado'];
 
 function cotizPopulateProvFilter() {
-  const sel = $('cotizProvFilter'); if (!sel || !_pgProviders.length || sel._filled) return;
+  const sel = $('cotizProvFilter'); if (!sel) return;
   const cur = sel.value;
-  sel.innerHTML = '<option value="">Todos los proveedores</option>' + _pgProviders.map(p => `<option value="${escapeHtml(String(p.id))}">${escapeHtml(p.name)}</option>`).join('');
-  sel.value = cur; sel._filled = true;
+  const map = new Map();
+  _pgProviders.concat(_customProviders).forEach(p => map.set(String(p.id), p.name));
+  // incluye proveedores (custom) que ya aparecen en respuestas, por si aún no se cargaron
+  (_cotizAll || []).forEach(c => (c.supplierQuotes || []).forEach(s => { if (s.providerId != null && !map.has(String(s.providerId))) map.set(String(s.providerId), s.provider || s.label || String(s.providerId)); }));
+  const list = [...map.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'es'));
+  if (!list.length) return;
+  sel.innerHTML = '<option value="">Todos los proveedores</option>' + list.map(p => `<option value="${escapeHtml(String(p.id))}">${escapeHtml(p.name)}</option>`).join('');
+  sel.value = cur;
 }
 function paintCotiz() {
   cotizPopulateProvFilter();
@@ -3609,16 +3615,47 @@ function cotizExport(id) {
 // Proveedores de ProfitGuard (para dropdowns/filtro), cacheados.
 let _pgProviders = [], _pgProvidersLoaded = false;
 async function pgProvidersLoad() { if (_pgProvidersLoaded) return; try { const j = await (await fetch(api('/api/pg-providers'))).json(); _pgProviders = (j && j.providers) || []; _pgProvidersLoaded = true; if (typeof cotizPopulateProvFilter === 'function') cotizPopulateProvFilter(); } catch (e) {} }
+// Proveedores agregados a mano (se guardan en KV y aparecen en el dropdown para futuras respuestas).
+let _customProviders = [];
+async function customProvidersLoad() { try { const j = await (await fetch(api('/api/custom-providers'))).json(); _customProviders = (j && j.providers) || []; } catch (e) { _customProviders = []; } }
+function findProvider(pid) { return _pgProviders.concat(_customProviders).find(p => String(p.id) === String(pid)); }
+function supUpProviderOptions() {
+  const seen = new Set(), uniq = [];
+  _pgProviders.concat(_customProviders).forEach(p => { const k = String(p.id); if (!seen.has(k)) { seen.add(k); uniq.push(p); } });
+  uniq.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'es'));
+  return '<option value="">— elegir proveedor —</option>' + uniq.map(p => `<option value="${escapeHtml(String(p.id))}">${escapeHtml(p.name)}</option>`).join('') + '<option value="__add__">＋ Agregar proveedor…</option>';
+}
+function supUpProviderChange() {
+  const sel = $('supUpProvider');
+  if (sel.value === '__add__') {   // transforma el campo en texto plano
+    sel.style.display = 'none';
+    { const np = $('supUpNewProv'); if (np) { np.style.display = ''; np.focus(); } }
+    { const bk = $('supUpProvBack'); if (bk) bk.style.display = ''; }
+  }
+  supUpUpdateRespNum();
+}
+function supUpProviderBack(e) {
+  if (e) e.preventDefault();
+  { const sel = $('supUpProvider'); if (sel) { sel.style.display = ''; sel.value = ''; } }
+  { const np = $('supUpNewProv'); if (np) { np.style.display = 'none'; np.value = ''; } }
+  { const bk = $('supUpProvBack'); if (bk) bk.style.display = 'none'; }
+  supUpUpdateRespNum();
+}
 
 // Subir respuesta de proveedor: abre el modal con dropdown de proveedor (de PG) + numeración de respuesta.
 let _supUpCotizId = null;
-function cotizSupplierUpload(id) {
+async function cotizSupplierUpload(id) {
   const c = _cotizAll.find(x => x.id === id); if (!c) return;
   _supUpCotizId = id;
   $('supUpInquiry').textContent = c.name || '';
-  const sel = $('supUpProvider');
-  sel.innerHTML = '<option value="">— elegir proveedor —</option>' + _pgProviders.map(p => `<option value="${escapeHtml(String(p.id))}">${escapeHtml(p.name)}</option>`).join('');
-  sel.onchange = supUpUpdateRespNum;
+  // resetea el modo "agregar proveedor"
+  { const np = $('supUpNewProv'); if (np) { np.style.display = 'none'; np.value = ''; } }
+  { const bk = $('supUpProvBack'); if (bk) bk.style.display = 'none'; }
+  { const bk = $('supUpProvBack'); if (bk) bk.onclick = supUpProviderBack; }
+  const sel = $('supUpProvider'); sel.style.display = '';
+  await customProvidersLoad();
+  sel.innerHTML = supUpProviderOptions();
+  sel.onchange = supUpProviderChange;
   // N° de respuesta = lo elige el usuario (1..10)
   { const rn = $('supUpRespNum'); if (rn) { rn.innerHTML = Array.from({ length: 10 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join(''); rn.value = '1'; } }
   $('supUpStatus').textContent = '';
@@ -3630,12 +3667,18 @@ function cotizSupplierUpload(id) {
 }
 function supUpUpdateRespNum() {
   const c = _cotizAll.find(x => x.id === _supUpCotizId); if (!c) return;
+  const np = $('supUpNewProv'); const addMode = np && np.style.display !== 'none';
+  if (addMode) {   // proveedor nuevo → no hay respuestas previas
+    { const rn = $('supUpRespNum'); if (rn) rn.value = '1'; }
+    { const h = $('supUpRespHint'); if (h) h.textContent = 'Proveedor nuevo — se guardará para futuras respuestas.'; }
+    return;
+  }
   const pid = $('supUpProvider').value;
-  const provName = pid ? ((_pgProviders.find(p => String(p.id) === String(pid)) || {}).name || '') : '';
-  const yaTiene = pid ? (c.supplierQuotes || []).filter(s => String(s.providerId) === String(pid)).length : 0;
+  const provName = (pid && pid !== '__add__') ? ((findProvider(pid) || {}).name || '') : '';
+  const yaTiene = (pid && pid !== '__add__') ? (c.supplierQuotes || []).filter(s => String(s.providerId) === String(pid)).length : 0;
   // sugiere el siguiente número como default, pero el usuario puede cambiarlo
-  { const rn = $('supUpRespNum'); if (rn && pid) rn.value = String(Math.min(yaTiene + 1, 10)); }
-  { const h = $('supUpRespHint'); if (h) h.textContent = pid ? (provName + ' ya tiene ' + yaTiene + ' respuesta(s) cargada(s) para este inquiry. Indica el N° de esta respuesta.') : ''; }
+  { const rn = $('supUpRespNum'); if (rn && pid && pid !== '__add__') rn.value = String(Math.min(yaTiene + 1, 10)); }
+  { const h = $('supUpRespHint'); if (h) h.textContent = (pid && pid !== '__add__') ? (provName + ' ya tiene ' + yaTiene + ' respuesta(s) cargada(s) para este inquiry. Indica el N° de esta respuesta.') : ''; }
 }
 // Lee la respuesta del proveedor desde un link de Google Sheets (mismo formato) vía el proxy /api/sheet-read.
 let _supUpParsed = null, _supUpSourceLink = '';
@@ -3689,11 +3732,25 @@ function supUpBuildPreview(rows) {
 }
 async function supUpConfirm() {
   const c = _cotizAll.find(x => x.id === _supUpCotizId); if (!c) return;
-  const pid = $('supUpProvider').value;
-  if (!pid) { $('supUpStatus').textContent = 'Elige el proveedor.'; return; }
   if (!_supUpParsed || !_supUpParsed.length) { $('supUpStatus').textContent = 'Lee el link de Google Sheets con la respuesta.'; return; }
   if (!_supUpSourceLink) { $('supUpStatus').textContent = 'Falta el link de Google Sheets.'; return; }
-  const provName = (_pgProviders.find(p => String(p.id) === String(pid)) || {}).name || ('#' + pid);
+  const np = $('supUpNewProv'); const addMode = np && np.style.display !== 'none';
+  let pid, provName;
+  if (addMode) {   // proveedor nuevo → se guarda en KV y queda en el dropdown a futuro
+    const name = (np.value || '').trim();
+    if (!name) { $('supUpStatus').textContent = 'Escribe el nombre del proveedor.'; np.focus(); return; }
+    $('supUpStatus').textContent = 'Guardando proveedor…';
+    try {
+      const r = await fetch(api('/api/custom-providers'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.provider) { $('supUpStatus').textContent = 'No se pudo guardar el proveedor: ' + (j.error || r.status); return; }
+      pid = j.provider.id; provName = j.provider.name; _customProviders = j.providers || _customProviders;
+    } catch (e) { $('supUpStatus').textContent = 'Error de red al guardar el proveedor.'; return; }
+  } else {
+    pid = $('supUpProvider').value;
+    if (!pid || pid === '__add__') { $('supUpStatus').textContent = 'Elige el proveedor.'; return; }
+    provName = (findProvider(pid) || {}).name || ('#' + pid);
+  }
   const respNum = Math.max(1, parseInt(($('supUpRespNum') || {}).value) || 1);   // lo elige el usuario
   const rows = _supUpParsed.map(r => ({ code: r.code, quantity: '', usdFob: r.usdFob, yuanFob: r.yuanFob, weight: r.weight, boxH: r.boxH, boxL: r.boxL, boxW: r.boxW, pcsCtn: r.pcsCtn, cbm: r.cbm }));
   const sq = { id: 'sq' + Date.now() + Math.floor(Math.random() * 1000), providerId: pid, provider: provName, respNum, label: provName, fileName: 'Google Sheet', sheetUrl: _supUpSourceLink, ts: Date.now(), rows };
