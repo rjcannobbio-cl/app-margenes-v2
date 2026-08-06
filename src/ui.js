@@ -2629,6 +2629,25 @@ async function computeP2Report(item, onProgress) {
     });
     reviews = revs.filter(Boolean);
   }
+  // Vendedores que se REPITEN en el top: dueño de la publicación ganadora de cada producto top.
+  let topSellers = [];
+  if (products.length) {
+    log('Buscando vendedores que se repiten en el top…');
+    const cnt = {}, meta = {};
+    await p2MapLimit(products, 5, async p => {
+      try {
+        const its = await mlGet('/products/' + p.id + '/items');
+        const win = ((its && its.results) || [])[0]; if (!win || !win.seller_id) return;
+        const sid = win.seller_id; cnt[sid] = (cnt[sid] || 0) + 1; (meta[sid] = meta[sid] || []).push(p.pos);
+      } catch (e) {}
+    });
+    const rep = Object.keys(cnt).filter(sid => cnt[sid] >= 2).sort((a, b) => cnt[b] - cnt[a]);
+    topSellers = await p2MapLimit(rep, 5, async sid => {
+      let nickname = null, permalink = null;
+      try { const u = await mlGet('/users/' + sid); nickname = u && u.nickname; permalink = u && u.permalink; } catch (e) {}
+      return { id: sid, count: cnt[sid], nickname, permalink, positions: (meta[sid] || []).sort((a, b) => a - b) };
+    });
+  }
   log('Buscando tu catálogo propio en ProfitGuard…');
   const own = await p2OwnGet(item);
   // Enriquecer TUS productos con 2 fotos + ficha real de su publicación ML (para el análisis con visión).
@@ -2646,7 +2665,7 @@ async function computeP2Report(item, onProgress) {
   // Análisis con VISIÓN (fotos de top + propios). Si falla, cae al análisis de solo texto.
   let ai = await p2VisionAI(item, stats, products, reviews, own).catch(e => ({ _err: String(e.message || e) }));
   if (ai && ai._err) ai = await p2AI(item, stats, products, reviews, own).catch(e => ({ _err: String(e.message || e) }));
-  return { v: 1, cat: { l1: item.l1, leaf: item.leaf, id: item.id, path: item.path }, stats, products, reviews, own, ai, rankUrl: p2RankUrl(item) };
+  return { v: 1, cat: { l1: item.l1, leaf: item.leaf, id: item.id, path: item.path }, stats, products, reviews, topSellers, own, ai, rankUrl: p2RankUrl(item) };
 }
 // Deriva un término de búsqueda del nombre de la hoja (singular) y trae el catálogo propio de PG.
 function p2OwnQuery(leaf) { const w = (leaf || '').trim().split(/\s+/)[0]; if (w.length < 3) return ''; return w.endsWith('es') ? w.slice(0, -2) : (w.endsWith('s') ? w.slice(0, -1) : w); }
@@ -3012,6 +3031,7 @@ function p2LinkFinal(id) {
     <input type="text" id="p2FinalInput" value="${escapeHtml(cur).replace(/"/g, '&quot;')}" placeholder="Pega el link de Drive del P2 final" style="min-width:240px;font-size:12px;padding:6px 8px;background:var(--input);border:1px solid var(--line);border-radius:6px;color:var(--ink)">
     <button class="btn" style="font-size:12px;padding:5px 12px" onclick="p2LinkFinalSave('${escapeHtml(id)}')">Guardar</button>
     <button class="btn ghost" style="font-size:12px;padding:5px 12px" onclick="p2LinkFinalCancel()">Cancelar</button>
+    ${cur ? `<button class="btn ghost" style="font-size:12px;padding:5px 12px;border-color:var(--bad);color:var(--bad)" onclick="p2LinkFinalClear('${escapeHtml(id)}')" title="Borrar el link">Quitar</button>` : ''}
   </div>`;
   const inp = $('p2FinalInput'); if (inp) inp.focus();
 }
@@ -3023,6 +3043,11 @@ function p2LinkFinalSave(id) {
   renderP2(_p2Report, _p2Item, _p2Ts);
 }
 function p2LinkFinalCancel() { renderP2(_p2Report, _p2Item, _p2Ts); }
+function p2LinkFinalClear(id) {
+  const item = (_researchAll || []).find(x => x.id === id) || _p2Item;
+  if (item) { item.p2FinalLink = ''; if (_p2Item) _p2Item.p2FinalLink = ''; researchSavePrio(); }
+  renderP2(_p2Report, _p2Item, _p2Ts);
+}
 
 function renderP2(report, item, ts) {
   _p2Report = report; _p2Ts = ts; _p2Item = item;
@@ -3077,7 +3102,7 @@ function renderP2(report, item, ts) {
   const updStr = ts ? new Date(ts).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
   const pf = (item.p2FinalLink || '').trim();
   const p2FinalBtn = pf
-    ? `<a class="btn ghost" style="font-size:12px;padding:7px 13px;text-decoration:none;display:inline-block" href="${esc(pf)}" target="_blank" rel="noopener">📄 Ver P2 final ↗</a>`
+    ? `<a class="btn ghost" style="font-size:12px;padding:7px 13px;text-decoration:none;display:inline-block" href="${esc(pf)}" target="_blank" rel="noopener">📄 Ver P2 final ↗</a> <button class="btn ghost" style="font-size:11px;padding:6px 10px;opacity:.85" onclick="p2LinkFinal('${esc(item.id)}')" title="Corregir o quitar el link (por si se subió mal)">✎ Corregir</button>`
     : `<button class="btn ghost" style="font-size:12px;padding:7px 13px" onclick="p2LinkFinal('${esc(item.id)}')">🔗 Linkear P2 final</button>`;
   host.innerHTML =
     `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px;flex-wrap:wrap"><h3 style="margin:0;font-size:15px;font-weight:800">🔬 Análisis P2 · ${esc(item.leaf)}</h3><div style="text-align:right"><button class="btn" style="font-size:12px;padding:7px 13px" onclick="runP2(_rdItem,true)">🔄 Actualizar análisis</button><div class="muted" style="font-size:11px;margin-top:4px">Última actualización: <b style="color:var(--ink)">${updStr}</b></div><div id="p2FinalWrap" style="margin-top:8px">${p2FinalBtn}</div></div></div>` +
@@ -3088,7 +3113,16 @@ function renderP2(report, item, ts) {
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">📅</div><h3>Estacionalidad</h3><span class="muted" style="font-size:11px;margin-left:6px">% de la venta anual · ${s.seasonYear || ''}${(s.seasonMonths != null && s.seasonMonths < 12) ? ` (solo ${s.seasonMonths} meses con datos)` : ''}</span></div><div class="p2bars">${bars}</div>${aiLine('Lectura', ai.estacionalidad)}${fbRow('estacionalidad')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">💰</div><h3>Atractivo · cuota por vendedor</h3><span class="verdict ${cuotaBadge}">${esc((s.cuota || {}).clase || '—')}</span></div><p style="margin:2px 0;font-size:13px">${fmt((s.cuota || {}).cuota)}/vendedor · percentil ${(s.cuota || {}).pct || '?'} · ${s.competidores ? Math.round(s.competidores) + ' vendedores' : ''}</p>${aiLine('Lectura', ai.cuota)}${fbRow('cuota')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">📈</div><h3>Tendencia</h3><span class="verdict ${s.trend && s.trend.yoy >= 0 ? 'p2-good' : 'p2-bad'}">${esc((s.trend || {}).dir || '—')}</span></div><p style="margin:2px 0"><b style="color:${trendCol};font-size:20px">${s.trend && s.trend.yoy != null ? (s.trend.yoy >= 0 ? '+' : '') + s.trend.yoy.toFixed(1) + '%' : '–'}</b> <span class="muted small">YoY (últimos 12m vs previos)</span></p>${aiLine('Lectura', ai.tendencia)}${fbRow('tendencia')}</div>` +
-    `<div class="p2sec"><div class="p2sec-h"><div class="ic">🏆</div><h3>Top vendedores</h3></div><a class="btn" href="${esc(report.rankUrl || '#')}" target="_blank" rel="noopener">🏆 Ver ranking en Nubimetrics ↗</a></div>` +
+    (() => {
+      const ts = report.topSellers;
+      const chip = s => { const nm = s.nickname || ('Vendedor ' + s.id); const url = s.permalink || (s.nickname ? ('https://www.mercadolibre.cl/perfil/' + encodeURIComponent(s.nickname)) : ('https://www.mercadolibre.cl/perfil/' + s.id)); return `<a class="btn ghost" style="font-size:12px;padding:6px 11px;text-decoration:none" href="${esc(url)}" target="_blank" rel="noopener" title="Aparece en ${s.count} del top 20 · posiciones ${(s.positions || []).join(', ')}">🏪 ${esc(nm)} · ×${s.count} ↗</a>`; };
+      if (Array.isArray(ts)) {
+        return `<div class="p2sec"><div class="p2sec-h"><div class="ic">🏆</div><h3>Top vendedores</h3><span class="muted" style="font-size:11px;margin-left:6px">Vendedores que se repiten en el top 20 de la categoría</span></div>` +
+          (ts.length ? `<div style="display:flex;flex-wrap:wrap;gap:8px">${ts.map(chip).join('')}</div>`
+            : `<p class="small muted" style="margin:2px 0">Ningún vendedor se repite en el top 20 de esta categoría (mercado atomizado).</p>`) + `</div>`;
+      }
+      return `<div class="p2sec"><div class="p2sec-h"><div class="ic">🏆</div><h3>Top vendedores</h3></div><a class="btn" href="${esc(report.rankUrl || '#')}" target="_blank" rel="noopener">🏆 Ver ranking en Nubimetrics ↗</a><div class="small muted" style="margin-top:4px">Vuelve a correr el análisis para ver los vendedores que se repiten en el top.</div></div>`;
+    })() +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">🧩</div><h3>Top productos por subcategoría</h3><span class="verdict ${prods.length ? 'p2-good' : 'p2-mid'}">${prods.length} reales</span></div>${etbHit}${prods.length ? `<div class="p2clgrid">${clusters || '<span class="muted small">La IA no devolvió clusters.</span>'}</div>` : `<p class="small muted" style="margin:2px 0">Mercado Libre no publica un top de productos (best-sellers de catálogo) para esta categoría — es común en <b>repuestos, autopartes y nichos</b>. Para ver los productos reales del mercado acá, usa <b>“Analizar en profundidad”</b> e importa el ranking de Nubimetrics.</p>`}${fbRow('clusters')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">🎯</div><h3>Gap oferta / demanda</h3>${deepTag}<span class="verdict p2-hot">Oportunidad</span></div>${ai.gap ? `<div class="p2gap">${mdBold(ai.gap)}</div>` : '<span class="muted small">—</span>'}${fbRow('gap')}</div>` +
     `<div class="p2sec"><div class="p2sec-h"><div class="ic">⭐</div><h3>Diferenciación por reseñas</h3></div>${revBlock}${aiLine('Oportunidad', ai.reviewOps)}${fbRow('resenas')}</div>` +
