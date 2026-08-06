@@ -3554,14 +3554,16 @@ function paintCotiz() {
   const at = s => escapeHtml(s || '').replace(/"/g, '&quot;');
   const optsFor = e => COTIZ_ESTADOS.map(s => `<option${s === e ? ' selected' : ''}>${escapeHtml(s)}</option>`).join('');
   const rows = filtered.map(c => {
+    // Respuestas ordenadas por proveedor (alfabético, es) y luego por N° de respuesta.
+    const sqSorted = (c.supplierQuotes || []).slice().sort((a, b) => { const na = (a.provider || a.label || '').toLowerCase(), nb = (b.provider || b.label || '').toLowerCase(); const cmp = na.localeCompare(nb, 'es'); return cmp || ((a.respNum || 0) - (b.respNum || 0)); });
     // Un estado por PROVEEDOR PARTICIPANTE (= el que tiene respuesta cargada, providerId único), con su nombre al lado.
     const provs = []; const seenP = new Set();
-    (c.supplierQuotes || []).forEach(s => { const hasId = s.providerId != null && s.providerId !== ''; const pid = hasId ? String(s.providerId) : ('name:' + (s.provider || s.label || s.id || '?')); if (!seenP.has(pid)) { seenP.add(pid); provs.push({ pid, name: s.provider || s.label || (hasId ? ('#' + s.providerId) : 'Proveedor') }); } });
+    sqSorted.forEach(s => { const hasId = s.providerId != null && s.providerId !== ''; const pid = hasId ? String(s.providerId) : ('name:' + (s.provider || s.label || s.id || '?')); if (!seenP.has(pid)) { seenP.add(pid); provs.push({ pid, name: s.provider || s.label || (hasId ? ('#' + s.providerId) : 'Proveedor') }); } });
     const byProv = c.estadoByProvider || {};
     const estadoCellHtml = provs.length
       ? provs.map(p => { const e = (byProv[p.pid] != null && byProv[p.pid] !== '') ? byProv[p.pid] : (c.estado || COTIZ_ESTADOS[0]); return `<div style="display:flex;align-items:center;gap:8px;margin:3px 0"><span style="font-size:11px;font-weight:700;white-space:nowrap" title="Proveedor con respuesta cargada">${escapeHtml(p.name)}</span><select class="cotiz-estado-prov" data-id="${escapeHtml(c.id)}" data-pid="${at(p.pid)}" style="min-width:200px">${optsFor(e)}</select></div>`; }).join('')
       : `<select class="cotiz-estado" data-id="${escapeHtml(c.id)}" style="min-width:210px" title="Sin respuestas de proveedor aún — estado general de la inquiry">${optsFor(c.estado || COTIZ_ESTADOS[0])}</select>`;
-    const sq = (c.supplierQuotes || []).map(s => { const nm = s.provider || s.label || 'Proveedor'; const rn = s.respNum ? (' #' + s.respNum) : ''; return `<div class="cotiz-sq" title="${at((s.fileName || '') + ' · ' + (s.rows || []).length + ' productos')}"><span class="cotiz-sq-lbl" data-id="${escapeHtml(c.id)}" data-sq="${escapeHtml(s.id)}" style="cursor:pointer;color:#7db0ff">${escapeHtml(nm + rn)}</span><span class="cotiz-sq-x" data-id="${escapeHtml(c.id)}" data-sq="${escapeHtml(s.id)}" title="Quitar">✕</span></div>`; }).join('');
+    const sq = sqSorted.map(s => { const nm = s.provider || s.label || 'Proveedor'; const rn = s.respNum ? (' #' + s.respNum) : ''; return `<div class="cotiz-sq" title="${at((s.fileName || '') + ' · ' + (s.rows || []).length + ' productos')}"><span class="cotiz-sq-lbl" data-id="${escapeHtml(c.id)}" data-sq="${escapeHtml(s.id)}" style="cursor:pointer;color:#7db0ff">${escapeHtml(nm + rn)}</span><span class="cotiz-sq-x" data-id="${escapeHtml(c.id)}" data-sq="${escapeHtml(s.id)}" title="Quitar">✕</span></div>`; }).join('');
     return `<tr data-id="${escapeHtml(c.id)}">
       <td><input class="cotiz-prod" data-id="${escapeHtml(c.id)}" value="${at(c.prodName)}" placeholder="Producto"></td>
       <td style="white-space:nowrap">${ym(c.ts)}</td>
