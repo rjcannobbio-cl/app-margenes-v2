@@ -3417,12 +3417,11 @@ function init() {
   { const b = $('supUpClose'); if (b) b.onclick = () => $('supUploadOverlay').classList.add('hidden'); }
   { const b = $('supUpCancel'); if (b) b.onclick = () => $('supUploadOverlay').classList.add('hidden'); }
   { const o = $('supUploadOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
-  { const fi = $('supUpFile'); if (fi) fi.addEventListener('change', supUpParseFile); }
   { const b = $('supUpLinkRead'); if (b) b.onclick = supUpParseLink; }
   { const b = $('supUpConfirm'); if (b) b.onclick = supUpConfirm; }
   { const b = $('supViewClose'); if (b) b.onclick = () => $('supViewOverlay').classList.add('hidden'); }
   { const o = $('supViewOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
-  { const b = $('supViewDownload'); if (b) b.onclick = supViewDownload; }
+  { const b = $('supViewDownload'); if (b) b.onclick = supViewGoDrive; }
   { const b = $('ccClose'); if (b) b.onclick = () => $('cotizCompareOverlay').classList.add('hidden'); }
   { const o = $('cotizCompareOverlay'); if (o) o.onclick = e => { if (e.target === o) o.classList.add('hidden'); }; }
   { const b = $('ccRun'); if (b) b.onclick = runCotizCompare; }
@@ -3620,7 +3619,7 @@ function cotizSupplierUpload(id) {
   sel.onchange = supUpUpdateRespNum;
   // N° de respuesta = lo elige el usuario (1..10)
   { const rn = $('supUpRespNum'); if (rn) { rn.innerHTML = Array.from({ length: 10 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join(''); rn.value = '1'; } }
-  $('supUpFile').value = ''; $('supUpStatus').textContent = '';
+  $('supUpStatus').textContent = '';
   { const l = $('supUpLink'); if (l) l.value = ''; } _supUpSourceLink = '';
   $('supUpPreview').innerHTML = ''; _supUpParsed = null;
   if ($('supUpToHist')) $('supUpToHist').checked = true;
@@ -3636,19 +3635,8 @@ function supUpUpdateRespNum() {
   { const rn = $('supUpRespNum'); if (rn && pid) rn.value = String(Math.min(yaTiene + 1, 10)); }
   { const h = $('supUpRespHint'); if (h) h.textContent = pid ? (provName + ' ya tiene ' + yaTiene + ' respuesta(s) cargada(s) para este inquiry. Indica el N° de esta respuesta.') : ''; }
 }
-// Lee la respuesta del proveedor (Excel subido O link de Google Sheets) y muestra el preview editable.
+// Lee la respuesta del proveedor desde un link de Google Sheets (mismo formato) vía el proxy /api/sheet-read.
 let _supUpParsed = null, _supUpSourceLink = '';
-async function supUpParseFile() {
-  const f = $('supUpFile').files[0];
-  if (!f) return;   // no borrar el preview si vino de un link
-  { const l = $('supUpLink'); if (l) l.value = ''; } _supUpSourceLink = '';
-  $('supUpStatus').textContent = 'Leyendo…';
-  let rows;
-  try { await loadXLSX(); const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' }); const ws = wb.Sheets[wb.SheetNames[0]]; rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }); }
-  catch (e) { $('supUpStatus').textContent = 'No se pudo leer: ' + (e.message || e); return; }
-  supUpBuildPreview(rows);
-}
-// Lee un Google Sheet público (mismo formato) vía el proxy /api/sheet-read.
 async function supUpParseLink() {
   const link = (($('supUpLink') || {}).value || '').trim();
   if (!link) { $('supUpStatus').textContent = 'Pega el link del Google Sheet.'; return; }
@@ -3663,7 +3651,6 @@ async function supUpParseLink() {
     const wb = XLSX.read(j.csv, { type: 'string' }); const ws = wb.Sheets[wb.SheetNames[0]];
     rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
   } catch (e) { $('supUpStatus').textContent = 'Error: ' + (e.message || e); return; }
-  { const fi = $('supUpFile'); if (fi) fi.value = ''; }   // el link tiene prioridad
   _supUpSourceLink = link;
   supUpBuildPreview(rows);
 }
@@ -3702,12 +3689,12 @@ async function supUpConfirm() {
   const c = _cotizAll.find(x => x.id === _supUpCotizId); if (!c) return;
   const pid = $('supUpProvider').value;
   if (!pid) { $('supUpStatus').textContent = 'Elige el proveedor.'; return; }
-  if (!_supUpParsed || !_supUpParsed.length) { $('supUpStatus').textContent = 'Sube el Excel o lee un link de Google Sheets con la respuesta.'; return; }
+  if (!_supUpParsed || !_supUpParsed.length) { $('supUpStatus').textContent = 'Lee el link de Google Sheets con la respuesta.'; return; }
+  if (!_supUpSourceLink) { $('supUpStatus').textContent = 'Falta el link de Google Sheets.'; return; }
   const provName = (_pgProviders.find(p => String(p.id) === String(pid)) || {}).name || ('#' + pid);
   const respNum = Math.max(1, parseInt(($('supUpRespNum') || {}).value) || 1);   // lo elige el usuario
   const rows = _supUpParsed.map(r => ({ code: r.code, quantity: '', usdFob: r.usdFob, yuanFob: r.yuanFob, weight: r.weight, boxH: r.boxH, boxL: r.boxL, boxW: r.boxW, pcsCtn: r.pcsCtn, cbm: r.cbm }));
-  const fileName = _supUpSourceLink ? 'Google Sheet' : (($('supUpFile').files[0] || {}).name || '');
-  const sq = { id: 'sq' + Date.now() + Math.floor(Math.random() * 1000), providerId: pid, provider: provName, respNum, label: provName, fileName, sheetUrl: _supUpSourceLink || '', ts: Date.now(), rows };
+  const sq = { id: 'sq' + Date.now() + Math.floor(Math.random() * 1000), providerId: pid, provider: provName, respNum, label: provName, fileName: 'Google Sheet', sheetUrl: _supUpSourceLink, ts: Date.now(), rows };
   $('supUpStatus').textContent = 'Guardando…';
   await cotizPatch(_supUpCotizId, { supplierQuotes: (c.supplierQuotes || []).concat([sq]) });
   // Alta automática al Historial (con el preview: precio / súper / uds pack).
@@ -3745,6 +3732,7 @@ function openSupplierView(cotizId, sqId) {
   _supViewCtx = { cotizId, sqId };
   $('supViewTitle').textContent = (sq.provider || sq.label || 'Proveedor') + (sq.respNum ? ' · Respuesta N° ' + sq.respNum : '');
   $('supViewSub').textContent = (c.name || '') + ' · ' + (sq.fileName || '') + ' · ' + (sq.ts ? new Date(sq.ts).toLocaleString('es-CL') : '');
+  { const b = $('supViewDownload'); if (b) b.style.display = sq.sheetUrl ? '' : 'none'; }   // "Ir a Drive" solo si hay link
   const descByCode = {}; (c.rows || []).forEach(r => { if (r.code) descByCode[r.code] = (r.description || '').split('\n')[0]; });
   const rowsHtml = (sq.rows || []).map(r => `<tr>
     <td style="white-space:nowrap"><b>${escapeHtml(r.code || '')}</b></td>
@@ -3760,18 +3748,13 @@ function openSupplierView(cotizId, sqId) {
   $('supViewBody').innerHTML = `<div style="overflow-x:auto"><table class="tl-tab"><thead><tr><th>Código</th><th>Producto</th><th class="n">Cant.</th><th class="n">USD FOB</th><th class="n">Yuan FOB</th><th class="n">Peso</th><th>Caja (Al×La×An)</th><th class="n">PCS/CTN</th><th class="n">CBM</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`;
   $('supViewOverlay').classList.remove('hidden');
 }
-async function supViewDownload() {
+// Abre el Google Sheet de la respuesta en otra pestaña.
+function supViewGoDrive() {
   if (!_supViewCtx) return;
   const c = _cotizAll.find(x => x.id === _supViewCtx.cotizId); if (!c) return;
   const sq = (c.supplierQuotes || []).find(x => x.id === _supViewCtx.sqId); if (!sq) return;
-  const supByCode = {}; (sq.rows || []).forEach(r => { if (r.code) supByCode[r.code] = r; });
-  const merged = (c.rows || []).map(r => { const sv = supByCode[r.code] || {}; return Object.assign(qgBlankRow(), r, { quantity: sv.quantity || r.quantity || '', usdFob: sv.usdFob || '', yuanFob: sv.yuanFob || '', weight: sv.weight || '', boxH: sv.boxH || '', boxL: sv.boxL || '', boxW: sv.boxW || '', pcsCtn: sv.pcsCtn || '', cbm: sv.cbm || '' }); });
-  const inqCodes = new Set((c.rows || []).map(r => r.code));
-  (sq.rows || []).forEach(r => { if (r.code && !inqCodes.has(r.code)) merged.push(Object.assign(qgBlankRow(), r)); });
-  const prevEdit = _qgEditId, prevRows = _qgRows;
-  _qgEditId = null; _qgProdName = (sq.provider || 'Proveedor') + ' - ' + (c.prodName || ''); _qgRows = merged;
-  await qgExcel(true);
-  _qgEditId = prevEdit; _qgRows = prevRows;
+  if (!sq.sheetUrl) { alert('Esta respuesta no tiene link de Google Sheets.'); return; }
+  window.open(sq.sheetUrl, '_blank', 'noopener');
 }
 // Comparar respuestas de proveedores de una cotización, producto por producto (por correlativo).
 let _ccCtx = null;

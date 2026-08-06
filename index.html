@@ -675,8 +675,7 @@
       <div><label>Proveedor</label><select id="supUpProvider" style="width:100%"></select></div>
       <div><label>N° de respuesta de este proveedor</label><select id="supUpRespNum" style="width:100%"></select></div>
     </div>
-    <div style="margin-bottom:6px"><label>Excel de la respuesta (.xlsx)</label><input type="file" id="supUpFile" accept=".xlsx,.xls"></div>
-    <div style="margin-bottom:6px"><label>…o link de Google Sheets (mismo formato del template)</label>
+    <div style="margin-bottom:6px"><label>Link de Google Sheets (respuesta del proveedor, mismo formato del template)</label>
       <div style="display:flex;gap:6px">
         <input type="text" id="supUpLink" placeholder="Pega el link del Google Sheet (compartido como “cualquiera con el enlace: Lector”)" style="flex:1">
         <button class="btn ghost" id="supUpLinkRead" type="button" style="white-space:nowrap">Leer link</button>
@@ -711,7 +710,7 @@
     <div class="rd-head">
       <div><h2 id="supViewTitle" style="font-size:18px;margin:0"></h2><div class="rd-l1 muted" id="supViewSub" style="font-size:11px;margin-top:2px"></div></div>
       <div style="display:flex;gap:8px;align-items:center">
-        <button class="btn ghost" id="supViewDownload" type="button">Descargar Excel</button>
+        <button class="btn ghost" id="supViewDownload" type="button">Ir a Drive</button>
         <button class="mini" id="supViewClose" type="button" title="Cerrar">✕</button>
       </div>
     </div>
@@ -893,6 +892,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=266600"></script>
+<script src="src/ui.js?v=266700"></script>
 </body>
 </html>
