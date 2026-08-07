@@ -300,20 +300,32 @@ export async function onRequest({ request, env }) {
             }
             if (dbgSku) dbgSku.idsCount = ids.length;
             // 1) Lee las publicaciones; junta los inventory_id ÚNICOS (varias publicaciones comparten el mismo → no duplicar).
-            let okItems = 0, adAnyOk = false, campaign = '';
+            //    Campaña: PREFIERE la del ad ACTIVO (un SKU puede tener publicaciones viejas con ads en otra campaña).
+            let okItems = 0, adAnyOk = false, campaign = '', campActive = false;
             const invSet = new Set();
             for (const id of ids.slice(0, 20)) {
               if (!first) await sleep(300); first = false;
-              const item = await mlGet('/items/' + id, { attributes: 'id,inventory_id,shipping,variations' });
+              const item = await mlGet('/items/' + id, { attributes: 'id,inventory_id,shipping,variations,status' });
+              const itemStatus = (item && item.status) || null;
               if (item) {
                 okItems++;
                 const isFull = item.shipping && item.shipping.logistic_type === 'fulfillment';
                 if (isFull) { if (item.inventory_id) invSet.add(item.inventory_id); for (const v of (item.variations || [])) if (v.inventory_id) invSet.add(v.inventory_id); }
               }
-              let cid = null;
-              if (!campaign || dbg) { const ad = await mlGet(`/advertising/${SITE}/product_ads/ads/${id}`, {}, { 'api-version': '2' }); if (ad) { adAnyOk = true; cid = ad.campaign_id; if (cid && !campaign) campaign = campMap[cid] || ('#' + cid); } }
-              else adAnyOk = true;
-              if (dbgSku) dbgSku.items.push({ id, logistic: (item && item.shipping && item.shipping.logistic_type) || null, itemOk: !!item, adCid: cid, adCamp: cid ? (campMap[cid] || ('#' + cid)) : null });
+              let cid = null, adStatus = null;
+              if (!campActive || dbg) {   // sigue buscando hasta encontrar una campaña de ad ACTIVO
+                const ad = await mlGet(`/advertising/${SITE}/product_ads/ads/${id}`, {}, { 'api-version': '2' });
+                if (ad) {
+                  adAnyOk = true; cid = ad.campaign_id; adStatus = ad.status || null;
+                  if (cid) {
+                    const name = campMap[cid] || ('#' + cid);
+                    const active = adStatus === 'active' || (adStatus == null && itemStatus === 'active');
+                    if (active) { if (!campActive) { campaign = name; campActive = true; } }   // el 1er ad ACTIVO gana
+                    else if (!campaign) { campaign = name; }                                    // si no hay activo, el 1º visto
+                  }
+                }
+              } else adAnyOk = true;
+              if (dbgSku) dbgSku.items.push({ id, logistic: (item && item.shipping && item.shipping.logistic_type) || null, itemStatus, itemOk: !!item, adCid: cid, adStatus, adCamp: cid ? (campMap[cid] || ('#' + cid)) : null });
             }
             // 2) Stock full = suma de available_quantity de cada inventario ÚNICO (una sola vez).
             let full = 0, inbound = 0, invOk = false;
