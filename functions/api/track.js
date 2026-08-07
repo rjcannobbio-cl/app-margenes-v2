@@ -263,7 +263,9 @@ export async function onRequest({ request, env }) {
         const listAll = ((prod && prod.items) || []).filter(it => !it.kit && it.sku);
         const offset = Math.max(parseInt(body.offset) || 0, 0);
         const limit = Math.min(Math.max(parseInt(body.limit) || 6, 1), 15);
-        const slice = listAll.slice(offset, offset + limit);
+        // Modo dirigido: body.skus (lista) procesa SOLO esos (para 2ª pasada / diagnóstico). body.force re-busca publicaciones ignorando caché.
+        const targeted = Array.isArray(body.skus) && body.skus.length;
+        const slice = targeted ? (() => { const set = new Set(body.skus); return listAll.filter(it => set.has(it.sku)); })() : listAll.slice(offset, offset + limit);
         const store = JSON.parse((await kv.get('track_metrics')) || 'null') || { ts: Date.now(), m: {} };
         store.m = store.m || {};
         const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -285,42 +287,49 @@ export async function onRequest({ request, env }) {
         const campMap = {};
         const campRaw = await mlGet(`/advertising/${SITE}/advertisers/${ADVERTISER}/product_ads/campaigns/search`, { limit: '200' }, { 'api-version': '2' });
         for (const cc of ((campRaw && campRaw.results) || [])) campMap[cc.id] = cc.name;
-        let first = true; const dbg = body.debug ? { campaignsFound: Object.keys(campMap).length, items: [] } : null;
+        let first = true; const dbg = body.debug ? { campaignsFound: Object.keys(campMap).length, skus: [] } : null;
         for (const it of slice) {
+          const dbgSku = dbg ? { sku: it.sku, items: [] } : null;
           try {
             const m = store.m[it.sku] || {}; m.summary = m.summary || {};
             let ids = m.mlIds;
-            if (!Array.isArray(ids) || !ids.length) {
+            if (body.force || !Array.isArray(ids) || !ids.length) {
               ids = [];
-              for (let pg = 0; pg < 4; pg++) { if (!first) await sleep(400); first = false; const s = await mlGet(`/users/${SELLER}/items/search`, { seller_sku: it.sku, limit: '50', offset: String(pg * 50) }); const res = (s && Array.isArray(s.results)) ? s.results : []; ids.push(...res); const tot = (s && s.paging && s.paging.total != null) ? s.paging.total : res.length; if (!res.length || (pg + 1) * 50 >= tot) break; }
+              for (let pg = 0; pg < 6; pg++) { if (!first) await sleep(400); first = false; const s = await mlGet(`/users/${SELLER}/items/search`, { seller_sku: it.sku, limit: '50', offset: String(pg * 50) }); const res = (s && Array.isArray(s.results)) ? s.results : []; ids.push(...res); const tot = (s && s.paging && s.paging.total != null) ? s.paging.total : res.length; if (!res.length || (pg + 1) * 50 >= tot) break; }
               m.mlIds = ids;
             }
+            if (dbgSku) dbgSku.idsCount = ids.length;
             let full = 0, inbound = 0, anyFull = false, campaign = '';
-            for (const id of ids.slice(0, 15)) {
+            for (const id of ids.slice(0, 20)) {
               if (!first) await sleep(300); first = false;
               const item = await mlGet('/items/' + id, { attributes: 'id,inventory_id,shipping,variations' });
               const invIds = [];
               if (item && item.inventory_id) invIds.push(item.inventory_id);
               for (const v of ((item && item.variations) || [])) if (v.inventory_id) invIds.push(v.inventory_id);
               const isFull = item && item.shipping && item.shipping.logistic_type === 'fulfillment';
+              let fullHere = 0;
               if (isFull) {
                 for (const inv of invIds) {
                   if (!first) await sleep(300); first = false;
                   const st = await mlGet(`/inventories/${inv}/stock/fulfillment`);
-                  if (st && st.available_quantity != null) { anyFull = true; full += (st.available_quantity || 0); for (const d of (st.not_available_detail || [])) if (/transfer|internal_process/i.test(d.status || '')) inbound += (d.quantity || 0); }
+                  if (st && st.available_quantity != null) { anyFull = true; full += (st.available_quantity || 0); fullHere += (st.available_quantity || 0); for (const d of (st.not_available_detail || [])) if (/transfer|internal_process/i.test(d.status || '')) inbound += (d.quantity || 0); }
                 }
               }
-              if (!campaign) { const ad = await mlGet(`/advertising/${SITE}/product_ads/ads/${id}`, {}, { 'api-version': '2' }); const cid = ad && ad.campaign_id; if (cid) campaign = campMap[cid] || ('#' + cid); if (dbg) dbg.items.push({ id, logistic: item && item.shipping && item.shipping.logistic_type, inv: invIds, adCid: cid, adRaw: ad ? Object.keys(ad) : null }); }
+              let cid = null;
+              if (!campaign || dbg) { const ad = await mlGet(`/advertising/${SITE}/product_ads/ads/${id}`, {}, { 'api-version': '2' }); cid = ad && ad.campaign_id; if (cid && !campaign) campaign = campMap[cid] || ('#' + cid); }
+              if (dbgSku) dbgSku.items.push({ id, logistic: (item && item.shipping && item.shipping.logistic_type) || null, invIds, fullHere, adCid: cid, adCamp: cid ? (campMap[cid] || ('#' + cid)) : null });
             }
             m.summary.fullStock = anyFull ? full : 0;
             m.summary.inboundStock = anyFull ? inbound : 0;
             m.summary.adCampaign = campaign || null;
             store.m[it.sku] = m;
-          } catch (e) { if (dbg) dbg.items.push({ err: String(e && e.message || e) }); }
+            if (dbgSku) { dbgSku.fullStock = m.summary.fullStock; dbgSku.adCampaign = m.summary.adCampaign; }
+          } catch (e) { if (dbgSku) dbgSku.err = String(e && e.message || e); }
+          if (dbg) dbg.skus.push(dbgSku);
         }
         store.ts = Date.now();
         await kv.put('track_metrics', JSON.stringify(store));
-        const next = (offset + limit < listAll.length) ? (offset + limit) : null;
+        const next = targeted ? null : ((offset + limit < listAll.length) ? (offset + limit) : null);
         return json({ ok: true, processed: slice.length, offset, next, total: listAll.length, dbg });
       }
 
