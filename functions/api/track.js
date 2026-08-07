@@ -151,8 +151,8 @@ export async function onRequest({ request, env }) {
               velReal
             };
             const prev = store.m[it.sku] || {};
-            // Conserva visitas/conversión (Fase 3) y el caché de item ids, para no destruirlos al recomputar métricas.
-            if (prev.summary) { summary.visits = prev.summary.visits; summary.conv = prev.summary.conv; }
+            // Conserva visitas/conversión (Fase 3) + stock full/campaña (refreshFullAds) y el caché de item ids, para no destruirlos al recomputar métricas.
+            if (prev.summary) { summary.visits = prev.summary.visits; summary.conv = prev.summary.conv; summary.fullStock = prev.summary.fullStock; summary.inboundStock = prev.summary.inboundStock; summary.adCampaign = prev.summary.adCampaign; }
             if (prev.last && last) { last.visits = prev.last.visits; last.conv = prev.last.conv; }
             if (prev.weeks && prev.weeks.length) {
               const pv = {}; for (const pw of prev.weeks) { if (pw.visits != null || pw.conv != null) pv[pw.bucket] = pw; }
