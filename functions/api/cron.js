@@ -20,6 +20,7 @@
    Solo Chile (como track/pg-sync).
    ============================================================ */
 
+// (redeploy para que las Functions tomen el secret cron-key recién creado)
 const CYCLE_MS = 2.5 * 3600 * 1000;   // arranca un ciclo nuevo cada ~2,5 h
 const DAY_MS = 24 * 3600 * 1000;      // catálogo + productos D: 1 vez al día
 
