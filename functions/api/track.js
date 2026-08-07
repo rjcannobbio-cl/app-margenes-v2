@@ -299,31 +299,40 @@ export async function onRequest({ request, env }) {
               m.mlIds = ids;
             }
             if (dbgSku) dbgSku.idsCount = ids.length;
-            let full = 0, inbound = 0, anyFull = false, campaign = '';
+            // 1) Lee las publicaciones; junta los inventory_id ÚNICOS (varias publicaciones comparten el mismo → no duplicar).
+            let okItems = 0, adAnyOk = false, campaign = '';
+            const invSet = new Set();
             for (const id of ids.slice(0, 20)) {
               if (!first) await sleep(300); first = false;
               const item = await mlGet('/items/' + id, { attributes: 'id,inventory_id,shipping,variations' });
-              const invIds = [];
-              if (item && item.inventory_id) invIds.push(item.inventory_id);
-              for (const v of ((item && item.variations) || [])) if (v.inventory_id) invIds.push(v.inventory_id);
-              const isFull = item && item.shipping && item.shipping.logistic_type === 'fulfillment';
-              let fullHere = 0;
-              if (isFull) {
-                for (const inv of invIds) {
-                  if (!first) await sleep(300); first = false;
-                  const st = await mlGet(`/inventories/${inv}/stock/fulfillment`);
-                  if (st && st.available_quantity != null) { anyFull = true; full += (st.available_quantity || 0); fullHere += (st.available_quantity || 0); for (const d of (st.not_available_detail || [])) if (/transfer|internal_process/i.test(d.status || '')) inbound += (d.quantity || 0); }
-                }
+              if (item) {
+                okItems++;
+                const isFull = item.shipping && item.shipping.logistic_type === 'fulfillment';
+                if (isFull) { if (item.inventory_id) invSet.add(item.inventory_id); for (const v of (item.variations || [])) if (v.inventory_id) invSet.add(v.inventory_id); }
               }
               let cid = null;
-              if (!campaign || dbg) { const ad = await mlGet(`/advertising/${SITE}/product_ads/ads/${id}`, {}, { 'api-version': '2' }); cid = ad && ad.campaign_id; if (cid && !campaign) campaign = campMap[cid] || ('#' + cid); }
-              if (dbgSku) dbgSku.items.push({ id, logistic: (item && item.shipping && item.shipping.logistic_type) || null, invIds, fullHere, adCid: cid, adCamp: cid ? (campMap[cid] || ('#' + cid)) : null });
+              if (!campaign || dbg) { const ad = await mlGet(`/advertising/${SITE}/product_ads/ads/${id}`, {}, { 'api-version': '2' }); if (ad) { adAnyOk = true; cid = ad.campaign_id; if (cid && !campaign) campaign = campMap[cid] || ('#' + cid); } }
+              else adAnyOk = true;
+              if (dbgSku) dbgSku.items.push({ id, logistic: (item && item.shipping && item.shipping.logistic_type) || null, itemOk: !!item, adCid: cid, adCamp: cid ? (campMap[cid] || ('#' + cid)) : null });
             }
-            m.summary.fullStock = anyFull ? full : 0;
-            m.summary.inboundStock = anyFull ? inbound : 0;
-            m.summary.adCampaign = campaign || null;
+            // 2) Stock full = suma de available_quantity de cada inventario ÚNICO (una sola vez).
+            let full = 0, inbound = 0, invOk = false;
+            for (const inv of invSet) {
+              if (!first) await sleep(300); first = false;
+              const st = await mlGet(`/inventories/${inv}/stock/fulfillment`);
+              if (st && st.available_quantity != null) { invOk = true; full += (st.available_quantity || 0); for (const d of (st.not_available_detail || [])) if (/transfer|internal_process/i.test(d.status || '')) inbound += (d.quantity || 0); }
+            }
+            // 3) Escribe SOLO si logramos leer publicaciones (evita que un rate-limit borre datos buenos).
+            if (okItems > 0) {
+              if (invSet.size === 0) { m.summary.fullStock = 0; m.summary.inboundStock = 0; }   // leímos y no está en full → 0
+              else if (invOk) { m.summary.fullStock = full; m.summary.inboundStock = inbound; }   // inventarios leídos OK
+              // (si invSet>0 pero invOk=false → todos los inventarios fallaron: preserva el valor previo)
+              if (campaign) m.summary.adCampaign = campaign;
+              else if (adAnyOk) m.summary.adCampaign = null;   // consultamos ads y no hay campaña
+              // (si !adAnyOk → todas las consultas de ads fallaron: preserva la campaña previa)
+            }
             store.m[it.sku] = m;
-            if (dbgSku) { dbgSku.fullStock = m.summary.fullStock; dbgSku.adCampaign = m.summary.adCampaign; }
+            if (dbgSku) { dbgSku.invUnique = [...invSet]; dbgSku.okItems = okItems; dbgSku.invOk = invOk; dbgSku.fullStock = m.summary.fullStock; dbgSku.adCampaign = m.summary.adCampaign; }
           } catch (e) { if (dbgSku) dbgSku.err = String(e && e.message || e); }
           if (dbg) dbg.skus.push(dbgSku);
         }
