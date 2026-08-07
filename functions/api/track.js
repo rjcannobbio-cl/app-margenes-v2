@@ -300,9 +300,11 @@ export async function onRequest({ request, env }) {
             }
             if (dbgSku) dbgSku.idsCount = ids.length;
             // 1) Lee las publicaciones; junta los inventory_id ÚNICOS (varias publicaciones comparten el mismo → no duplicar).
-            //    Campaña: PREFIERE la del ad ACTIVO (un SKU puede tener publicaciones viejas con ads en otra campaña).
-            let okItems = 0, adAnyOk = false, campaign = '', campActive = false;
+            //    Campaña: junta TODAS las campañas distintas de los ads del SKU (un SKU puede tener varias publicaciones en distintas
+            //    campañas; elegir una sola engañaba). Se muestran con la ACTIVA primero.
+            let okItems = 0, adAnyOk = false;
             const invSet = new Set();
+            const camps = new Map();   // nombre campaña -> ¿algún ad activo?
             for (const id of ids.slice(0, 20)) {
               if (!first) await sleep(300); first = false;
               const item = await mlGet('/items/' + id, { attributes: 'id,inventory_id,shipping,variations,status' });
@@ -313,20 +315,15 @@ export async function onRequest({ request, env }) {
                 if (isFull) { if (item.inventory_id) invSet.add(item.inventory_id); for (const v of (item.variations || [])) if (v.inventory_id) invSet.add(v.inventory_id); }
               }
               let cid = null, adStatus = null;
-              if (!campActive || dbg) {   // sigue buscando hasta encontrar una campaña de ad ACTIVO
-                const ad = await mlGet(`/advertising/${SITE}/product_ads/ads/${id}`, {}, { 'api-version': '2' });
-                if (ad) {
-                  adAnyOk = true; cid = ad.campaign_id; adStatus = ad.status || null;
-                  if (cid) {
-                    const name = campMap[cid] || ('#' + cid);
-                    const active = adStatus === 'active' || (adStatus == null && itemStatus === 'active');
-                    if (active) { if (!campActive) { campaign = name; campActive = true; } }   // el 1er ad ACTIVO gana
-                    else if (!campaign) { campaign = name; }                                    // si no hay activo, el 1º visto
-                  }
-                }
-              } else adAnyOk = true;
+              const ad = await mlGet(`/advertising/${SITE}/product_ads/ads/${id}`, {}, { 'api-version': '2' });
+              if (ad) {
+                adAnyOk = true; cid = ad.campaign_id; adStatus = ad.status || null;
+                if (cid) { const name = campMap[cid] || ('#' + cid); const active = adStatus === 'active' || (adStatus == null && itemStatus === 'active'); camps.set(name, (camps.get(name) || false) || active); }
+              }
               if (dbgSku) dbgSku.items.push({ id, logistic: (item && item.shipping && item.shipping.logistic_type) || null, itemStatus, itemOk: !!item, adCid: cid, adStatus, adCamp: cid ? (campMap[cid] || ('#' + cid)) : null });
             }
+            // Campañas distintas, activa(s) primero.
+            const campaign = camps.size ? [...camps.keys()].sort((a, b) => (camps.get(b) ? 1 : 0) - (camps.get(a) ? 1 : 0)).join(' · ') : '';
             // 2) Stock full = suma de available_quantity de cada inventario ÚNICO (una sola vez).
             let full = 0, inbound = 0, invOk = false;
             for (const inv of invSet) {
