@@ -468,7 +468,8 @@
   <div id="tabCat" class="hidden">
     <div class="hist-actions">
       <input type="text" id="catFilter" class="hist-filter" placeholder="Filtrar: SKU, título, proveedor…">
-      <button class="btn" id="btnCatSync" type="button">Sincronizar con ProfitGuard</button>
+      <span class="muted" style="font-size:12px;align-self:center" title="El catálogo se sincroniza con ProfitGuard automáticamente (a diario)">🟢 Sincronización automática</span>
+      <button class="btn ghost" id="btnCatSync" type="button" title="Se sincroniza solo (diario). Usá esto solo si necesitás forzarlo ahora." style="font-size:12px">⟳ Sincronizar ahora</button>
       <button class="btn ghost" id="btnCatExport" type="button">Exportar CSV</button>
       <span class="muted" id="catCount"></span>
       <span class="muted" id="catStatus" style="flex-basis:100%;margin-top:4px"></span>
@@ -530,8 +531,8 @@
   <div id="tabTrack" class="hidden">
     <div class="hist-actions">
       <input type="text" id="trackFilter" class="hist-filter" placeholder="Filtrar: SKU o título…">
-      <button class="btn ghost" id="btnTrackRefreshProducts" type="button" title="Re-lee los productos categoría D desde ProfitGuard (semanal)">Actualizar productos D</button>
-      <button class="btn ghost" id="btnTrackRefreshMetrics" type="button" title="Ventas/margen/TACOS (PG) + visitas/conversión (ML). Las visitas tardan por el rate limit de ML.">Actualizar métricas y visitas</button>
+      <span class="muted" style="font-size:12px;align-self:center" title="Métricas, visitas y stock full/campañas se actualizan solos (automático, cada ~2.5h)">🟢 Actualización automática (cada ~2.5h)</span>
+      <button class="btn ghost" id="btnTrackRefreshMetrics" type="button" title="Se actualiza solo cada ~2.5h. Usá esto solo para forzar ahora (métricas + visitas + full/campañas)." style="font-size:12px">⟳ Actualizar ahora</button>
       <button class="btn ghost" id="btnTrackPending" type="button" title="Todos los accionables pendientes de todos los productos">Ver acciones pendientes</button>
       <button class="btn ghost" id="btnTrackReviewPending" type="button" title="Todos los accionables de revisión física pendientes de todos los productos">Ver acciones de revisión física pendientes</button>
       <span class="muted" id="trackCount"></span>
@@ -929,6 +930,6 @@
 <script src="src/app.js?v=260754"></script>
 <script src="src/ai.js?v=260754"></script>
 <script src="src/local-ai.js?v=260754"></script>
-<script src="src/ui.js?v=267400"></script>
+<script src="src/ui.js?v=267500"></script>
 </body>
 </html>
